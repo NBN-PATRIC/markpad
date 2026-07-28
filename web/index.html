@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'none'; form-action 'none'; base-uri 'none'; frame-src 'none'; object-src 'none'">
+  <title>MarkPad</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="theme-dark">
+
+<div class="app" id="app">
+
+  <!-- ------------------------------------------------------------- abas -->
+  <div class="tab-bar">
+    <button class="icon-btn tab-bar-btn" id="btnToggleSidebar" data-icon="panel-left" title="Painel lateral (Ctrl+\)"></button>
+    <div class="tab-list" id="tabList"></div>
+    <button class="icon-btn tab-bar-btn" id="btnNewTab" data-icon="plus" title="Nova nota (Ctrl+N)"></button>
+    <div class="tab-bar-spacer"></div>
+    <button class="icon-btn tab-bar-btn" id="btnCommandPalette" data-icon="command" title="Paleta de comandos (Ctrl+Shift+P)"></button>
+  </div>
+
+  <!-- -------------------------------------------------------- area util -->
+  <div class="workspace">
+
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-tabs">
+        <button class="sidebar-tab is-active" data-pane="files" data-icon="folder" title="Arquivos"></button>
+        <button class="sidebar-tab" data-pane="search" data-icon="search" title="Buscar na pasta (Ctrl+Shift+F)"></button>
+        <button class="sidebar-tab" data-pane="outline" data-icon="list" title="Sumario"></button>
+        <button class="sidebar-tab" data-pane="recent" data-icon="clock" title="Recentes"></button>
+      </div>
+
+      <div class="sidebar-body">
+
+        <section class="pane" data-pane="files">
+          <header class="pane-head">
+            <span class="pane-title" id="folderName">nenhuma pasta aberta</span>
+            <button class="icon-btn small" id="btnOpenFolder" data-icon="folder-open" title="Abrir pasta (Ctrl+Shift+O)"></button>
+            <button class="icon-btn small" id="btnRefreshTree" data-icon="refresh" title="Atualizar"></button>
+          </header>
+          <div class="pane-scroll">
+            <div class="file-tree" id="fileTree">
+              <p class="pane-empty">Abra uma pasta para navegar pelos arquivos.<br>Nao precisa de cofre.</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="pane" data-pane="search" hidden>
+          <header class="pane-head">
+            <span class="pane-title">Buscar na pasta</span>
+          </header>
+          <div class="pane-controls">
+            <input type="text" id="folderSearchInput" class="text-input" placeholder="texto ou expressao regular" spellcheck="false">
+            <div class="toggle-row">
+              <button class="chip" id="btnSearchCase" title="Diferenciar maiusculas">Aa</button>
+              <button class="chip" id="btnSearchRegex" title="Expressao regular">.*</button>
+            </div>
+          </div>
+          <div class="pane-scroll">
+            <div class="search-results" id="searchResults">
+              <p class="pane-empty">Digite para buscar em todos os arquivos da pasta.</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="pane" data-pane="outline" hidden>
+          <header class="pane-head">
+            <span class="pane-title">Sumario</span>
+          </header>
+          <div class="pane-scroll">
+            <div class="outline" id="outline">
+              <p class="pane-empty">Os titulos do documento aparecem aqui.</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="pane" data-pane="recent" hidden>
+          <header class="pane-head">
+            <span class="pane-title">Abertos recentemente</span>
+            <button class="icon-btn small" id="btnClearRecent" data-icon="trash" title="Limpar lista"></button>
+          </header>
+          <div class="pane-scroll">
+            <div class="recent-list" id="recentList">
+              <p class="pane-empty">Nada por aqui ainda.</p>
+            </div>
+          </div>
+        </section>
+
+      </div>
+    </aside>
+
+    <div class="sidebar-resizer" id="sidebarResizer"></div>
+
+    <main class="main" id="main">
+
+      <header class="view-header">
+        <div class="view-title">
+          <span class="view-icon" data-icon="file-text"></span>
+          <span class="view-name" id="viewTitle">MarkPad</span>
+          <span class="dirty-dot" id="dirtyDot" hidden title="alteracoes nao salvas"></span>
+          <span class="disk-badge" id="diskBadge" hidden></span>
+        </div>
+
+        <div class="view-actions">
+          <div class="mode-switch" id="modeSwitch" hidden>
+            <button class="mode-btn is-active" data-mode="source" data-icon="code" title="Codigo-fonte"></button>
+            <button class="mode-btn" data-mode="split" data-icon="columns" title="Dividido"></button>
+          </div>
+          <button class="icon-btn" id="btnFind" data-icon="search" title="Localizar (Ctrl+F)"></button>
+          <button class="icon-btn" id="btnMore" data-icon="more" title="Mais opcoes"></button>
+
+          <!-- ======== A TRAVA ======== -->
+          <button class="lock-btn is-locked" id="btnLock" type="button" title="Edicao travada — clique ou Ctrl+E para liberar">
+            <span class="lock-crayon" aria-hidden="true">&#128397;</span>
+            <span class="lock-text" id="lockText">Travado</span>
+          </button>
+        </div>
+      </header>
+
+      <div class="view-body" id="viewBody">
+
+        <div class="empty-state" id="emptyState">
+          <div class="empty-icon" data-icon="file-text"></div>
+          <h1>MarkPad</h1>
+          <p>Leitor e editor de Markdown. Sem cofre, sem projeto, sem cerimonia:<br>abra um arquivo e pronto.</p>
+          <div class="empty-actions">
+            <button class="btn primary" id="btnEmptyOpen">Abrir arquivo</button>
+            <button class="btn" id="btnEmptyFolder">Abrir pasta</button>
+            <button class="btn" id="btnEmptyNew">Nova nota</button>
+          </div>
+          <ul class="empty-tips">
+            <li><kbd>Ctrl</kbd>+<kbd>E</kbd> destrava e trava a edicao</li>
+            <li><kbd>Ctrl</kbd>+<kbd>O</kbd> abrir &middot; <kbd>Ctrl</kbd>+<kbd>S</kbd> salvar &middot; <kbd>Ctrl</kbd>+<kbd>F</kbd> localizar</li>
+            <li>Arraste arquivos para esta janela</li>
+          </ul>
+        </div>
+
+        <!-- modo leitura (travado) -->
+        <div class="reading-view" id="readingView" hidden>
+          <div class="reading-scroll" id="readingScroll">
+            <div class="markdown-preview" id="preview"></div>
+          </div>
+        </div>
+
+        <!-- modo edicao (destravado) -->
+        <div class="editing-view" id="editingView" hidden>
+          <div class="editor-pane" id="editorPane">
+            <div class="gutter-bg" id="gutterBg"></div>
+            <pre class="editor-highlight" id="editorHighlight" aria-hidden="true"></pre>
+            <textarea class="editor-input" id="editorInput"
+                      spellcheck="false" autocomplete="off" autocorrect="off"
+                      autocapitalize="off" wrap="off"></textarea>
+          </div>
+          <div class="split-divider" id="splitDivider" hidden></div>
+          <div class="preview-pane" id="previewPane" hidden>
+            <div class="preview-scroll" id="splitScroll">
+              <div class="markdown-preview" id="splitPreview"></div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="find-bar" id="findBar" hidden>
+        <span class="find-icon" data-icon="search"></span>
+        <input type="text" id="findInput" class="text-input" placeholder="Localizar" spellcheck="false">
+        <span class="find-count" id="findCount">0/0</span>
+        <button class="chip" id="btnFindCase" title="Diferenciar maiusculas">Aa</button>
+        <button class="chip" id="btnFindRegex" title="Expressao regular">.*</button>
+        <button class="icon-btn small" id="btnFindPrev" data-icon="chevron-up" title="Anterior (Shift+Enter)"></button>
+        <button class="icon-btn small" id="btnFindNext" data-icon="chevron-down" title="Proximo (Enter)"></button>
+        <span class="find-sep"></span>
+        <input type="text" id="replaceInput" class="text-input replace-input" placeholder="Substituir" spellcheck="false">
+        <button class="btn tiny" id="btnReplace">Trocar</button>
+        <button class="btn tiny" id="btnReplaceAll">Trocar tudo</button>
+        <button class="icon-btn small" id="btnFindClose" data-icon="x" title="Fechar (Esc)"></button>
+      </div>
+
+    </main>
+  </div>
+
+  <!-- ------------------------------------------------------ barra de status -->
+  <footer class="status-bar">
+    <div class="status-left">
+      <button class="status-lock is-locked" id="statusLock" type="button">
+        <span class="status-lock-icon" data-icon="lock"></span>
+        <span id="statusLockText">Somente leitura</span>
+      </button>
+      <span class="status-item" id="statusPath"></span>
+    </div>
+    <div class="status-right">
+      <span class="status-item" id="statusStats"></span>
+      <span class="status-item" id="statusCursor"></span>
+      <button class="status-item clickable" id="statusEol" title="Fim de linha"></button>
+      <button class="status-item clickable" id="statusEncoding" title="Codificacao"></button>
+      <button class="status-item clickable" id="statusWrap" title="Quebra de linha (Alt+Z)"></button>
+      <button class="status-item clickable" id="statusZoom" title="Zoom (Ctrl + / Ctrl -)">100%</button>
+      <button class="status-item clickable" id="statusTheme" title="Tema"></button>
+    </div>
+  </footer>
+
+</div>
+
+<div class="overlay" id="overlay" hidden></div>
+<div class="menu" id="menu" hidden></div>
+<div class="palette" id="palette" hidden>
+  <input type="text" class="palette-input" id="paletteInput" placeholder="Digite um comando" spellcheck="false">
+  <div class="palette-list" id="paletteList"></div>
+</div>
+<div class="toasts" id="toasts"></div>
+
+<script src="icons.js"></script>
+<script src="highlight.js"></script>
+<script src="markdown.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
