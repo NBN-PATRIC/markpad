@@ -113,10 +113,14 @@ Get-ChildItem $dist | ForEach-Object {
     '{0,-46} {1,8:N1} MB  {2}' -f $_.Name, ($_.Length / 1MB), $hash.Substring(0, 16)
 }
 
-# arquivo de somas, para conferencia de download
-Get-ChildItem $dist -File -Exclude 'SHA256SUMS.txt' | ForEach-Object {
+# Arquivo de somas, para conferencia do download.
+# Atencao: -Exclude so filtra os filhos se o -Path terminar em curinga.
+# Sem o '*', o filtro se aplica a propria pasta e o resultado vem vazio.
+$sums = Get-ChildItem (Join-Path $dist '*') -File -Exclude 'SHA256SUMS.txt' | ForEach-Object {
     '{0}  {1}' -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash, $_.Name
-} | Out-File -FilePath (Join-Path $dist 'SHA256SUMS.txt') -Encoding ascii
+}
+if (-not $sums) { throw 'nenhum artefato encontrado para somar' }
+$sums | Out-File -FilePath (Join-Path $dist 'SHA256SUMS.txt') -Encoding ascii
 
 Write-Host ""
 Write-Host "somas gravadas em dist\SHA256SUMS.txt" -ForegroundColor Green
