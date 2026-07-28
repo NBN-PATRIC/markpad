@@ -244,8 +244,28 @@ Há um par de scripts para assinar com certificado próprio:
 
 Certificado autoassinado **não** elimina o aviso do SmartScreen — serve para
 confiança dentro do domínio (via GPO de Editores Confiáveis) e para detectar
-adulteração. O porquê disso, e os caminhos pagos que realmente resolvem, estão
-em [docs/ASSINATURA.md](docs/ASSINATURA.md).
+adulteração. O porquê disso está em [docs/ASSINATURA.md](docs/ASSINATURA.md).
+
+Para eliminar o aviso de verdade, o projeto está sendo inscrito no **SignPath
+Foundation**, que assina projetos de código aberto com certificado de
+autoridade certificadora real. O passo de assinatura já está no workflow de
+CI, inerte até a aprovação — ver [docs/SIGNPATH.md](docs/SIGNPATH.md).
+
+## Contribuindo
+
+O projeto compila em CI a cada envio ([build.yml](.github/workflows/build.yml)).
+Antes de abrir um pull request:
+
+```bash
+node dev/test-markdown.js
+```
+
+```bash
+node dev/test-liveedit.js
+```
+
+O segundo cobre o que pode corromper arquivo na edição bloco a bloco. Não
+mexa nele sem entender o porquê de cada caso.
 
 ## Licença
 

@@ -1,0 +1,117 @@
+# Compila o MarkPad no GitHub Actions.
+#
+# Existe por dois motivos: garantir que o projeto compila em máquina limpa
+# (não só na do desenvolvedor) e, principalmente, produzir binários com
+# procedência verificável — que é o que o SignPath Foundation exige para
+# assinar. Eles não assinam artefato construído localmente.
+
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write        # necessário para criar a release na tag
+  id-token: write        # procedência para o SignPath
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Determinar a versão
+        id: ver
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_REF -like 'refs/tags/v*') {
+            $v = $env:GITHUB_REF -replace '^refs/tags/v', ''
+          } else {
+            [xml]$csproj = Get-Content MarkPad.csproj
+            $base = ($csproj.Project.PropertyGroup | Where-Object { $_.Version } | Select-Object -First 1).Version
+            $v = "$base-build.$env:GITHUB_RUN_NUMBER"
+          }
+          "version=$v" | Out-File $env:GITHUB_OUTPUT -Append
+          Write-Host "versao: $v"
+
+      - name: Testes
+        shell: pwsh
+        run: |
+          node dev/test-markdown.js
+          node dev/test-liveedit.js
+
+      - name: Ferramentas de instalador
+        shell: pwsh
+        run: |
+          choco install innosetup --no-progress -y
+          dotnet tool install --global wix --version 5.* --add-source https://api.nuget.org/v3/index.json
+
+      - name: Compilar artefatos
+        shell: pwsh
+        env:
+          VERSAO: ${{ steps.ver.outputs.version }}
+        run: |
+          # A versão do assembly não aceita sufixo (-build.N); o SemVer completo
+          # fica só no nome do arquivo.
+          $assemblyVersion = ($env:VERSAO -split '-')[0]
+          .\tools\build-release.ps1 -Version $assemblyVersion
+          .\tools\build-installer.ps1 -Version $assemblyVersion
+          Get-ChildItem dist -File | Format-Table Name, Length
+
+      - name: Publicar artefatos não assinados
+        id: unsigned
+        uses: actions/upload-artifact@v4
+        with:
+          name: markpad-${{ steps.ver.outputs.version }}-unsigned
+          path: dist/
+          if-no-files-found: error
+
+      # ------------------------------------------------------------ assinatura
+      #
+      # Fica inerte até o projeto ser aprovado no SignPath Foundation e as
+      # variáveis serem cadastradas no repositório. Ver docs/SIGNPATH.md.
+
+      - name: Enviar para assinatura (SignPath)
+        id: signing
+        if: vars.SIGNPATH_ORGANIZATION_ID != '' && startsWith(github.ref, 'refs/tags/v')
+        uses: signpath/github-action-submit-signing-request@v1
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: markpad
+          signing-policy-slug: release-signing
+          github-artifact-id: ${{ steps.unsigned.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: signed
+
+      - name: Recalcular somas dos assinados
+        if: steps.signing.outcome == 'success'
+        shell: pwsh
+        run: |
+          # Assinar muda o binário, logo muda o hash.
+          Get-ChildItem (Join-Path 'signed' '*') -File -Exclude 'SHA256SUMS.txt' | ForEach-Object {
+            '{0}  {1}' -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash, $_.Name
+          } | Out-File signed\SHA256SUMS.txt -Encoding ascii
+          Get-Content signed\SHA256SUMS.txt
+
+      # ---------------------------------------------------------------- release
+
+      - name: Anexar à release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $pasta = if (Test-Path signed) { 'signed' } else { 'dist' }
+          Write-Host "publicando de: $pasta"
+          $arquivos = Get-ChildItem $pasta -File | ForEach-Object { $_.FullName }
+          gh release upload $env:GITHUB_REF_NAME @arquivos --clobber
