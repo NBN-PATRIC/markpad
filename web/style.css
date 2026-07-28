@@ -911,6 +911,44 @@ body.wide-lines .markdown-preview { max-width: none; }
 .markdown-preview .find-hit { background: var(--text-highlight-bg); border-radius: 2px; }
 .markdown-preview .find-hit.current { background: var(--color-orange); color: #000; }
 
+/* ============================== edição direta no texto renderizado */
+
+/* Quando destravado e sem o painel de código, o próprio leitor é editável:
+   o bloco sob o cursor vira markdown cru, o resto continua renderizado. */
+.markdown-preview.is-editable [data-line] {
+  cursor: text;
+  border-radius: var(--radius-s);
+}
+.markdown-preview.is-editable > [data-line]:hover {
+  box-shadow: 0 0 0 1px var(--background-modifier-border);
+}
+.markdown-preview.is-editable a,
+.markdown-preview.is-editable input,
+.markdown-preview.is-editable summary { cursor: pointer; }
+
+.block-source {
+  display: block;
+  width: 100%;
+  margin: 0 0 var(--p-spacing);
+  padding: 6px 10px;
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-s);
+  background: var(--background-primary-alt);
+  color: var(--text-normal);
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  line-height: 1.6;
+  tab-size: 4;
+  resize: none;
+  overflow: hidden;
+  outline: none;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  user-select: text;
+  box-shadow: 0 0 0 3px hsla(var(--interactive-accent-hsl), 0.12);
+}
+.block-source::selection { background: var(--text-selection); }
+
 /* ============================================================ editor */
 
 .editing-view { flex: 1; min-width: 0; display: flex; }

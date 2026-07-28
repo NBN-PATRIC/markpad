@@ -307,8 +307,14 @@
     var i = 0;
     var base = startLine || 0;
 
-    function lineAttr(n) {
-      return ctx.opts.lineMap ? ' data-line="' + (base + n) + '"' : '';
+    // Intervalo de linhas de origem do bloco, inclusivo nas duas pontas.
+    // E o que permite ao editor trocar um bloco renderizado pelo markdown cru
+    // correspondente e devolve-lo ao documento no lugar certo.
+    function lineAttr(from, to) {
+      if (!ctx.opts.lineMap) return '';
+      var a = base + from;
+      var b = base + (to === undefined ? from : to);
+      return ' data-line="' + a + '" data-line-end="' + b + '"';
     }
 
     while (i < lines.length) {
@@ -336,7 +342,7 @@
           ? global.MarkPadHighlight.highlight(code, lang)
           : escapeHtml(code);
         out.push(
-          '<div class="code-block"' + lineAttr(start) + '>' +
+          '<div class="code-block"' + lineAttr(start, i - 1) + '>' +
           (lang ? '<div class="code-lang">' + escapeHtml(lang) + '</div>' : '') +
           '<button class="code-copy" data-copy type="button" title="Copiar">Copiar</button>' +
           '<pre><code class="language-' + escapeAttr(lang || 'text') + '">' + highlighted + '</code></pre>' +
@@ -353,13 +359,13 @@
         var html = inline.render(heading[3]);
         var slug = uniqueSlug(ctx, slugify(heading[3]));
         ctx.toc.push({ level: level, text: heading[3].replace(/[*_`~=]/g, ''), slug: slug, line: base + i });
-        out.push('<h' + level + ' id="' + escapeAttr(slug) + '"' + lineAttr(i) + '>' + html + '</h' + level + '>');
+        out.push('<h' + level + ' id="' + escapeAttr(slug) + '"' + lineAttr(i, i) + '>' + html + '</h' + level + '>');
         i++;
         continue;
       }
 
       // --- linha horizontal
-      if (RE_HR.test(line)) { out.push('<hr' + lineAttr(i) + '>'); i++; continue; }
+      if (RE_HR.test(line)) { out.push('<hr' + lineAttr(i, i) + '>'); i++; continue; }
 
       // --- definicao de nota de rodape (ja coletada, so consome as linhas)
       var fn = RE_FOOTNOTE.exec(line);
@@ -384,7 +390,7 @@
           if (lines[i].trim() && !isBlockStart(lines[i])) { quoted.push(lines[i]); i++; continue; }
           break;
         }
-        out.push(renderQuote(quoted, ctx, base + qStart, lineAttr(qStart)));
+        out.push(renderQuote(quoted, ctx, base + qStart, lineAttr(qStart, i - 1)));
         continue;
       }
 
@@ -396,14 +402,14 @@
         i += 2;
         var rows = [];
         while (i < lines.length && lines[i].trim() && lines[i].indexOf('|') !== -1) { rows.push(lines[i]); i++; }
-        out.push(renderTable(head, sep, rows, ctx, lineAttr(tStart)));
+        out.push(renderTable(head, sep, rows, ctx, lineAttr(tStart, i - 1)));
         continue;
       }
 
       // --- listas
       if (RE_UL.test(line) || RE_OL.test(line)) {
         var listResult = collectList(lines, i);
-        out.push(renderList(listResult.items, listResult.ordered, listResult.start, listResult.loose, ctx, base + i, lineAttr(i)));
+        out.push(renderList(listResult.items, listResult.ordered, listResult.start, listResult.loose, ctx, base + i, lineAttr(i, listResult.next - 1)));
         i = listResult.next;
         continue;
       }
@@ -413,7 +419,7 @@
         var rawStart = i;
         var raw = [];
         while (i < lines.length && lines[i].trim()) { raw.push(lines[i]); i++; }
-        out.push('<pre class="raw-html"' + lineAttr(rawStart) + '><code>' + escapeHtml(raw.join('\n')) + '</code></pre>');
+        out.push('<pre class="raw-html"' + lineAttr(rawStart, i - 1) + '><code>' + escapeHtml(raw.join('\n')) + '</code></pre>');
         continue;
       }
 
@@ -429,7 +435,7 @@
           var sTxt = lines[i];
           var sSlug = uniqueSlug(ctx, slugify(sTxt));
           ctx.toc.push({ level: isH1 ? 1 : 2, text: sTxt.replace(/[*_`~=]/g, ''), slug: sSlug, line: base + i });
-          out.push('<h' + (isH1 ? 1 : 2) + ' id="' + escapeAttr(sSlug) + '"' + lineAttr(i) + '>' +
+          out.push('<h' + (isH1 ? 1 : 2) + ' id="' + escapeAttr(sSlug) + '"' + lineAttr(i, i + 1) + '>' +
             inl.render(sTxt) + '</h' + (isH1 ? 1 : 2) + '>');
           i += 2;
           para = null;
@@ -441,7 +447,7 @@
       }
       if (para && para.length) {
         var pInline = new Inline(ctx);
-        out.push('<p' + lineAttr(pStart) + '>' + pInline.render(para.join('\n')) + '</p>');
+        out.push('<p' + lineAttr(pStart, i - 1) + '>' + pInline.render(para.join('\n')) + '</p>');
       }
       if (para === null) continue;
       if (!para || !para.length) i++;
@@ -715,7 +721,7 @@
 
   var ALLOWED_ATTRS = {};
   ('class id href src alt title colspan rowspan start type checked disabled style ' +
-   'data-line data-icon data-callout data-wikilink data-file data-anchor data-external ' +
+   'data-line data-line-end data-icon data-callout data-wikilink data-file data-anchor data-external ' +
    'data-tag data-src data-remote data-copy data-lang open rel loading'
   ).split(' ').forEach(function (a) { ALLOWED_ATTRS[a] = true; });
 

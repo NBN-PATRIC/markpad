@@ -103,9 +103,13 @@
         </div>
 
         <div class="view-actions">
+          <!-- Alternadores independentes: dá para ter os dois painéis ao mesmo
+               tempo. Sem o de código, o próprio leitor aceita edição. -->
           <div class="mode-switch" id="modeSwitch" hidden>
-            <button class="mode-btn is-active" data-mode="source" data-icon="code" title="Codigo-fonte"></button>
-            <button class="mode-btn" data-mode="split" data-icon="columns" title="Dividido"></button>
+            <button class="mode-btn" id="btnToggleSource" data-icon="code"
+                    title="Painel de código-fonte (Ctrl+Shift+C)"></button>
+            <button class="mode-btn" id="btnTogglePreview" data-icon="columns"
+                    title="Painel de leitura ao lado (Ctrl+Shift+L)"></button>
           </div>
           <button class="icon-btn" id="btnFind" data-icon="search" title="Localizar (Ctrl+F)"></button>
           <button class="icon-btn" id="btnMore" data-icon="more" title="Mais opcoes"></button>
@@ -213,6 +217,7 @@
 <script src="icons.js"></script>
 <script src="highlight.js"></script>
 <script src="markdown.js"></script>
+<script src="liveedit.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

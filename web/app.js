@@ -64,7 +64,8 @@
     theme: 'dark',
     lockOnOpen: true,
     confirmUnlock: false,
-    editorMode: 'source',
+    showSource: false,
+    showPreview: true,
     wordWrap: true,
     lineNumbers: true,
     fontSize: 16,
@@ -292,7 +293,8 @@
       mtime: data.mtime || 0,
       readOnlyOnDisk: !!data.readOnlyOnDisk,
       locked: settings.lockOnOpen,
-      mode: settings.editorMode,
+      showSource: !!settings.showSource,
+      showPreview: settings.showPreview !== false,
       scrollTop: 0,
       selStart: 0,
       selEnd: 0,
@@ -348,6 +350,8 @@
   }
 
   function saveTab(tab, saveAs) {
+    // Garante que o bloco em edicao ja esteja no documento antes de gravar.
+    if (live) live.commit();
     tab = tab || activeTab();
     if (!tab) return Promise.resolve(false);
 
@@ -431,6 +435,7 @@
   }
 
   function selectTab(id) {
+    if (live) live.commit();
     var current = activeTab();
     if (current && current.id !== id) stashScroll(current);
 
@@ -485,6 +490,9 @@
     tab = tab || activeTab();
     if (!tab) return;
     if (tab.locked === locked) return;
+
+    // Fecha o editor de bloco aberto antes de trocar de estado.
+    if (live) live.commit();
 
     if (locked && tab.content !== tab.savedContent) {
       // Travar com mudanca pendente e legitimo: so avisa que continua pendente.
@@ -644,36 +652,51 @@
     document.body.classList.toggle('is-editing', !!unlocked);
 
     $('modeSwitch').hidden = !unlocked;
-    var buttons = $('modeSwitch').querySelectorAll('.mode-btn');
-    for (var i = 0; i < buttons.length; i++) {
-      buttons[i].classList.toggle('is-active', tab && buttons[i].getAttribute('data-mode') === tab.mode);
-    }
+    $('btnToggleSource').classList.toggle('is-active', !!(tab && tab.showSource));
+    $('btnTogglePreview').classList.toggle('is-active', !!(tab && tab.showSource && tab.showPreview));
+    $('btnTogglePreview').disabled = !(tab && tab.showSource);
   }
 
+  /**
+   * Tres arranjos possiveis:
+   *   travado                  -> leitor, sem edicao
+   *   destravado sem codigo    -> leitor editavel (o bloco sob o cursor vira
+   *                               markdown cru; e o modelo do Obsidian)
+   *   destravado com codigo    -> painel de codigo, com o leitor ao lado se
+   *                               o segundo alternador estiver ligado
+   */
   function renderViews() {
     var tab = activeTab();
 
     $('emptyState').hidden = !!tab;
-    $('readingView').hidden = !tab || !tab.locked;
-    $('editingView').hidden = !tab || tab.locked;
 
-    if (!tab) return;
+    if (!tab) {
+      $('readingView').hidden = true;
+      $('editingView').hidden = true;
+      return;
+    }
 
-    if (tab.locked) {
+    var noLeitor = tab.locked || !tab.showSource;
+
+    $('readingView').hidden = !noLeitor;
+    $('editingView').hidden = noLeitor;
+
+    if (noLeitor) {
       renderPreview($('preview'), tab);
+      $('preview').classList.toggle('is-editable', !tab.locked);
       $('readingScroll').scrollTop = tab.readingScrollTop || 0;
       return;
     }
 
-    var split = tab.mode === 'split';
-    $('splitDivider').hidden = !split;
-    $('previewPane').hidden = !split;
+    var comLeitura = !!tab.showPreview;
+    $('splitDivider').hidden = !comLeitura;
+    $('previewPane').hidden = !comLeitura;
 
     var ta = $('editorInput');
     if (ta.value !== tab.content) ta.value = tab.content;
     applyWrap();
     renderEditorHighlight();
-    if (split) renderPreview($('splitPreview'), tab);
+    if (comLeitura) renderPreview($('splitPreview'), tab);
   }
 
   // ------------------------------------------------------------ preview
@@ -1035,7 +1058,7 @@
     clearTimeout(highlightTimer);
     highlightTimer = setTimeout(function () {
       renderEditorHighlight();
-      if (tab.mode === 'split') renderPreview($('splitPreview'), tab);
+      if (tab.showSource && tab.showPreview) renderPreview($('splitPreview'), tab);
       renderOutline();
     }, 90);
 
@@ -1634,8 +1657,8 @@
       { id: 'saveAs', label: 'Salvar como...', key: 'Ctrl+Shift+S', icon: 'save', enabled: !!tab, action: function () { saveTab(activeTab(), true); } },
       { id: 'close', label: 'Fechar aba', key: 'Ctrl+W', icon: 'x', enabled: !!tab, action: function () { closeTab(app.activeId); } },
       { id: 'lock', label: unlocked ? 'Travar edicao' : 'Liberar edicao', key: 'Ctrl+E', icon: unlocked ? 'lock' : 'unlock', enabled: !!tab, action: toggleLock },
-      { id: 'modeSource', label: 'Modo codigo-fonte', icon: 'code', enabled: !!unlocked, action: function () { setMode('source'); } },
-      { id: 'modeSplit', label: 'Modo dividido', icon: 'columns', enabled: !!unlocked, action: function () { setMode('split'); } },
+      { id: 'modeSource', label: 'Painel de codigo-fonte', key: 'Ctrl+Shift+C', icon: 'code', enabled: !!unlocked, checked: !!(tab && tab.showSource), action: toggleSource },
+      { id: 'modeSplit', label: 'Painel de leitura ao lado', key: 'Ctrl+Shift+L', icon: 'columns', enabled: !!(unlocked && tab.showSource), checked: !!(tab && tab.showSource && tab.showPreview), action: togglePreviewPane },
       { id: 'find', label: 'Localizar no documento', key: 'Ctrl+F', icon: 'search', enabled: !!tab, action: openFind },
       { id: 'findFolder', label: 'Buscar na pasta', key: 'Ctrl+Shift+F', icon: 'search', action: function () { openFolderSearch(); } },
       { id: 'goto', label: 'Ir para a linha...', key: 'Ctrl+G', icon: 'list', enabled: !!tab, action: promptGoToLine },
@@ -1666,11 +1689,22 @@
     ];
   }
 
-  function setMode(mode) {
+  function toggleSource() {
     var tab = activeTab();
     if (!tab || tab.locked) return;
-    tab.mode = mode;
-    settings.editorMode = mode;
+    if (live) live.commit();
+    tab.showSource = !tab.showSource;
+    settings.showSource = tab.showSource;
+    renderHeader();
+    renderViews();
+    persist();
+  }
+
+  function togglePreviewPane() {
+    var tab = activeTab();
+    if (!tab || tab.locked || !tab.showSource) return;
+    tab.showPreview = !tab.showPreview;
+    settings.showPreview = tab.showPreview;
     renderHeader();
     renderViews();
     persist();
@@ -1989,6 +2023,12 @@
       }
     }
 
+    if (ctrl && e.shiftKey && !e.altKey) {
+      var sk = e.key.toLowerCase();
+      if (sk === 'c') { e.preventDefault(); toggleSource(); return; }
+      if (sk === 'l') { e.preventDefault(); togglePreviewPane(); return; }
+    }
+
     if (e.altKey && e.key.toLowerCase() === 'z') {
       e.preventDefault();
       settings.wordWrap = !settings.wordWrap;
@@ -2177,6 +2217,7 @@
 
   function wireUi() {
     window.MarkPadIcons.apply(document);
+    setupLiveEdit();
 
     $('btnToggleSidebar').onclick = function () { toggleSidebar(); };
     $('btnNewTab').onclick = newTab;
@@ -2197,12 +2238,8 @@
     $('btnEmptyFolder').onclick = doOpenFolder;
     $('btnEmptyNew').onclick = newTab;
 
-    var modeButtons = $('modeSwitch').querySelectorAll('.mode-btn');
-    for (var i = 0; i < modeButtons.length; i++) {
-      (function (btn) {
-        btn.onclick = function () { setMode(btn.getAttribute('data-mode')); };
-      })(modeButtons[i]);
-    }
+    $('btnToggleSource').onclick = toggleSource;
+    $('btnTogglePreview').onclick = togglePreviewPane;
 
     var sideTabs = document.querySelectorAll('.sidebar-tab');
     for (var j = 0; j < sideTabs.length; j++) {
@@ -2233,6 +2270,14 @@
     // leitura
     $('readingView').addEventListener('contextmenu', function (e) {
       e.preventDefault();
+      var tab = activeTab();
+
+      // Destravado: o clique direito serve para formatar, como no Obsidian.
+      if (tab && !tab.locked && !tab.showSource) {
+        var block = live && live.topBlock(e.target);
+        if (live && (block || live.isActive()) && formattingMenu(e.clientX, e.clientY, block)) return;
+      }
+
       var sel = String(window.getSelection());
       showMenu([
         { label: 'Copiar', icon: 'copy', disabled: !sel, action: function () { navigator.clipboard.writeText(sel); } },
@@ -2315,6 +2360,99 @@
     };
 
     wireResizers();
+  }
+
+  // ============================ edição direta no texto renderizado
+
+  var live = null;
+
+  function setupLiveEdit() {
+    live = window.MarkPadLiveEdit.create($('preview'), {
+      isEditable: function () {
+        var tab = activeTab();
+        return !!(tab && !tab.locked && !tab.showSource);
+      },
+      getContent: function () {
+        var tab = activeTab();
+        return tab ? tab.content : '';
+      },
+      setContent: function (text) {
+        var tab = activeTab();
+        if (!tab) return;
+        tab.content = text;
+      },
+      onChange: function () {
+        renderTabs();
+        renderHeader();
+        renderStatus();
+        renderOutlineSoon();
+      },
+      onExit: function (changed) {
+        if (!changed) return;
+        // O documento mudou: redesenha o leitor preservando a rolagem.
+        var scroll = $('readingScroll').scrollTop;
+        renderViews();
+        $('readingScroll').scrollTop = scroll;
+        renderOutline();
+        if (settings.autoSave && activeTab() && activeTab().path) {
+          clearTimeout(onEditorInput.saveTimer);
+          onEditorInput.saveTimer = setTimeout(function () { saveTab(); }, 1200);
+        }
+      }
+    });
+  }
+
+  var outlineTimer = null;
+  function renderOutlineSoon() {
+    clearTimeout(outlineTimer);
+    outlineTimer = setTimeout(renderOutline, 400);
+  }
+
+  /** Menu de formatação, igual em espírito ao do clique direito do Obsidian. */
+  function formattingMenu(x, y, block) {
+    var tab = activeTab();
+    if (!tab || tab.locked) return false;
+
+    // Clicou fora de um bloco em edição: entra nele antes de formatar.
+    if (block && (!live.isActive() || live.activeTextarea() !== document.activeElement)) {
+      live.enter(block);
+    }
+    if (!live.isActive()) return false;
+
+    function fmt(label, icon, fn) {
+      return { label: label, icon: icon, action: fn };
+    }
+
+    showMenu([
+      { label: 'Formatar', header: true },
+      fmt('Negrito', 'bold', function () { live.wrap('**', '**'); }),
+      fmt('Itálico', 'italic', function () { live.wrap('*', '*'); }),
+      fmt('Riscado', 'strike', function () { live.wrap('~~', '~~'); }),
+      fmt('Destaque', 'highlight', function () { live.wrap('==', '=='); }),
+      fmt('Código', 'code', function () { live.wrap('`', '`'); }),
+      '-',
+      { label: 'Parágrafo', header: true },
+      fmt('Título 1', 'heading', function () { live.setLinePrefix('# '); }),
+      fmt('Título 2', 'heading', function () { live.setLinePrefix('## '); }),
+      fmt('Título 3', 'heading', function () { live.setLinePrefix('### '); }),
+      fmt('Texto normal', 'text', function () { live.setLinePrefix(''); }),
+      fmt('Citação', 'quote', function () { live.setLinePrefix('> '); }),
+      fmt('Lista', 'list', function () { live.setLinePrefix('- '); }),
+      fmt('Lista numerada', 'list', function () { live.setLinePrefix('', { ordered: true }); }),
+      fmt('Tarefa', 'todo', function () { live.setLinePrefix('- [ ] '); }),
+      '-',
+      { label: 'Inserir', header: true },
+      fmt('Link', 'link', function () { live.insert('[%s](%c)'); }),
+      fmt('Tabela', 'table', function () {
+        live.insert('\n| %c | Coluna |\n|:--|:--|\n| | |\n');
+      }),
+      fmt('Bloco de código', 'code', function () { live.insert('\n```%c\n\n```\n'); }),
+      fmt('Destaque (callout)', 'info', function () { live.insert('\n> [!note] %c\n> \n'); }),
+      fmt('Régua horizontal', 'minus', function () { live.insert('\n---\n%c'); }),
+      fmt('Nota de rodapé', 'note', function () { live.insert('[^%c]'); })
+    ], x, y);
+
+    return true;
   }
 
   function wireResizers() {
