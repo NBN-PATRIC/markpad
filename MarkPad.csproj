@@ -9,7 +9,7 @@
     <AssemblyName>MarkPad</AssemblyName>
     <RootNamespace>MarkPad</RootNamespace>
     <ApplicationIcon>Assets\app.ico</ApplicationIcon>
-    <Version>1.0.0</Version>
+    <Version>1.1.0</Version>
     <Product>MarkPad</Product>
     <Company>MarkPad</Company>
     <Description>Leitor/editor de Markdown com trava de edicao</Description>

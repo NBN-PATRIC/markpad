@@ -97,22 +97,52 @@ Sem o marcador, o mesmo `.exe` guarda as configurações em `%APPDATA%\MarkPad`.
 
 ### Instalador
 
-Em preparação. Terá a opção marcável de **assumir os arquivos `.md` do
-Windows** durante a instalação.
+`MarkPad-x.y.z-setup-win-x64.exe` — instala em `%LOCALAPPDATA%\Programs\MarkPad`
+**por usuário, sem pedir administrador**. Cria atalho no Menu Iniciar, aparece
+em "Adicionar ou remover programas" e desinstala sem deixar rastro.
 
-### Associar `.md` manualmente
+Duas opções marcáveis na instalação:
 
-Pelo menu `(...)` → **"Abrir arquivos .md com o MarkPad"**, ou pela linha de
-comando:
+- **Abrir arquivos .md com o MarkPad** — registra o aplicativo
+- **Confirmar o MarkPad como padrão ao final** — o Windows mostra a caixa de
+  escolha para você confirmar num clique
+
+### Pacote `.msi` (implantação gerenciada)
+
+Para GPO ou instalação em lote. A associação é uma *feature* separada:
+
+```powershell
+msiexec /i MarkPad-x.y.z-win-x64.msi /qn
+```
+
+Instala tudo, inclusive o registro dos `.md`. Para instalar **sem** mexer em
+associações, acrescente `ADDLOCAL=AppFeature`.
+
+### Por que "assumir automaticamente" os .md não existe
+
+Nenhum instalador consegue — nem este, nem nenhum outro. Desde o Windows 10 o
+aplicativo padrão de verdade fica em
+`HKCU\...\Explorer\FileExts\.md\UserChoice`, e o valor é validado por um hash
+que só o shell sabe calcular. Quem promete trocar isso sozinho ou está mentindo
+ou usa truque que quebra na atualização seguinte.
+
+O MarkPad faz o caminho legítimo: registra o aplicativo — passando a aparecer
+em "Abrir com" e em Configurações › Aplicativos padrão — e pede ao próprio
+Windows que mostre a caixa de escolha. O clique final é seu.
+
+### Associar pela linha de comando
 
 ```powershell
 MarkPad.exe --register-md
 ```
 
-Assume `.md`, `.markdown`, `.mdown`, `.mkd` e `.mdx`. Para desfazer, troque por
-`--unregister-md`. Escreve só em `HKCU`, não pede administrador e é reversível.
-O registro aponta para o caminho atual do executável — se mover a pasta, rode
-de novo.
+Registra `.md`, `.markdown`, `.mdown`, `.mkd` e `.mdx`. Use `--set-default-md`
+para registrar **e** abrir a caixa de escolha do Windows, ou `--unregister-md`
+para desfazer tudo. Escreve só em `HKCU`, não pede administrador e é
+reversível. O registro aponta para o caminho atual do executável — se mover a
+pasta, rode de novo.
+
+Pelo app: menu `(...)` → **"Abrir arquivos .md com o MarkPad"**.
 
 Requisitos: Windows 10/11 e o **WebView2 Runtime** (já vem no Windows 11).
 Segunda instância reaproveita a janela aberta e vira uma aba nova.
@@ -127,8 +157,26 @@ dotnet build -c Release
 .\tools\build-release.ps1
 ```
 
-O primeiro compila para `bin\Release\net9.0-windows\`; o segundo gera `dist\`
-com o zip portátil e as somas SHA-256. Testes do parser:
+```powershell
+.\tools\build-installer.ps1
+```
+
+O primeiro compila para `bin\Release\net9.0-windows\`. O segundo gera `dist\`
+com o zip portátil e as somas SHA-256. O terceiro acrescenta o `setup.exe` e o
+`.msi`, e precisa de duas ferramentas:
+
+```powershell
+winget install --id JRSoftware.InnoSetup -e
+```
+
+```powershell
+dotnet tool install --global wix --version 5.* --add-source https://api.nuget.org/v3/index.json
+```
+
+O WiX é fixado na 5 de propósito: a 7 passou a exigir aceitação do EULA da
+*Open Source Maintenance Fee*. A 5 é MS-RL e faz tudo o que precisamos.
+
+Testes do parser (incluem as verificações de sanitização):
 
 ```bash
 node dev/test-markdown.js
@@ -168,7 +216,8 @@ web/                  a interface inteira (embutida no exe publicado)
   app.js              abas, trava, editor, painéis, busca, comandos
   style.css           tokens de cor e layout
 dev/                  preview no navegador + testes do parser
-tools/                geração do ícone e dos artefatos de release
+tools/                ícone, artefatos de release e instaladores
+installer/            markpad.iss (Inno Setup) e markpad.wxs (WiX)
 ```
 
 Zero dependências de runtime além do WebView2: sem npm, sem CDN, sem Electron,

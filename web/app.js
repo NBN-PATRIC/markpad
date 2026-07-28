@@ -1658,7 +1658,10 @@
       { id: 'print', label: 'Imprimir', key: 'Ctrl+P', icon: 'printer', enabled: !!tab, action: doPrint },
       { id: 'copyPath', label: 'Copiar caminho do arquivo', icon: 'copy', enabled: !!(tab && tab.path), action: function () { navigator.clipboard.writeText(activeTab().path); toast('Caminho copiado.', 'ok', 1200); } },
       { id: 'reveal', label: 'Mostrar no Explorer', icon: 'reveal', enabled: !!(tab && tab.path), action: function () { bridge.call('revealInExplorer', { path: activeTab().path }); } },
-      { id: 'assoc', label: app.associated ? 'Desassociar arquivos .md' : 'Abrir arquivos .md com o MarkPad', icon: 'link', action: toggleAssociation },
+      { id: 'assoc', label: app.isDefault ? 'Remover o MarkPad como padrao de .md'
+          : app.associated ? 'Definir o MarkPad como padrao de .md'
+          : 'Abrir arquivos .md com o MarkPad',
+        icon: 'link', checked: app.isDefault, action: toggleAssociation },
       { id: 'devtools', label: 'Ferramentas do desenvolvedor', icon: 'settings', action: function () { bridge.call('devTools', {}); } }
     ];
   }
@@ -1874,19 +1877,59 @@
   }
 
   function toggleAssociation() {
-    var enable = !app.associated;
-    var message = enable
-      ? 'Arquivos <strong>.md</strong>, <strong>.markdown</strong> e <strong>.mdx</strong> passarao a abrir no MarkPad ao dar duplo clique.<br><br>' +
-        'A mudanca fica so no seu usuario (HKCU) e pode ser desfeita por aqui mesmo.'
-      : 'O MarkPad deixara de ser o aplicativo padrao para arquivos <strong>.md</strong>.';
+    // Registrado mas nao padrao ainda cai no fluxo de baixo, para poder
+    // oferecer a promocao a padrao em vez de so remover.
+    if (app.isDefault) {
+      dialog('Remover associacao?',
+        'O MarkPad sairá da lista de aplicativos para arquivos <strong>.md</strong>.',
+        [{ label: 'Cancelar', value: false }, { label: 'Remover', value: true, cls: 'danger' }]
+      ).then(function (yes) {
+        if (!yes) return;
+        bridge.call('fileAssociation', { enable: false }).then(function () {
+          app.associated = false;
+          app.isDefault = false;
+          toast('Associacao removida.', 'ok', 3000);
+        }).catch(function (err) { toast('Nao consegui alterar: ' + err.message, 'error', 5000); });
+      });
+      return;
+    }
 
-    dialog(enable ? 'Associar arquivos .md?' : 'Remover associacao?', message,
-      [{ label: 'Cancelar', value: false }, { label: enable ? 'Associar' : 'Remover', value: true, cls: 'primary' }]
-    ).then(function (yes) {
-      if (!yes) return;
-      bridge.call('fileAssociation', { enable: enable }).then(function (res) {
-        app.associated = res.associated;
-        toast(res.associated ? 'Pronto. Arquivos .md abrem no MarkPad.' : 'Associacao removida.', 'ok', 3500);
+    // Vale ser franco aqui: desde o Windows 10 o aplicativo padrao de verdade
+    // vive numa chave protegida por hash, que so o proprio shell escreve.
+    // Podemos registrar o MarkPad e chamar a caixa do Windows — o clique final
+    // e do usuario, e nao ha como contornar isso sem gambiarra.
+    var extra = app.currentHandler && app.currentHandler !== 'MarkPad.Document.1'
+      ? '<br><br>Hoje o Windows abre <strong>.md</strong> com <strong>' +
+        escapeText(String(app.currentHandler).replace(/^Applications\\/, '').replace(/\.exe$/i, '')) +
+        '</strong>.'
+      : '';
+
+    dialog('Abrir arquivos .md com o MarkPad',
+      'O MarkPad entrará na lista de aplicativos para <strong>.md</strong>, ' +
+      '<strong>.markdown</strong>, <strong>.mdown</strong>, <strong>.mkd</strong> e ' +
+      '<strong>.mdx</strong>, e aparecerá em Configurações &rsaquo; Aplicativos padrão.' + extra +
+      '<br><br>Para virar o padrão de fato, o Windows exige que <em>você</em> confirme: ' +
+      'ele mostra uma caixa de escolha. Nenhum programa pode fazer isso sozinho.' +
+      '<br><br>Tudo é gravado apenas no seu usuário (HKCU) e some ao remover.',
+      [{ label: 'Cancelar', value: null },
+       { label: 'Só registrar', value: 'register' },
+       { label: 'Registrar e definir padrão', value: 'default', cls: 'primary' }]
+    ).then(function (choice) {
+      if (!choice) return;
+
+      var op = choice === 'default' ? 'setDefaultAssociation' : 'fileAssociation';
+      bridge.call(op, { enable: true }).then(function (res) {
+        app.associated = !!res.associated;
+        app.isDefault = !!res.isDefault;
+        app.currentHandler = res.handler || app.currentHandler;
+
+        if (choice === 'register') {
+          toast('Registrado. O MarkPad já aparece em "Abrir com".', 'ok', 4000);
+        } else if (res.isDefault) {
+          toast('Pronto. Arquivos .md agora abrem no MarkPad.', 'ok', 4000);
+        } else {
+          toast('Registrado, mas o padrão não mudou — a escolha foi cancelada.', 'warn', 5000);
+        }
       }).catch(function (err) {
         toast('Nao consegui alterar: ' + err.message, 'error', 5000);
       });
@@ -2395,6 +2438,9 @@
     }).then(function (info) {
       app.exePath = info.exePath;
       app.associated = info.associated;
+      app.isDefault = info.isDefault;
+      app.currentHandler = info.handler;
+      app.portable = info.portable;
 
       var toOpen = (info.openPaths || []).slice();
       if (!toOpen.length && settings.restoreSession && settings.session) {

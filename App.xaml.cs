@@ -32,6 +32,16 @@ public partial class App : Application
                 Shutdown();
                 return;
             }
+            if (arg.Equals("--set-default-md", StringComparison.OrdinalIgnoreCase))
+            {
+                // Registra e chama a caixa do Windows. Se o MarkPad ja for o
+                // padrao, nao incomoda o usuario com um dialogo a toa.
+                FileAssociation.Apply(true);
+                if (!FileAssociation.IsDefaultHandler()) FileAssociation.PromptSetDefault();
+                Environment.ExitCode = FileAssociation.IsDefaultHandler() ? 0 : 2;
+                Shutdown();
+                return;
+            }
         }
 
         _mutex = new Mutex(true, MutexName, out bool isFirst);

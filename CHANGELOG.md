@@ -6,8 +6,53 @@ Versionamento [SemVer](https://semver.org/lang/pt-BR/).
 ## [Não lançado]
 
 ### Planejado
-- Instalador para Windows, com opção marcável de assumir os arquivos `.md`
 - Assinatura do executável (hoje o SmartScreen avisa por ser binário novo)
+- Escolher a licença antes de tornar o repositório público
+
+## [1.1.0] — 2026-07-28
+
+Distribuição: além do portátil, agora há instalador.
+
+### Adicionado
+- **Instalador (`setup.exe`, Inno Setup)** — instala por usuário em
+  `%LOCALAPPDATA%\Programs\MarkPad`, sem pedir administrador. Cria atalho no
+  Menu Iniciar, aparece em "Adicionar ou remover programas" e desinstala sem
+  deixar rastro. Duas opções marcáveis:
+  - "Abrir arquivos .md com o MarkPad" — registra o aplicativo
+  - "Confirmar o MarkPad como padrão ao final" — abre a caixa do Windows
+- **Pacote `.msi` (WiX)** — para implantação gerenciada/GPO. A associação é
+  uma *feature* separada: `msiexec /i MarkPad.msi /qn ADDLOCAL=AppFeature`
+  instala sem assumir os `.md`.
+- Registro como aplicativo em Configurações › Aplicativos padrão
+  (`RegisteredApplications` + `Capabilities`).
+- Flags de linha de comando `--register-md`, `--unregister-md` e
+  `--set-default-md`, usadas pelo instalador e pelo desinstalador.
+- O menu do app agora mostra qual programa abre `.md` hoje e oferece
+  "só registrar" ou "registrar e definir padrão".
+
+### Sobre "assumir automaticamente" os .md
+
+Não é possível — por nenhum instalador, em nenhuma linguagem. Desde o
+Windows 10 o aplicativo padrão de verdade fica em
+`HKCU\...\Explorer\FileExts\.md\UserChoice`, e o valor é validado por um hash
+que só o shell sabe calcular. Programas que prometem trocar isso sozinhos ou
+mentem, ou usam truque que quebra na atualização seguinte.
+
+O que o MarkPad faz é o caminho legítimo: registra o aplicativo (passando a
+aparecer em "Abrir com" e em Aplicativos padrão) e pede ao próprio Windows que
+mostre a caixa de escolha. O clique final é seu — um clique.
+
+Verificado nesta máquina: instalar com a opção de associação marcada registrou
+tudo e **não alterou** o `UserChoice` existente; desinstalar removeu cada chave
+criada e deixou o `UserChoice` como estava.
+
+### Corrigido
+- `SHA256SUMS.txt` saía com zero byte (`Get-ChildItem -Exclude` só filtra os
+  filhos quando o `-Path` termina em curinga), o que derrubava o upload do
+  asset e, junto, a release inteira.
+
+[Não lançado]: https://github.com/NBN-PATRIC/markpad/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/NBN-PATRIC/markpad/releases/tag/v1.1.0
 
 ## [1.0.0] — 2026-07-27
 
@@ -66,5 +111,4 @@ dependência de outros aplicativos.
 - Gravação restrita a caminhos abertos na sessão e a extensões de texto.
 - Nenhuma navegação sai do aplicativo.
 
-[Não lançado]: https://github.com/NBN-PATRIC/markpad/compare/v1.0.0...HEAD
 [1.0.0]: https://github.com/NBN-PATRIC/markpad/releases/tag/v1.0.0

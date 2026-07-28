@@ -1,0 +1,142 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Pacote MSI do MarkPad (WiX 7), para implantacao por GPO.
+
+  Compilar:
+    wix build installer\markpad.wxs -arch x64 -d Version=1.0.0 ^
+        -d ExeSource=publish\installed\MarkPad.exe -o dist\MarkPad-1.0.0-win-x64.msi
+
+  Instalar:
+    msiexec /i MarkPad.msi /qn                        -> tudo, inclusive .md
+    msiexec /i MarkPad.msi /qn ADDLOCAL=AppFeature    -> sem assumir os .md
+    msiexec /x MarkPad.msi /qn                        -> remove
+
+  Escopo perUser: instala em %LOCALAPPDATA%\Programs\MarkPad e escreve so em
+  HKCU. Nao exige administrador, o que e o que se quer numa implantacao por
+  usuario. O instalador do Inno Setup (markpad.iss) e o caminho para quem
+  baixa e clica; este MSI existe para distribuicao gerenciada.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+
+  <Package Name="MarkPad"
+           Manufacturer="NBN-PATRIC"
+           Version="$(Version)"
+           UpgradeCode="A8C790DA-3219-4DF7-BB72-E18A46EB6DBA"
+           Scope="perUser"
+           Compressed="yes">
+
+    <SummaryInformation Description="Leitor e editor de Markdown com trava de edicao" />
+
+    <MajorUpgrade DowngradeErrorMessage="Já existe uma versão mais nova do MarkPad instalada." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Icon Id="MarkPadIcon" SourceFile="Assets\app.ico" />
+    <Property Id="ARPPRODUCTICON" Value="MarkPadIcon" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/NBN-PATRIC/markpad" />
+    <Property Id="ARPNOREPAIR" Value="1" />
+
+    <!-- O programa em si: sempre instalado. -->
+    <Feature Id="AppFeature" Title="MarkPad" Level="1" AllowAbsent="no">
+      <ComponentGroupRef Id="AppComponents" />
+      <ComponentGroupRef Id="AppShortcuts" />
+    </Feature>
+
+    <!-- Associacao dos .md: separada, para dar para omitir com ADDLOCAL. -->
+    <Feature Id="AssocFeature" Title="Abrir arquivos .md com o MarkPad" Level="1">
+      <ComponentGroupRef Id="AssocComponents" />
+    </Feature>
+
+  </Package>
+
+  <Fragment>
+    <StandardDirectory Id="LocalAppDataFolder">
+      <Directory Id="ProgramsFolder" Name="Programs">
+        <Directory Id="INSTALLFOLDER" Name="MarkPad" />
+      </Directory>
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="AppShortcutFolder" Name="MarkPad" />
+    </StandardDirectory>
+  </Fragment>
+
+  <Fragment>
+    <ComponentGroup Id="AppComponents" Directory="INSTALLFOLDER">
+
+      <Component Id="MainExecutable" Guid="*">
+        <File Id="MarkPadExe" Source="$(ExeSource)" Name="MarkPad.exe" KeyPath="yes" />
+      </Component>
+
+      <!-- Um arquivo por componente: GUID automatico so vale quando o keypath
+           e unico e o componente nao junta varios arquivos sem versao. -->
+      <Component Id="ReadmeDoc" Guid="*">
+        <File Id="ReadmeFile" Source="README.md" KeyPath="yes" />
+      </Component>
+
+      <Component Id="ChangelogDoc" Guid="*">
+        <File Id="ChangelogFile" Source="CHANGELOG.md" KeyPath="yes" />
+      </Component>
+
+    </ComponentGroup>
+
+    <ComponentGroup Id="AppShortcuts" Directory="AppShortcutFolder">
+      <Component Id="StartMenuShortcut" Guid="*">
+        <Shortcut Id="MarkPadShortcut"
+                  Name="MarkPad"
+                  Description="Leitor e editor de Markdown"
+                  Target="[INSTALLFOLDER]MarkPad.exe"
+                  WorkingDirectory="INSTALLFOLDER" />
+        <RemoveFolder Id="RemoveShortcutFolder" Directory="AppShortcutFolder" On="uninstall" />
+        <RegistryValue Root="HKCU" Key="Software\NBN-PATRIC\MarkPad"
+                       Name="Shortcut" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+  </Fragment>
+
+  <Fragment>
+    <!--
+      Associacao declarativa: o Windows Installer registra na instalacao e
+      desfaz sozinho na remocao ou num rollback. Espelha o que o
+      FileAssociation.cs faz em tempo de execucao.
+    -->
+    <ComponentGroup Id="AssocComponents" Directory="INSTALLFOLDER">
+      <Component Id="FileAssociation" Guid="*">
+
+        <RegistryValue Root="HKCU" Key="Software\Classes\MarkPad.Document.1"
+                       Type="string" Value="Documento Markdown" KeyPath="yes" />
+        <RegistryValue Root="HKCU" Key="Software\Classes\MarkPad.Document.1"
+                       Name="FriendlyTypeName" Type="string" Value="Documento Markdown" />
+        <RegistryValue Root="HKCU" Key="Software\Classes\MarkPad.Document.1\DefaultIcon"
+                       Type="string" Value="&quot;[INSTALLFOLDER]MarkPad.exe&quot;,0" />
+        <RegistryValue Root="HKCU" Key="Software\Classes\MarkPad.Document.1\shell\open"
+                       Type="string" Value="Abrir no MarkPad" />
+        <RegistryValue Root="HKCU" Key="Software\Classes\MarkPad.Document.1\shell\open\command"
+                       Type="string" Value="&quot;[INSTALLFOLDER]MarkPad.exe&quot; &quot;%1&quot;" />
+
+        <RegistryValue Root="HKCU" Key="Software\Classes\Applications\MarkPad.exe\shell\open\command"
+                       Type="string" Value="&quot;[INSTALLFOLDER]MarkPad.exe&quot; &quot;%1&quot;" />
+
+        <RegistryValue Root="HKCU" Key="Software\Classes\.md"
+                       Type="string" Value="MarkPad.Document.1" />
+        <RegistryValue Root="HKCU" Key="Software\Classes\.md"
+                       Name="PerceivedType" Type="string" Value="text" />
+        <RegistryValue Root="HKCU" Key="Software\Classes\.md\OpenWithProgids"
+                       Name="MarkPad.Document.1" Type="string" Value="" />
+
+        <RegistryValue Root="HKCU" Key="Software\Classes\.markdown"
+                       Type="string" Value="MarkPad.Document.1" />
+        <RegistryValue Root="HKCU" Key="Software\Classes\.markdown\OpenWithProgids"
+                       Name="MarkPad.Document.1" Type="string" Value="" />
+
+        <RegistryValue Root="HKCU" Key="Software\Classes\.mdown"
+                       Type="string" Value="MarkPad.Document.1" />
+        <RegistryValue Root="HKCU" Key="Software\Classes\.mkd"
+                       Type="string" Value="MarkPad.Document.1" />
+        <RegistryValue Root="HKCU" Key="Software\Classes\.mdx"
+                       Type="string" Value="MarkPad.Document.1" />
+
+      </Component>
+    </ComponentGroup>
+  </Fragment>
+
+</Wix>
