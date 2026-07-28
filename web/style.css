@@ -480,24 +480,57 @@ body.sidebar-hidden .main { border-left: none; border-radius: var(--radius-m) va
 .search-hit mark { background: var(--text-highlight-bg); color: inherit; border-radius: 2px; }
 .search-hit .hit-line { color: var(--text-faint); margin-right: 8px; }
 
-/* sumario */
-.outline-item {
-  padding: 3px 8px;
+/* sumario — o texto quebra em vez de ser cortado, como no Obsidian, porque
+   titulo truncado nao serve para navegar */
+.outline { padding: 2px 4px 0; }
+
+.outline-node { position: relative; }
+
+.outline-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 4px 8px 4px 0;
   border-radius: var(--radius-s);
   color: var(--text-muted);
   font-size: var(--font-ui-smaller);
+  line-height: 1.45;
   cursor: pointer;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
-.outline-item:hover { background: var(--background-modifier-hover); color: var(--text-normal); }
-.outline-item.lv1 { padding-left: 8px; font-weight: 600; color: var(--text-normal); }
-.outline-item.lv2 { padding-left: 20px; }
-.outline-item.lv3 { padding-left: 32px; }
-.outline-item.lv4 { padding-left: 44px; }
-.outline-item.lv5 { padding-left: 56px; }
-.outline-item.lv6 { padding-left: 68px; }
+.outline-row:hover { background: var(--background-modifier-hover); color: var(--text-normal); }
+.outline-row.is-current {
+  background: var(--background-modifier-active);
+  color: var(--text-accent);
+  font-weight: 600;
+}
+.outline-row.lv1 { font-weight: 600; color: var(--text-normal); }
+.outline-row.lv1.is-current { color: var(--text-accent); }
+
+.outline-text { flex: 1; min-width: 0; word-break: break-word; }
+
+.outline-twist {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 17px;
+  flex-shrink: 0;
+  color: var(--text-faint);
+  transition: transform 90ms ease;
+}
+.outline-twist:hover { color: var(--text-normal); }
+.outline-twist:empty { pointer-events: none; }
+
+/* linhas-guia do aninhamento */
+.outline-children {
+  margin-left: 8px;
+  padding-left: 8px;
+  border-left: 1px solid var(--background-modifier-border);
+}
+.outline-children:hover { border-left-color: var(--background-modifier-border-hover); }
+
+.outline-node.is-collapsed > .outline-children { display: none; }
+.outline-node.is-collapsed > .outline-row .outline-twist { transform: rotate(-90deg); }
 
 /* recentes */
 .recent-item { padding: 5px 8px; border-radius: var(--radius-s); cursor: pointer; }
@@ -1036,6 +1069,46 @@ body.no-highlight .editor-input { color: var(--text-normal); }
   user-select: none;
   z-index: 2;
 }
+/* histórico de edição — cores lidas do stylers.xml do Notepad++ 8.9 */
+:root {
+  --ch-modificado: #ff8000;   /* alterado e ainda não gravado */
+  --ch-gravado:    #00a000;   /* alteração já gravada nesta sessão */
+}
+
+.ed-row.ch-mod::before,
+.ed-row.ch-saved::before {
+  content: "";
+  position: absolute;
+  left: calc(-1 * var(--gutter-width) + 2px);
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  border-radius: 2px;
+  transform: translateX(var(--scroll-x, 0px));
+}
+.ed-row.ch-mod::before { background: var(--ch-modificado); }
+.ed-row.ch-saved::before { background: var(--ch-gravado); }
+body.no-gutter .ed-row.ch-mod::before,
+body.no-gutter .ed-row.ch-saved::before { display: none; }
+
+/* o mesmo histórico, no modo leitura */
+.markdown-preview > .ch-mod,
+.markdown-preview > .ch-saved {
+  position: relative;
+}
+.markdown-preview > .ch-mod::before,
+.markdown-preview > .ch-saved::before {
+  content: "";
+  position: absolute;
+  left: -14px;
+  top: 2px;
+  bottom: 2px;
+  width: 3px;
+  border-radius: 2px;
+}
+.markdown-preview > .ch-mod::before { background: var(--ch-modificado); }
+.markdown-preview > .ch-saved::before { background: var(--ch-gravado); }
+
 .ed-row.is-current { background: var(--editor-active-line); }
 .ed-row.is-current .ln { color: var(--gutter-text-active); }
 body.no-gutter .ed-row .ln { display: none; }

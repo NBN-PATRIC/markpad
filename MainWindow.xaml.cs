@@ -450,6 +450,16 @@ public partial class MainWindow : Window
                         : System.Windows.Media.Color.FromRgb(0xff, 0xff, 0xff));
                 return true;
 
+            case "writeBackup":
+                return WriteBackup(Str(args, "path"), Str(args, "name"), Str(args, "content"));
+
+            case "listBackups":
+                return ListBackups();
+
+            case "dropBackup":
+                DropBackup(Str(args, "path"));
+                return true;
+
             case "loadSettings":
                 return File.Exists(_settingsPath) ? File.ReadAllText(_settingsPath, Encoding.UTF8) : null;
 
@@ -912,6 +922,112 @@ public partial class MainWindow : Window
                 if (TextExtensions.Contains(Path.GetExtension(f)))
                     yield return f;
         }
+    }
+
+    // ------------------------------------------------ copias de seguranca
+
+    private string BackupDirectory
+    {
+        get
+        {
+            var dir = Path.Combine(DataRoot, "backups");
+            Directory.CreateDirectory(dir);
+            return dir;
+        }
+    }
+
+    /// <summary>Nome estavel e sem caracteres proibidos para o caminho dado.</summary>
+    private static string BackupKey(string path)
+    {
+        var bytes = System.Security.Cryptography.SHA256.HashData(
+            Encoding.UTF8.GetBytes(path.ToLowerInvariant()));
+        return Convert.ToHexString(bytes)[..32].ToLowerInvariant();
+    }
+
+    /// <summary>
+    /// Guarda o texto em edicao fora do arquivo original.
+    ///
+    /// A ideia e a do Notepad++: fechar o app com alteracao pendente nao pode
+    /// perder o trabalho, mas tambem nao pode escrever por cima do arquivo do
+    /// usuario sem ele mandar. A copia fica separada ate haver um "salvar".
+    /// </summary>
+    private object WriteBackup(string path, string name, string content)
+    {
+        var chave = BackupKey(path);
+        var alvo = Path.Combine(BackupDirectory, chave + ".json");
+
+        var pacote = JsonSerializer.Serialize(new
+        {
+            path,
+            name,
+            content,
+            when = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+        });
+
+        // Grava em temporario e troca: uma queda no meio nao deixa a propria
+        // copia de seguranca corrompida, que seria o pior dos mundos.
+        var temp = alvo + ".tmp";
+        File.WriteAllText(temp, pacote, new UTF8Encoding(false));
+        File.Move(temp, alvo, overwrite: true);
+
+        return new { key = chave };
+    }
+
+    private object ListBackups()
+    {
+        var achados = new List<object>();
+
+        foreach (var arquivo in Directory.GetFiles(BackupDirectory, "*.json"))
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(File.ReadAllText(arquivo, Encoding.UTF8));
+                var raiz = doc.RootElement;
+                var caminho = raiz.GetProperty("path").GetString() ?? "";
+                var conteudo = raiz.GetProperty("content").GetString() ?? "";
+
+                var existe = File.Exists(caminho);
+                string? emDisco = null;
+                if (existe)
+                {
+                    try
+                    {
+                        var (texto, _) = DecodeText(File.ReadAllBytes(caminho));
+                        emDisco = texto.Replace("\r\n", "\n").Replace('\r', '\n');
+                    }
+                    catch { /* ilegivel agora; a copia ainda vale */ }
+                }
+
+                // Copia igual ao disco nao interessa a ninguem: limpa e segue.
+                if (emDisco is not null && emDisco == conteudo)
+                {
+                    File.Delete(arquivo);
+                    continue;
+                }
+
+                achados.Add(new
+                {
+                    path = caminho,
+                    name = raiz.TryGetProperty("name", out var n) ? n.GetString() : Path.GetFileName(caminho),
+                    content = conteudo,
+                    when = raiz.TryGetProperty("when", out var w) ? w.GetInt64() : 0,
+                    fileExists = existe
+                });
+            }
+            catch
+            {
+                // Copia ilegivel nao ajuda em nada e atrapalha o aviso.
+                try { File.Delete(arquivo); } catch { }
+            }
+        }
+
+        return new { backups = achados };
+    }
+
+    private void DropBackup(string path)
+    {
+        var alvo = Path.Combine(BackupDirectory, BackupKey(path) + ".json");
+        try { if (File.Exists(alvo)) File.Delete(alvo); } catch { }
     }
 
     // -------------------------------------------------------- codificacao

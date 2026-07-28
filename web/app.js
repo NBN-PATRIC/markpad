@@ -115,6 +115,90 @@
 
   // ======================================================= configuracoes
 
+  // ------------------------------------------------- copia de seguranca
+  //
+  // Enquanto houver alteração pendente, o texto vai para um arquivo separado
+  // a cada dois segundos parados. Fechar o app sem salvar não perde nada, e o
+  // arquivo do usuário só é tocado quando ele mandar salvar de verdade.
+
+  var backupTimers = Object.create(null);
+
+  function scheduleBackup(tab) {
+    if (!tab || !tab.path) return;
+
+    clearTimeout(backupTimers[tab.id]);
+    backupTimers[tab.id] = setTimeout(function () {
+      if (tab.content === tab.savedContent) {
+        bridge.call('dropBackup', { path: tab.path }).catch(function () {});
+        return;
+      }
+      bridge.call('writeBackup', {
+        path: tab.path, name: tab.name, content: tab.content
+      }).catch(function () {});
+    }, 2000);
+  }
+
+  function dropBackup(tab) {
+    if (!tab || !tab.path) return;
+    clearTimeout(backupTimers[tab.id]);
+    bridge.call('dropBackup', { path: tab.path }).catch(function () {});
+  }
+
+  /** Ao iniciar, oferece de volta o que ficou pendente da sessão anterior. */
+  function offerBackups() {
+    return bridge.call('listBackups', {}).then(function (res) {
+      var lista = (res && res.backups) || [];
+      if (!lista.length) return;
+
+      var nomes = lista.slice(0, 6).map(function (b) { return escapeText(b.name); }).join(', ');
+      var extra = lista.length > 6 ? ' e mais ' + (lista.length - 6) : '';
+
+      return dialog(
+        'Alterações não salvas da sessão anterior',
+        'O MarkPad guardou o texto de <strong>' + nomes + extra + '</strong> ' +
+        'que não chegou a ser gravado.<br><br>' +
+        'O arquivo em disco continua intacto. Se restaurar, o texto volta como estava ' +
+        'e você decide se salva por cima.',
+        [{ label: 'Descartar', value: false, cls: 'danger' },
+         { label: 'Restaurar', value: true, cls: 'primary' }]
+      ).then(function (sim) {
+        if (!sim) {
+          lista.forEach(function (b) { bridge.call('dropBackup', { path: b.path }).catch(function () {}); });
+          return;
+        }
+        return restoreBackups(lista);
+      });
+    }).catch(function () {});
+  }
+
+  function restoreBackups(lista) {
+    var cadeia = Promise.resolve();
+
+    lista.forEach(function (b) {
+      cadeia = cadeia.then(function () {
+        if (!b.fileExists) {
+          // Arquivo sumiu do disco: vira aba sem caminho, para não gravar
+          // por engano num lugar que o usuário já removeu.
+          var solto = makeTab({ name: b.name, content: b.content });
+          solto.locked = false;
+          app.tabs.push(solto);
+          return;
+        }
+        return doOpenPath(b.path, {}).then(function (tab) {
+          if (!tab) return;
+          tab.content = b.content;
+          tab.locked = false;
+          invalidateLineStatus(tab);
+        }).catch(function () {});
+      });
+    });
+
+    return cadeia.then(function () {
+      renderAll();
+      toast('Texto restaurado. Salve com Ctrl+S para gravar no arquivo.', 'warn', 6000);
+    });
+  }
+
   var saveTimer = null;
   function persist() {
     clearTimeout(saveTimer);
@@ -310,6 +394,9 @@
       dir: data.dir || null,
       content: data.content || '',
       savedContent: data.content || '',
+      // Como o arquivo estava ao ser aberto. É a referência das marcas verdes
+      // (alteração já gravada) — sem ela só daria para saber o que falta salvar.
+      originContent: data.content || '',
       encoding: data.encoding || 'utf-8',
       eol: data.eol || '\r\n',
       mtime: data.mtime || 0,
@@ -440,11 +527,14 @@
         tab.savedContent = tab.content;
         tab.mtime = res.mtime;
         tab.staleOnDisk = false;
+        invalidateLineStatus(tab);   // o que era laranja vira verde
+        dropBackup(tab);
         bridge.call('watchFile', { path: res.path }).catch(function () {});
         addRecent(res.path);
         if (renamed) refreshTree();
         renderTabs();
         renderHeader();
+        renderViews();   // redesenha para as marcas laranjas virarem verdes
         renderStatus();
         toast('Salvo: ' + tab.name, 'ok', 1600);
         return true;
@@ -478,6 +568,7 @@
         if (!ok && choice === 'save') return false;
 
         if (tab.path) bridge.call('unwatchFile', { path: tab.path }).catch(function () {});
+        dropBackup(tab);
         app.tabs.splice(idx, 1);
 
         if (app.activeId === id) {
@@ -530,6 +621,7 @@
     bridge.call('readFile', { path: tab.path }).then(function (data) {
       tab.content = data.content;
       tab.savedContent = data.content;
+      tab.originContent = data.content;   // recarregar zera o histórico da sessão
       tab.encoding = data.encoding;
       tab.eol = data.eol;
       tab.mtime = data.mtime;
@@ -783,6 +875,7 @@
     }
 
     applyFolding(container, tab);
+    marcaBlocosAlterados(container, tab);
     resolveLocalImages(container, tab);
     wirePreviewClicks(container, tab);
 
@@ -923,6 +1016,34 @@
     renderViews();
   }
 
+  /**
+   * Leva o histórico de linha para o modo leitura: um bloco fica marcado se
+   * qualquer linha dele mudou. Sem isso o histórico só existiria no painel de
+   * código, que é justamente o modo que o usuário não usa por padrão.
+   */
+  function marcaBlocosAlterados(container, tab) {
+    if (tab.content === tab.originContent) return;
+
+    var estado = lineStatus(tab);
+    var blocos = container.children;
+
+    for (var i = 0; i < blocos.length; i++) {
+      var b = blocos[i];
+      if (!b.getAttribute) continue;
+
+      var ini = parseInt(b.getAttribute('data-line'), 10);
+      var fim = parseInt(b.getAttribute('data-line-end'), 10);
+      if (isNaN(ini) || isNaN(fim)) continue;
+
+      var marca = '';
+      for (var l = ini; l <= fim && l < estado.length; l++) {
+        if (estado[l] === 'mod') { marca = 'mod'; break; }
+        if (estado[l] === 'saved') marca = 'saved';
+      }
+      if (marca) b.classList.add('ch-' + marca);
+    }
+  }
+
   function resolveLocalImages(container, tab) {
     var imgs = container.querySelectorAll('img.local-image[data-src]');
     var base = tab.dir || app.folder;
@@ -1041,16 +1162,43 @@
     if (tooBig) { $('editorHighlight').textContent = ''; return; }
 
     var highlighted = window.MarkPadHighlight.highlightMarkdownSource(tab.content).split('\n');
+    var estado = lineStatus(tab);
     var parts = new Array(lines.length);
 
     for (var i = 0; i < lines.length; i++) {
-      parts[i] = '<div class="ed-row"><span class="ln">' + (i + 1) + '</span>' +
+      var marca = estado[i] ? ' ch-' + estado[i] : '';
+      parts[i] = '<div class="ed-row' + marca + '"><span class="ln">' + (i + 1) + '</span>' +
         (highlighted[i] !== undefined ? highlighted[i] : '') + '</div>';
     }
 
     $('editorHighlight').innerHTML = parts.join('');
     updateCurrentLine();
     syncScroll();
+  }
+
+  /** Estado de cada linha, com cache: recalcular a cada tecla sairia caro. */
+  function lineStatus(tab) {
+    if (!window.MarkPadChanges) return [];
+
+    // Compara as strings em si. Chave por comprimento colidiria sempre que a
+    // edição mantivesse o tamanho — trocar uma letra, por exemplo.
+    if (tab._statusCache &&
+        tab._statusDe === tab.content &&
+        tab._statusSalvo === tab.savedContent &&
+        tab._statusOrigem === tab.originContent) {
+      return tab._statusCache;
+    }
+
+    tab._statusCache = window.MarkPadChanges.statusPorLinha(
+      tab.originContent, tab.savedContent, tab.content);
+    tab._statusDe = tab.content;
+    tab._statusSalvo = tab.savedContent;
+    tab._statusOrigem = tab.originContent;
+    return tab._statusCache;
+  }
+
+  function invalidateLineStatus(tab) {
+    if (tab) tab._statusCache = null;
   }
 
   function syncScroll() {
@@ -1122,6 +1270,7 @@
     renderTabs();
     renderHeader();
     renderStatus();
+    scheduleBackup(tab);
 
     if (settings.autoSave && tab.path) {
       clearTimeout(onEditorInput.saveTimer);
@@ -1214,14 +1363,92 @@
       return;
     }
 
+    // Achata a lista de títulos numa árvore pelo nível, para poder recolher
+    // uma seção inteira junto com as subseções.
+    var raiz = { level: 0, filhos: [] };
+    var pilha = [raiz];
+
     result.toc.forEach(function (h) {
-      var el = document.createElement('div');
-      el.className = 'outline-item lv' + h.level;
-      el.textContent = h.text;
-      el.title = h.text;
-      el.onclick = function () { goToLine(h.line + 1); };
-      box.appendChild(el);
+      var no = { level: h.level, text: h.text, line: h.line, slug: h.slug, filhos: [] };
+      while (pilha.length > 1 && pilha[pilha.length - 1].level >= h.level) pilha.pop();
+      pilha[pilha.length - 1].filhos.push(no);
+      pilha.push(no);
     });
+
+    box.appendChild(desenhaNos(raiz.filhos, 0));
+    marcaSecaoAtual();
+  }
+
+  function desenhaNos(nos, profundidade) {
+    var frag = document.createDocumentFragment();
+
+    nos.forEach(function (no) {
+      var wrapper = document.createElement('div');
+      wrapper.className = 'outline-node';
+
+      var linha = document.createElement('div');
+      linha.className = 'outline-row lv' + no.level;
+      linha.style.setProperty('--depth', profundidade);
+      linha.setAttribute('data-line', String(no.line));
+      linha.title = no.text;
+
+      var twist = document.createElement('span');
+      twist.className = 'outline-twist';
+      if (no.filhos.length) {
+        var chev = window.MarkPadIcons.build('chevron-down', 12);
+        if (chev) twist.appendChild(chev);
+        twist.onclick = function (e) {
+          e.stopPropagation();
+          wrapper.classList.toggle('is-collapsed');
+        };
+      }
+      linha.appendChild(twist);
+
+      var texto = document.createElement('span');
+      texto.className = 'outline-text';
+      texto.textContent = no.text;
+      linha.appendChild(texto);
+
+      linha.onclick = function () { goToLine(no.line + 1); };
+      wrapper.appendChild(linha);
+
+      if (no.filhos.length) {
+        var filhos = document.createElement('div');
+        filhos.className = 'outline-children';
+        filhos.appendChild(desenhaNos(no.filhos, profundidade + 1));
+        wrapper.appendChild(filhos);
+      }
+
+      frag.appendChild(wrapper);
+    });
+
+    return frag;
+  }
+
+  /** Destaca no sumário o título da seção que está no topo da leitura. */
+  function marcaSecaoAtual() {
+    var tab = activeTab();
+    if (!tab) return;
+
+    var container = tab.locked || !tab.showSource ? $('preview') : null;
+    if (!container) return;
+
+    var scroller = $('readingScroll');
+    var topo = scroller.getBoundingClientRect().top;
+    var atual = null;
+
+    var titulos = container.querySelectorAll('h1,h2,h3,h4,h5,h6');
+    for (var i = 0; i < titulos.length; i++) {
+      if (titulos[i].getBoundingClientRect().top - topo <= 40) atual = titulos[i];
+      else break;
+    }
+
+    var linhas = $('outline').querySelectorAll('.outline-row');
+    for (var j = 0; j < linhas.length; j++) linhas[j].classList.remove('is-current');
+    if (!atual) return;
+
+    var alvo = $('outline').querySelector('.outline-row[data-line="' + atual.getAttribute('data-line') + '"]');
+    if (alvo) alvo.classList.add('is-current');
   }
 
   // ======================================================== painel lateral
@@ -2338,6 +2565,13 @@
       })(sideTabs[j]);
     }
 
+    // acompanha a leitura para destacar a seção atual no sumário
+    var spyTimer = null;
+    $('readingScroll').addEventListener('scroll', function () {
+      clearTimeout(spyTimer);
+      spyTimer = setTimeout(marcaSecaoAtual, 80);
+    });
+
     // editor
     var ta = $('editorInput');
     ta.addEventListener('input', onEditorInput);
@@ -2472,10 +2706,12 @@
         tab.content = text;
       },
       onChange: function () {
+        var tab = activeTab();
         renderTabs();
         renderHeader();
         renderStatus();
         renderOutlineSoon();
+        scheduleBackup(tab);
       },
       onExit: function (changed) {
         if (!changed) return;
@@ -2680,6 +2916,10 @@
 
       renderAll();
       return openPaths(toOpen);
+    }).then(function () {
+      // Depois de restaurar a sessão, para o diálogo não competir com a
+      // abertura dos arquivos.
+      return offerBackups();
     }).catch(function (err) {
       applySettings();
       renderAll();
