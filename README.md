@@ -224,3 +224,29 @@ Zero dependências de runtime além do WebView2: sem npm, sem CDN, sem Electron,
 sem Obsidian. Funciona offline.
 
 Histórico de versões em [CHANGELOG.md](CHANGELOG.md).
+
+## Assinatura dos binários
+
+Os executáveis publicados **não são assinados por uma autoridade
+certificadora**, então o SmartScreen avisa na primeira execução: *Mais
+informações → Executar assim mesmo*. Confira o download pelo
+`SHA256SUMS.txt` da release.
+
+Há um par de scripts para assinar com certificado próprio:
+
+```powershell
+.\tools\new-signing-cert.ps1
+```
+
+```powershell
+.\tools\sign.ps1 -Thumbprint <impressão digital>
+```
+
+Certificado autoassinado **não** elimina o aviso do SmartScreen — serve para
+confiança dentro do domínio (via GPO de Editores Confiáveis) e para detectar
+adulteração. O porquê disso, e os caminhos pagos que realmente resolvem, estão
+em [docs/ASSINATURA.md](docs/ASSINATURA.md).
+
+## Licença
+
+[MIT](LICENSE) — © 2026 NBN Telecom e Patric Farias.

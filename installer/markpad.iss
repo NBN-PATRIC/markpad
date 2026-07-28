@@ -15,7 +15,7 @@
 #endif
 
 #define AppName      "MarkPad"
-#define AppPublisher "NBN-PATRIC"
+#define AppPublisher "NBN Telecom"
 #define AppUrl       "https://github.com/NBN-PATRIC/markpad"
 #define AppExeName   "MarkPad.exe"
 
@@ -42,6 +42,7 @@ AllowNoIcons=yes
 OutputDir=..\dist
 OutputBaseFilename={#AppName}-{#AppVersion}-setup-win-x64
 SetupIconFile=..\Assets\app.ico
+LicenseFile=..\LICENSE
 UninstallDisplayIcon={app}\{#AppExeName}
 UninstallDisplayName={#AppName} {#AppVersion}
 
@@ -83,6 +84,7 @@ Name: "desktopicon"; \
 Source: "{#ExeSource}";     DestDir: "{app}"; Flags: ignoreversion
 Source: "..\README.md";     DestDir: "{app}"; Flags: ignoreversion
 Source: "..\CHANGELOG.md";  DestDir: "{app}"; Flags: ignoreversion
+Source: "..\LICENSE";       DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\{#AppName}";                 Filename: "{app}\{#AppExeName}"

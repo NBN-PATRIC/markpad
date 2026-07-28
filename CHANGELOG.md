@@ -5,9 +5,29 @@ Versionamento [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Não lançado]
 
+### Adicionado
+- **Licença MIT** (`LICENSE`), © NBN Telecom e Patric Farias.
+- `tools/new-signing-cert.ps1` e `tools/sign.ps1` — geração de certificado
+  próprio e assinatura com carimbo de tempo, usando apenas o PowerShell do
+  Windows (sem precisar do SDK nem do `signtool`).
+- `docs/ASSINATURA.md` — o que assinatura resolve, o que não resolve e quanto
+  custa cada caminho.
+- `.gitignore` passa a barrar `*.pfx`, `*.p12`, `*.snk` e `.certs/`.
+
+### Sobre o aviso do SmartScreen
+
+Continua. Certificado autoassinado **não** o elimina: o Windows exige uma
+cadeia que termine numa autoridade certificadora pública, e desde junho de 2023
+a chave privada desses certificados precisa ficar em hardware. O autoassinado
+serve para confiança dentro do domínio (GPO de Editores Confiáveis) e para
+detectar adulteração.
+
+Caminhos que resolvem de fato estão comparados em `docs/ASSINATURA.md` —
+SignPath Foundation (grátis para código aberto qualificado) é o primeiro a
+tentar, já que o projeto é MIT.
+
 ### Planejado
-- Assinatura do executável (hoje o SmartScreen avisa por ser binário novo)
-- Escolher a licença antes de tornar o repositório público
+- Obter certificado de uma CA pública para a distribuição sem aviso
 
 ## [1.1.0] — 2026-07-28
 

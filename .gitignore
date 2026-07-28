@@ -4,3 +4,9 @@ publish/
 *.user
 .vs/
 dist/
+
+# chaves privadas de assinatura - NUNCA versionar
+*.pfx
+*.p12
+*.snk
+.certs/

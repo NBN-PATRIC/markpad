@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
@@ -11,8 +11,10 @@
     <ApplicationIcon>Assets\app.ico</ApplicationIcon>
     <Version>1.1.0</Version>
     <Product>MarkPad</Product>
-    <Company>MarkPad</Company>
+    <Company>NBN Telecom</Company>
     <Description>Leitor/editor de Markdown com trava de edicao</Description>
+    <Copyright>Copyright (c) 2026 NBN Telecom; Copyright (c) 2026 Patric Farias</Copyright>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <ImplicitUsings>enable</ImplicitUsings>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
@@ -38,3 +40,4 @@
   </ItemGroup>
 
 </Project>
+

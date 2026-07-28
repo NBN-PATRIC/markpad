@@ -19,7 +19,7 @@
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
 
   <Package Name="MarkPad"
-           Manufacturer="NBN-PATRIC"
+           Manufacturer="NBN Telecom"
            Version="$(Version)"
            UpgradeCode="A8C790DA-3219-4DF7-BB72-E18A46EB6DBA"
            Scope="perUser"
@@ -75,6 +75,10 @@
 
       <Component Id="ChangelogDoc" Guid="*">
         <File Id="ChangelogFile" Source="CHANGELOG.md" KeyPath="yes" />
+      </Component>
+
+      <Component Id="LicenseDoc" Guid="*">
+        <File Id="LicenseFile" Source="LICENSE" Name="LICENSE.txt" KeyPath="yes" />
       </Component>
 
     </ComponentGroup>
