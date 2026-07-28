@@ -16,6 +16,24 @@ public partial class App : Application
 
     protected override void OnStartup(StartupEventArgs e)
     {
+        // Modo silencioso usado pelo instalador/desinstalador: registra (ou tira)
+        // o MarkPad como aplicativo de .md e sai, sem abrir janela nenhuma.
+        foreach (var arg in e.Args)
+        {
+            if (arg.Equals("--register-md", StringComparison.OrdinalIgnoreCase))
+            {
+                Environment.ExitCode = FileAssociation.Apply(true) ? 0 : 1;
+                Shutdown();
+                return;
+            }
+            if (arg.Equals("--unregister-md", StringComparison.OrdinalIgnoreCase))
+            {
+                Environment.ExitCode = FileAssociation.Apply(false) ? 0 : 1;
+                Shutdown();
+                return;
+            }
+        }
+
         _mutex = new Mutex(true, MutexName, out bool isFirst);
 
         if (!isFirst)

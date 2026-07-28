@@ -1,9 +1,15 @@
 # MarkPad
 
-Leitor e editor de Markdown para Windows. A leitura sai igual à do Obsidian
-(os tokens de cor foram extraídos do `app.css` do Obsidian 1.12.7), mas **sem
-cofre, sem vault, sem projeto**: você abre um `.md` solto e pronto, como faria
-no Notepad++.
+Leitor e editor de Markdown para Windows — porque o Windows não tem um decente
+de fábrica.
+
+**Sem cofre, sem vault, sem projeto**: você abre um `.md` solto e pronto, como
+faria no Notepad++. Várias abas, vários documentos ao mesmo tempo.
+
+> O visual do modo leitura foi calibrado a partir das cores do Obsidian, mas
+> **o MarkPad não depende dele em nada**: não lê vaults, não precisa que esteja
+> instalado e não fala com ele. Os valores de cor são constantes no
+> `web/style.css`. O Obsidian foi só o ponto de partida do desenho.
 
 A diferença principal está na trava.
 
@@ -73,30 +79,64 @@ atributos). `<script>`, `on*=`, `javascript:` e `<svg>` não sobrevivem; blocos
 HTML crus viram texto inerte. Imagens da internet ficam bloqueadas por padrão
 (clique para carregar). Há CSP na página e nenhuma navegação sai do app.
 
-## Rodar e instalar
+## Instalar
+
+Baixe em [Releases](https://github.com/NBN-PATRIC/markpad/releases).
+
+### Portátil
+
+`MarkPad-x.y.z-portable-win-x64.zip` — descompacte e execute. Um `.exe` único
+com a interface embutida; nada é instalado.
+
+O arquivo-marcador `MarkPad.portable` que vem no zip liga o **modo portátil**:
+configurações, sessão e cache vão para a subpasta `data\`, ao lado do
+executável. Nada é gravado no perfil do usuário nem no registro. Cabe num
+pendrive; apagar a pasta remove o programa por inteiro.
+
+Sem o marcador, o mesmo `.exe` guarda as configurações em `%APPDATA%\MarkPad`.
+
+### Instalador
+
+Em preparação. Terá a opção marcável de **assumir os arquivos `.md` do
+Windows** durante a instalação.
+
+### Associar `.md` manualmente
+
+Pelo menu `(...)` → **"Abrir arquivos .md com o MarkPad"**, ou pela linha de
+comando:
 
 ```powershell
-dotnet build -c Release
-.\bin\Release\net9.0-windows\MarkPad.exe
+MarkPad.exe --register-md
 ```
 
-Executável único + atalho no Menu Iniciar:
-
-```powershell
-.\build.ps1 -Shortcut
-```
-
-Para não depender do .NET instalado (arquivo maior, ~70 MB):
-
-```powershell
-.\build.ps1 -Shortcut -SelfContained
-```
-
-Para abrir `.md` com duplo clique: menu `(...)` → **"Abrir arquivos .md com o
-MarkPad"**. Mexe só em `HKCU` e é reversível pelo mesmo menu.
+Assume `.md`, `.markdown`, `.mdown`, `.mkd` e `.mdx`. Para desfazer, troque por
+`--unregister-md`. Escreve só em `HKCU`, não pede administrador e é reversível.
+O registro aponta para o caminho atual do executável — se mover a pasta, rode
+de novo.
 
 Requisitos: Windows 10/11 e o **WebView2 Runtime** (já vem no Windows 11).
 Segunda instância reaproveita a janela aberta e vira uma aba nova.
+
+## Compilar
+
+```powershell
+dotnet build -c Release
+```
+
+```powershell
+.\tools\build-release.ps1
+```
+
+O primeiro compila para `bin\Release\net9.0-windows\`; o segundo gera `dist\`
+com o zip portátil e as somas SHA-256. Testes do parser:
+
+```bash
+node dev/test-markdown.js
+```
+
+No build de desenvolvimento a pasta `web\` fica ao lado do `.exe` e é servida
+do disco. No executável publicado ela vai embutida no binário — por isso a
+distribuição é um arquivo só.
 
 ## Atalhos
 
@@ -120,21 +160,18 @@ MarkPad.csproj        WPF + WebView2 (net9.0-windows)
 MainWindow.xaml.cs    ponte com o disco: leitura, gravação, diálogos,
                       busca em pasta, monitoramento, allowlist de escrita
 App.xaml.cs           instância única (named pipe) + argumentos de linha
+FileAssociation.cs    registro de .md em HKCU (menu, --register-md, instalador)
 NativeMethods.cs      barra de título escura, "mostrar no Explorer"
-web/                  a interface inteira
+web/                  a interface inteira (embutida no exe publicado)
   markdown.js         parser + sanitizador (sem dependências)
   highlight.js        realce de ~20 linguagens + do markdown-fonte
   app.js              abas, trava, editor, painéis, busca, comandos
-  style.css           tokens de cor extraídos do Obsidian
+  style.css           tokens de cor e layout
 dev/                  preview no navegador + testes do parser
-tools/build-icon.ps1  gera Assets/app.ico
+tools/                geração do ícone e dos artefatos de release
 ```
 
-Testes do parser (inclui as verificações de sanitização):
+Zero dependências de runtime além do WebView2: sem npm, sem CDN, sem Electron,
+sem Obsidian. Funciona offline.
 
-```bash
-node dev/test-markdown.js
-```
-
-Zero dependências de runtime além do WebView2: sem npm, sem CDN, funciona
-offline.
+Histórico de versões em [CHANGELOG.md](CHANGELOG.md).

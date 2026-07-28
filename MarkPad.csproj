@@ -16,14 +16,23 @@
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <ImplicitUsings>enable</ImplicitUsings>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <!-- nao arrastar os .xml de documentacao dos pacotes para a pasta publicada -->
+    <AllowedReferenceRelatedFileExtensions>none</AllowedReferenceRelatedFileExtensions>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4078.44" />
   </ItemGroup>
 
+  <!--
+    A interface e embutida no assembly, para o executavel publicado ser um
+    arquivo unico de verdade. No build de desenvolvimento a pasta web/ tambem
+    e copiada ao lado do exe: quando ela existe, o app serve dali e basta
+    recompilar (ou nem isso, via dev/preview.html) para ver as mudancas.
+  -->
   <ItemGroup>
-    <Content Include="web\**\*">
+    <EmbeddedResource Include="web\**\*" />
+    <Content Include="web\**\*" Condition="'$(PublishSingleFile)' != 'true'">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>
