@@ -78,6 +78,8 @@
     sidebarPane: 'files',
     splitRatio: 0.5,
     restoreSession: true,
+    treeOnlyMarkdown: true,
+    warnNonMarkdown: true,
     recent: [],
     lastFolder: null,
     session: []
@@ -146,8 +148,13 @@
     }, ms || 2600);
   }
 
-  /** Dialogo modal com promessa. buttons: [{label, value, cls}] */
-  function dialog(title, message, buttons) {
+  /**
+   * Dialogo modal com promessa. buttons: [{label, value, cls}]
+   *
+   * Com `checkboxLabel`, mostra uma caixa de marcar e resolve
+   * `{ value, checked }` em vez do valor puro.
+   */
+  function dialog(title, message, buttons, checkboxLabel) {
     return new Promise(function (resolve) {
       var overlay = $('overlay');
       var box = document.createElement('div');
@@ -160,11 +167,13 @@
       var actions = document.createElement('div');
       actions.className = 'dialog-actions';
 
+      var checkbox = null;
+
       function finish(value) {
         overlay.hidden = true;
         box.remove();
         document.removeEventListener('keydown', onKey, true);
-        resolve(value);
+        resolve(checkboxLabel ? { value: value, checked: !!(checkbox && checkbox.checked) } : value);
       }
 
       function onKey(e) {
@@ -183,7 +192,20 @@
         actions.appendChild(btn);
       });
 
-      box.appendChild(h); box.appendChild(p); box.appendChild(actions);
+      box.appendChild(h);
+      box.appendChild(p);
+
+      if (checkboxLabel) {
+        var linha = document.createElement('label');
+        linha.className = 'dialog-check';
+        checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        linha.appendChild(checkbox);
+        linha.appendChild(document.createTextNode(checkboxLabel));
+        box.appendChild(linha);
+      }
+
+      box.appendChild(actions);
       document.body.appendChild(box);
       overlay.hidden = false;
       overlay.onclick = function () { finish(null); };
@@ -302,6 +324,34 @@
     };
   }
 
+  var MARKDOWN_EXT = /\.(md|markdown|mdown|mkd|mdx)$/i;
+
+  /**
+   * Abrir qualquer extensão é permitido — o app é um editor de texto, não só
+   * de markdown. Mas avisa antes, porque abrir o arquivo errado por engano é
+   * fácil e o resultado na tela não ajuda a perceber.
+   */
+  function confirmNonMarkdown(path) {
+    if (!settings.warnNonMarkdown) return Promise.resolve(true);
+    if (MARKDOWN_EXT.test(path)) return Promise.resolve(true);
+
+    var nome = path.split(/[\\/]/).pop();
+    var ext = (/\.([^.\\/]+)$/.exec(nome) || [])[1];
+
+    return dialog(
+      'Arquivo não identificado como markdown',
+      '<strong>' + escapeText(nome) + '</strong>' +
+      (ext ? ' tem extensão <code>.' + escapeText(ext) + '</code>, que não é markdown.'
+           : ' não tem extensão.') +
+      '<br><br>Ele será aberto como texto puro. Deseja mesmo abrir?',
+      [{ label: 'Não', value: false }, { label: 'Sim', value: true, cls: 'primary' }],
+      'Não exibir esta mensagem novamente'
+    ).then(function (r) {
+      if (r.checked) { settings.warnNonMarkdown = false; persist(); }
+      return r.value;
+    });
+  }
+
   function openPath(path, opts) {
     opts = opts || {};
     var existing = tabByPath(path);
@@ -311,6 +361,13 @@
       return Promise.resolve(existing);
     }
 
+    return confirmNonMarkdown(path).then(function (ok) {
+      if (!ok) return null;
+      return doOpenPath(path, opts);
+    });
+  }
+
+  function doOpenPath(path, opts) {
     return bridge.call('readFile', { path: path }).then(function (data) {
       var tab = makeTab(data);
       app.tabs.push(tab);
@@ -1177,6 +1234,15 @@
     if (!quiet) persist();
   }
 
+  function renderTreeFilter() {
+    var b = $('btnTreeFilter');
+    b.textContent = settings.treeOnlyMarkdown ? '.md' : 'tudo';
+    b.classList.toggle('is-on', !!settings.treeOnlyMarkdown);
+    b.title = settings.treeOnlyMarkdown
+      ? 'Mostrando só markdown — clique para ver todos os arquivos'
+      : 'Mostrando todos os arquivos — clique para ver só markdown';
+  }
+
   function refreshTree() {
     var box = $('fileTree');
     if (!app.folder) {
@@ -1189,7 +1255,21 @@
 
   function buildTree(dirPath, container, depth) {
     return bridge.call('listDir', { path: dirPath }).then(function (data) {
-      data.entries.forEach(function (entry) {
+      var visiveis = data.entries.filter(function (e) {
+        return e.dir || !settings.treeOnlyMarkdown || e.markdown;
+      });
+
+      if (!visiveis.length && depth === 0) {
+        var aviso = document.createElement('p');
+        aviso.className = 'pane-empty';
+        aviso.textContent = settings.treeOnlyMarkdown
+          ? 'Nenhum arquivo .md aqui. Toque no filtro acima para ver todos.'
+          : 'Pasta vazia.';
+        container.appendChild(aviso);
+        return;
+      }
+
+      visiveis.forEach(function (entry) {
         var row = document.createElement('div');
         row.className = 'tree-item';
         row.style.setProperty('--indent', (6 + depth * 13) + 'px');
@@ -1672,6 +1752,8 @@
       { id: 'confirmUnlock', label: 'Pedir confirmacao ao destravar', icon: 'unlock', checked: settings.confirmUnlock, action: function () { settings.confirmUnlock = !settings.confirmUnlock; persist(); } },
       { id: 'autoSave', label: 'Salvar automaticamente', icon: 'save', checked: settings.autoSave, action: function () { settings.autoSave = !settings.autoSave; persist(); toast(settings.autoSave ? 'Salvamento automatico ligado.' : 'Salvamento automatico desligado.', 'ok'); } },
       { id: 'remote', label: 'Carregar imagens da internet', icon: 'eye', checked: settings.loadRemoteImages, action: function () { settings.loadRemoteImages = !settings.loadRemoteImages; renderViews(); persist(); } },
+      { id: 'treeFilter', label: 'Painel: só arquivos markdown', icon: 'folder', checked: settings.treeOnlyMarkdown, action: function () { settings.treeOnlyMarkdown = !settings.treeOnlyMarkdown; renderTreeFilter(); refreshTree(); persist(); } },
+      { id: 'warnNonMd', label: 'Avisar ao abrir arquivo não-markdown', icon: 'warning', checked: settings.warnNonMarkdown, action: function () { settings.warnNonMarkdown = !settings.warnNonMarkdown; persist(); toast(settings.warnNonMarkdown ? 'O aviso volta a aparecer.' : 'Aviso desligado.', 'ok'); } },
       { id: 'theme', label: 'Alternar tema', icon: settings.theme === 'light' ? 'moon' : 'sun', action: cycleTheme },
       { id: 'zoomIn', label: 'Aumentar fonte', key: 'Ctrl++', icon: 'plus', action: function () { zoom(1); } },
       { id: 'zoomOut', label: 'Diminuir fonte', key: 'Ctrl+-', icon: 'x', action: function () { zoom(-1); } },
@@ -1816,6 +1898,8 @@
       entry('wrap'), entry('gutter'), entry('wide'), entry('theme'), '-',
       { label: 'Trava', header: true },
       entry('lockOnOpen'), entry('confirmUnlock'), entry('autoSave'), '-',
+      { label: 'Arquivos', header: true },
+      entry('treeFilter'), entry('warnNonMd'), '-',
       entry('export'), entry('print'), entry('copyPath'), entry('reveal'), '-',
       entry('remote'), entry('assoc'), entry('devtools')
     ], x, y);
@@ -2224,6 +2308,12 @@
     $('btnCommandPalette').onclick = openPalette;
     $('btnOpenFolder').onclick = doOpenFolder;
     $('btnRefreshTree').onclick = function () { app.treeOpen = Object.create(null); refreshTree(); };
+    $('btnTreeFilter').onclick = function () {
+      settings.treeOnlyMarkdown = !settings.treeOnlyMarkdown;
+      renderTreeFilter();
+      refreshTree();
+      persist();
+    };
     $('btnClearRecent').onclick = function () { settings.recent = []; renderRecent(); persist(); };
 
     $('btnLock').onclick = toggleLock;
@@ -2507,6 +2597,7 @@
   function applySettings() {
     applyTheme();
     applyFontSizes();
+    renderTreeFilter();
     document.documentElement.style.setProperty('--sidebar-width', settings.sidebarWidth + 'px');
     document.body.classList.toggle('sidebar-hidden', !settings.sidebarVisible);
     document.body.classList.toggle('wrap-on', settings.wordWrap);

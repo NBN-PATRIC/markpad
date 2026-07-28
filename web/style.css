@@ -1241,6 +1241,17 @@ body.no-gutter .ed-row .ln { display: none; }
 .dialog p { margin: 0 0 18px; font-size: var(--font-ui-small); color: var(--text-muted); line-height: 1.55; }
 .dialog p strong { color: var(--text-normal); }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.dialog-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: -6px 0 18px;
+  font-size: var(--font-ui-small);
+  color: var(--text-muted);
+  cursor: pointer;
+  user-select: none;
+}
+.dialog-check input { accent-color: var(--color-accent); width: 15px; height: 15px; cursor: pointer; }
 
 /* avisos */
 .toasts {

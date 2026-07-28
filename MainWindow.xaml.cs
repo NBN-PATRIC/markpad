@@ -15,7 +15,25 @@ public partial class MainWindow : Window
     private const long MaxTextFileBytes = 32L * 1024 * 1024;
     private const long MaxAssetBytes = 16L * 1024 * 1024;
 
-    /// <summary>Extensoes que o app aceita abrir e gravar como texto.</summary>
+    /// <summary>Extensoes tratadas como markdown de verdade.</summary>
+    private static readonly HashSet<string> MarkdownExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".md", ".markdown", ".mdown", ".mkd", ".mdx"
+    };
+
+    /// <summary>
+    /// Onde a gravacao e recusada por principio. Abrir qualquer arquivo e
+    /// legitimo — gravar por cima de um executavel nao e, e o erro seria caro
+    /// demais para deixar acontecer por descuido.
+    /// </summary>
+    private static readonly HashSet<string> UnwritableExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".exe", ".dll", ".sys", ".msi", ".com", ".scr", ".cpl", ".ocx", ".drv",
+        ".pdb", ".lib", ".obj", ".bin", ".dat", ".db", ".sqlite", ".zip", ".7z",
+        ".rar", ".gz", ".tar", ".pdf", ".docx", ".xlsx", ".pptx", ".pfx", ".p12"
+    };
+
+    /// <summary>Extensoes de texto reconhecidas, usadas na busca em pasta.</summary>
     private static readonly HashSet<string> TextExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
         ".md", ".markdown", ".mdown", ".mkd", ".mdx", ".txt", ".text", ".log",
@@ -602,13 +620,17 @@ public partial class MainWindow : Window
         if (info.Length > MaxTextFileBytes)
             throw new InvalidOperationException($"arquivo grande demais ({info.Length / 1024 / 1024} MB). limite: 32 MB.");
 
-        var ext = info.Extension;
-        if (!TextExtensions.Contains(ext) && !string.IsNullOrEmpty(ext) && ImageExtensions.Contains(ext))
-            throw new InvalidOperationException("isso e uma imagem, nao um arquivo de texto.");
-
         var bytes = File.ReadAllBytes(full);
+
+        // A extensao nao decide nada: o que importa e o conteudo. Um .md pode
+        // estar corrompido e um arquivo sem extensao pode ser texto perfeito.
+        if (LooksBinary(bytes))
+            throw new InvalidOperationException(
+                "este arquivo parece binario, nao texto. Abrir viria como lixo na tela.");
+
         var (text, encoding) = DecodeText(bytes);
         var eol = DetectEol(text);
+        var ext = info.Extension;
 
         _writablePaths.Add(full);
 
@@ -622,8 +644,30 @@ public partial class MainWindow : Window
             eol,
             size = info.Length,
             mtime = new DateTimeOffset(info.LastWriteTimeUtc).ToUnixTimeMilliseconds(),
-            readOnlyOnDisk = info.IsReadOnly
+            readOnlyOnDisk = info.IsReadOnly,
+            isMarkdown = MarkdownExtensions.Contains(ext),
+            writable = !UnwritableExtensions.Contains(ext)
         };
+    }
+
+    /// <summary>
+    /// Heuristica do proprio git: um byte NUL nos primeiros 8000 e sinal de
+    /// binario. Texto de verdade nao tem NUL — exceto UTF-16, que tem BOM e
+    /// por isso e verificado antes.
+    /// </summary>
+    private static bool LooksBinary(byte[] bytes)
+    {
+        if (bytes.Length >= 2)
+        {
+            var bom16 = (bytes[0] == 0xFF && bytes[1] == 0xFE) || (bytes[0] == 0xFE && bytes[1] == 0xFF);
+            if (bom16) return false;
+        }
+
+        var limite = Math.Min(bytes.Length, 8000);
+        for (int i = 0; i < limite; i++)
+            if (bytes[i] == 0) return true;
+
+        return false;
     }
 
     private object WriteTextFile(string path, string content, string encodingName, string eol)
@@ -635,8 +679,9 @@ public partial class MainWindow : Window
                 "gravacao bloqueada: este caminho nao foi aberto por voce nesta sessao.");
 
         var ext = Path.GetExtension(full);
-        if (!TextExtensions.Contains(ext))
-            throw new UnauthorizedAccessException($"gravacao bloqueada para a extensao '{ext}'.");
+        if (UnwritableExtensions.Contains(ext))
+            throw new UnauthorizedAccessException(
+                $"gravacao bloqueada para a extensao '{ext}': nao e um formato de texto.");
 
         var normalized = eol == "\r\n" ? content.Replace("\n", "\r\n") : content;
         var encoding = EncodingFromName(encodingName);
@@ -706,14 +751,18 @@ public partial class MainWindow : Window
             else if (entry is FileInfo f)
             {
                 if (hidden) continue;
-                if (!TextExtensions.Contains(f.Extension)) continue;
+
+                // Lista tudo: quem filtra e a interface, para o usuario poder
+                // alternar entre "so markdown" e "todos" sem reler a pasta.
                 files.Add(new
                 {
                     name = f.Name,
                     path = f.FullName,
                     dir = false,
                     size = f.Length,
-                    mtime = new DateTimeOffset(f.LastWriteTimeUtc).ToUnixTimeMilliseconds()
+                    mtime = new DateTimeOffset(f.LastWriteTimeUtc).ToUnixTimeMilliseconds(),
+                    markdown = MarkdownExtensions.Contains(f.Extension),
+                    text = TextExtensions.Contains(f.Extension)
                 });
             }
         }

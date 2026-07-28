@@ -23,9 +23,9 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: '9.0.x'
 
@@ -69,7 +69,7 @@ jobs:
 
       - name: Publicar artefatos não assinados
         id: unsigned
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: markpad-${{ steps.ver.outputs.version }}-unsigned
           path: dist/
