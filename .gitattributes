@@ -1,0 +1,32 @@
+# Normaliza as quebras de linha no repositorio (LF) e deixa o checkout no
+# Windows com CRLF. Sem isto o git avisa a cada commit e, pior, um NUL solto
+# num arquivo .cs faz o git trata-lo como binario e perder diff e blame.
+
+* text=auto
+
+*.cs      text diff=csharp
+*.csproj  text
+*.xaml    text
+*.js      text
+*.css     text
+*.html    text
+*.json    text
+*.md      text
+*.txt     text
+*.yml     text
+*.wxs     text
+
+# Scripts do Windows: CRLF sempre, senao o PowerShell e o ISCC reclamam.
+*.ps1     text eol=crlf
+*.iss     text eol=crlf
+*.cmd     text eol=crlf
+*.bat     text eol=crlf
+
+# Binarios de verdade
+*.ico     binary
+*.png     binary
+*.jpg     binary
+*.gif     binary
+*.exe     binary
+*.msi     binary
+*.zip     binary
