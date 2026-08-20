@@ -1640,3 +1640,39 @@ body.no-anim *::after {
     scroll-behavior: auto !important;
   }
 }
+
+/* ============================================ arvore: lista rasa e realce */
+
+/* Com filtro ligado a linha carrega o nome e, em cinza, a pasta de origem. */
+.tree-item.is-flat { height: 27px; }
+.tree-item .tree-sub {
+  margin-left: auto;
+  padding-left: 10px;
+  color: var(--text-faint);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  direction: rtl;
+  text-align: right;
+  max-width: 45%;
+}
+.tree-item .tree-name b,
+.palette-item b {
+  color: var(--text-accent);
+  font-weight: 600;
+}
+.palette-item.is-empty {
+  color: var(--text-faint);
+  cursor: default;
+  justify-content: flex-start;
+}
+.palette-item.is-empty:hover { background: none; }
+
+/* A pasta abre deslizando; e a mesma sensacao do explorador do Obsidian. */
+.tree-children:not([hidden]) {
+  animation: tree-open var(--anim-fast) var(--anim-ease-out);
+}
+@keyframes tree-open {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: none; }
+}

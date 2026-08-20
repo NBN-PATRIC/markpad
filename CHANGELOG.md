@@ -6,6 +6,32 @@ Versionamento [SemVer](https://semver.org/lang/pt-BR/).
 ## [Não lançado]
 
 ### Adicionado
+- **Barra de acesso rápido** abaixo das guias, com os botões que o usuário
+  escolher. É montada a partir do mesmo registro de comandos que alimenta a
+  paleta e o menu ⋮, então todo comando novo aparece nela sem código extra.
+  Clique direito na barra: configurar, mostrar rótulos ou esconder.
+- **Tela de configurações** (`Ctrl+,`) com sete abas — Aparência, Editor e
+  trava, Arquivos, Barra rápida, Atalhos, Atualizações e Sobre.
+- **Ordenação do painel de arquivos**: nome (A→Z / Z→A), modificado e criado,
+  nos dois sentidos, com opção de pôr pastas antes dos arquivos. Ordem
+  natural — `cap 2` vem antes de `cap 10`.
+- **Filtro por nome no painel de arquivos** (ícone de lupa no cabeçalho). Com
+  filtro ligado a árvore vira lista rasa e mostra a pasta de origem ao lado.
+- **Recolher todas as pastas** num botão só.
+- **Abrir arquivo pelo nome** (`Ctrl+P`), com busca aproximada sobre a pasta
+  inteira e as letras casadas em destaque. Sem pasta aberta, lista os
+  recentes.
+- Escala única de animação (`--anim-*`) usada por toda a interface, com
+  interruptor em Aparência e respeito automático a `prefers-reduced-motion`.
+- Ponte: operação `listFiles`, um índice raso da pasta (caminho, nome e datas,
+  nunca conteúdo) que alimenta o filtro e o seletor rápido.
+
+### Alterado
+- `Ctrl+P` passa a abrir arquivo pelo nome, como em qualquer editor.
+  **Imprimir foi para `Ctrl+Alt+P`** e continua no menu ⋮, na paleta de
+  comandos e disponível para a barra rápida.
+- Devtools saiu do menu ⋮ (segue na paleta e em Configurações › Sobre).
+
 - **Licença MIT** (`LICENSE`), © NBN Telecom e Patric Farias.
 - `tools/new-signing-cert.ps1` e `tools/sign.ps1` — geração de certificado
   próprio e assinatura com carimbo de tempo, usando apenas o PowerShell do

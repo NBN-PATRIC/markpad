@@ -412,6 +412,10 @@ public partial class MainWindow : Window
             case "resolveAsset":
                 return ResolveAsset(Str(args, "basePath"), Str(args, "src"));
 
+            case "listFiles":
+                return await Task.Run(() => ListFilesRecursive(
+                    Str(args, "root"), Int(args, "max", 20000)));
+
             case "grepFolder":
                 return await Task.Run(() => GrepFolder(
                     Str(args, "root"), Str(args, "query"),
@@ -756,7 +760,14 @@ public partial class MainWindow : Window
             if (entry is DirectoryInfo d)
             {
                 if (hidden || SkipDirectories.Contains(d.Name)) continue;
-                dirs.Add(new { name = d.Name, path = d.FullName, dir = true });
+                dirs.Add(new
+                {
+                    name = d.Name,
+                    path = d.FullName,
+                    dir = true,
+                    mtime = new DateTimeOffset(d.LastWriteTimeUtc).ToUnixTimeMilliseconds(),
+                    ctime = new DateTimeOffset(d.CreationTimeUtc).ToUnixTimeMilliseconds()
+                });
             }
             else if (entry is FileInfo f)
             {
@@ -771,6 +782,7 @@ public partial class MainWindow : Window
                     dir = false,
                     size = f.Length,
                     mtime = new DateTimeOffset(f.LastWriteTimeUtc).ToUnixTimeMilliseconds(),
+                    ctime = new DateTimeOffset(f.CreationTimeUtc).ToUnixTimeMilliseconds(),
                     markdown = MarkdownExtensions.Contains(f.Extension),
                     text = TextExtensions.Contains(f.Extension)
                 });
@@ -835,6 +847,65 @@ public partial class MainWindow : Window
 
         var b64 = Convert.ToBase64String(File.ReadAllBytes(full));
         return new { url = $"data:{mime};base64,{b64}", path = full };
+    }
+
+    /*
+     * Indice raso da pasta: caminho, nome e datas de cada arquivo, sem abrir
+     * nenhum. E o que o filtro do painel de arquivos e o seletor rapido usam
+     * para procurar por nome sem depender do que ja foi expandido na arvore.
+     */
+    private object ListFilesRecursive(string root, int max)
+    {
+        var full = Path.GetFullPath(root);
+        if (!Directory.Exists(full)) throw new DirectoryNotFoundException(full);
+
+        var files = new List<object>();
+        var truncated = false;
+        var stack = new Stack<string>();
+        stack.Push(full);
+
+        while (stack.Count > 0)
+        {
+            if (files.Count >= max) { truncated = true; break; }
+            var dir = stack.Pop();
+
+            DirectoryInfo info;
+            try { info = new DirectoryInfo(dir); } catch { continue; }
+
+            IEnumerable<FileSystemInfo> entries;
+            try { entries = info.EnumerateFileSystemInfos().ToList(); } catch { continue; }
+
+            foreach (var entry in entries)
+            {
+                if (entry.Attributes.HasFlag(FileAttributes.Hidden)
+                 || entry.Attributes.HasFlag(FileAttributes.System)) continue;
+
+                if (entry is DirectoryInfo d)
+                {
+                    if (SkipDirectories.Contains(d.Name)) continue;
+                    if (d.Name.StartsWith('.')) continue;
+                    stack.Push(d.FullName);
+                }
+                else if (entry is FileInfo f)
+                {
+                    if (files.Count >= max) { truncated = true; break; }
+                    files.Add(new
+                    {
+                        name = f.Name,
+                        path = f.FullName,
+                        rel = Path.GetRelativePath(full, f.FullName),
+                        dir = false,
+                        size = f.Length,
+                        mtime = new DateTimeOffset(f.LastWriteTimeUtc).ToUnixTimeMilliseconds(),
+                        ctime = new DateTimeOffset(f.CreationTimeUtc).ToUnixTimeMilliseconds(),
+                        markdown = MarkdownExtensions.Contains(f.Extension),
+                        text = TextExtensions.Contains(f.Extension)
+                    });
+                }
+            }
+        }
+
+        return new { root = full, files, truncated };
     }
 
     private object GrepFolder(string root, string query, bool caseSensitive, bool useRegex, int maxResults)

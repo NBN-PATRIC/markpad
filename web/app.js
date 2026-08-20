@@ -79,6 +79,8 @@
     splitRatio: 0.5,
     restoreSession: true,
     treeOnlyMarkdown: true,
+    treeSort: 'nome-asc',
+    treeFoldersFirst: true,
     warnNonMarkdown: true,
     animations: true,
     quickBarVisible: true,
@@ -97,6 +99,9 @@
     nextId: 1,
     folder: null,
     treeOpen: Object.create(null),
+    treeFilter: '',
+    indice: null,
+    indiceDe: null,
     exePath: '',
     associated: false,
     find: { open: false, query: '', caseSensitive: false, regex: false, index: 0, total: 0 },
@@ -415,6 +420,9 @@
       staleOnDisk: false
     };
   }
+
+  var BARRA = /[\\/]/;
+  var SEPARADOR = /[\s\-_.,/\\()\[\]]/;
 
   var MARKDOWN_EXT = /\.(md|markdown|mdown|mkd|mdx)$/i;
 
@@ -1461,6 +1469,7 @@
 
   function setFolder(path, quiet) {
     app.folder = path;
+    invalidateFileIndex();
     $('folderName').textContent = path ? path.split(/[\\/]/).pop() : 'nenhuma pasta aberta';
     $('folderName').title = path || '';
     refreshTree();
@@ -1476,21 +1485,402 @@
       : 'Mostrando todos os arquivos — clique para ver só markdown';
   }
 
+  var ORDENS = [
+    { id: 'nome-asc',    rotulo: 'Nome (A a Z)' },
+    { id: 'nome-desc',   rotulo: 'Nome (Z a A)' },
+    { id: 'mod-desc',    rotulo: 'Modificado (recente primeiro)' },
+    { id: 'mod-asc',     rotulo: 'Modificado (antigo primeiro)' },
+    { id: 'criado-desc', rotulo: 'Criado (recente primeiro)' },
+    { id: 'criado-asc',  rotulo: 'Criado (antigo primeiro)' }
+  ];
+
+  /*
+   * Ordem natural: "cap 2" vem antes de "cap 10". O localeCompare com
+   * numeric faz isso sozinho; sem ele a lista sai em ordem de tabela ASCII,
+   * que e o tipo de detalhe que so incomoda depois do decimo arquivo.
+   */
+  function comparaNome(a, b) {
+    return a.name.localeCompare(b.name, 'pt-BR', { numeric: true, sensitivity: 'base' });
+  }
+
+  function ordenaEntradas(lista) {
+    var ordem = settings.treeSort || 'nome-asc';
+    var copia = lista.slice();
+
+    copia.sort(function (a, b) {
+      if (settings.treeFoldersFirst !== false && !!a.dir !== !!b.dir) return a.dir ? -1 : 1;
+
+      switch (ordem) {
+        case 'nome-desc':   return -comparaNome(a, b);
+        case 'mod-desc':    return (b.mtime || 0) - (a.mtime || 0) || comparaNome(a, b);
+        case 'mod-asc':     return (a.mtime || 0) - (b.mtime || 0) || comparaNome(a, b);
+        case 'criado-desc': return (b.ctime || 0) - (a.ctime || 0) || comparaNome(a, b);
+        case 'criado-asc':  return (a.ctime || 0) - (b.ctime || 0) || comparaNome(a, b);
+        default:            return comparaNome(a, b);
+      }
+    });
+    return copia;
+  }
+
+  function rotuloOrdem() {
+    var achado = ORDENS.filter(function (o) { return o.id === (settings.treeSort || 'nome-asc'); })[0];
+    return achado ? achado.rotulo : ORDENS[0].rotulo;
+  }
+
+  function treeSortMenu(x, y) {
+    var itens = ORDENS.map(function (o) {
+      return {
+        label: o.rotulo,
+        icon: 'sort',
+        checked: (settings.treeSort || 'nome-asc') === o.id,
+        action: function () { settings.treeSort = o.id; refreshTree(); persist(); }
+      };
+    });
+    itens.push('-');
+    itens.push({
+      label: 'Pastas antes dos arquivos',
+      icon: 'folder',
+      checked: settings.treeFoldersFirst !== false,
+      action: function () {
+        settings.treeFoldersFirst = settings.treeFoldersFirst === false;
+        refreshTree();
+        persist();
+      }
+    });
+    showMenu(itens, x, y);
+  }
+
+  /* Recolher tudo sem reler o disco: o aberto/fechado vive em app.treeOpen. */
+  function collapseTree() {
+    app.treeOpen = Object.create(null);
+    refreshTree();
+    persist();
+  }
+
+  // ---------------------------------------------------- indice de arquivos
+
+  /*
+   * O filtro do painel e o seletor rapido precisam enxergar a pasta inteira,
+   * nao so os galhos que o usuario ja expandiu. Este indice e um passeio
+   * unico pela pasta guardando caminho, nome e datas — nunca conteudo.
+   */
+  function fileIndex() {
+    if (!app.folder) return Promise.resolve([]);
+    if (app.indiceDe === app.folder && app.indice) return app.indice;
+    app.indiceDe = app.folder;
+    app.indice = bridge.call('listFiles', { root: app.folder })
+      .then(function (d) { return (d && d.files) || []; })
+      .catch(function () { return []; });
+    return app.indice;
+  }
+
+  function invalidateFileIndex() {
+    app.indice = null;
+    app.indiceDe = null;
+  }
+
+  /*
+   * Nota fuzzy: as letras da consulta precisam aparecer na ordem, mas nao
+   * coladas. Letra emendada na anterior vale mais, letra que abre palavra
+   * vale mais ainda — e assim "cmd" acha "casa/meu-doc.md" acima de um
+   * arquivo que so tem c, m e d espalhados.
+   */
+  function fuzzyScore(consulta, texto) {
+    var q = String(consulta || '').toLowerCase();
+    var t = String(texto || '').toLowerCase();
+    if (!q) return 0;
+
+    var pontos = 0, cursor = 0, ultimo = -2, seguidos = 0;
+
+    for (var j = 0; j < q.length; j++) {
+      var c = q.charAt(j);
+      if (c === ' ') continue;
+      var achou = t.indexOf(c, cursor);
+      if (achou === -1) return -1;
+
+      if (achou === ultimo + 1) { seguidos++; pontos += 6 + seguidos * 2; }
+      else { seguidos = 0; pontos += 1; }
+
+      if (achou === 0 || SEPARADOR.test(t.charAt(achou - 1))) pontos += 8;
+
+      ultimo = achou;
+      cursor = achou + 1;
+    }
+    return pontos - Math.max(0, t.length - q.length) * 0.05;
+  }
+
+  /* Devolve o texto com as letras casadas em <b>, sem passar por innerHTML. */
+  function marcaFuzzy(texto, consulta) {
+    var frag = document.createDocumentFragment();
+    var q = String(consulta || '').toLowerCase().replace(/\s+/g, '');
+    var t = String(texto || '');
+    if (!q) { frag.appendChild(document.createTextNode(t)); return frag; }
+
+    var baixo = t.toLowerCase();
+    var j = 0, buffer = '';
+
+    for (var i = 0; i < t.length; i++) {
+      if (j < q.length && baixo.charAt(i) === q.charAt(j)) {
+        if (buffer) { frag.appendChild(document.createTextNode(buffer)); buffer = ''; }
+        var b = document.createElement('b');
+        b.textContent = t.charAt(i);
+        frag.appendChild(b);
+        j++;
+      } else {
+        buffer += t.charAt(i);
+      }
+    }
+    if (buffer) frag.appendChild(document.createTextNode(buffer));
+    return frag;
+  }
+
+  /* Pontua nome e caminho, com o caminho valendo menos que o nome do arquivo. */
+  function pontuaArquivo(consulta, f) {
+    var nota = fuzzyScore(consulta, f.name);
+    if (nota >= 0) return nota;
+    nota = fuzzyScore(consulta, f.rel || f.path);
+    return nota < 0 ? -1 : nota - 20;
+  }
+
+  function filtraArquivos(consulta, arquivos) {
+    var achados = [];
+    arquivos.forEach(function (f) {
+      var nota = pontuaArquivo(consulta, f);
+      if (nota < 0) return;
+      achados.push({ f: f, nota: nota });
+    });
+    achados.sort(function (a, b) { return b.nota - a.nota || comparaNome(a.f, b.f); });
+    return achados;
+  }
+
+  function pastaDe(f) {
+    return String(f.rel || f.path || '').split(BARRA).slice(0, -1).join('/');
+  }
+
+  // ------------------------------------------------------ filtro do painel
+
+  function toggleTreeFilter(force) {
+    var linha = $('treeFilterRow');
+    var campo = $('treeFilterInput');
+    var abrir = force === undefined ? linha.hidden : force;
+
+    linha.hidden = !abrir;
+    $('btnTreeSearch').classList.toggle('is-on', abrir);
+
+    if (abrir) {
+      campo.focus();
+      campo.select();
+    } else if (app.treeFilter) {
+      app.treeFilter = '';
+      campo.value = '';
+      refreshTree();
+    }
+  }
+
+  /*
+   * Com filtro ligado a arvore vira lista rasa: hierarquia atrapalha quando
+   * o que se quer e "onde esta esse nome". A pasta de origem vai junto, em
+   * letra menor, para nao perder a referencia.
+   */
+  function renderTreeFlat(box) {
+    box.textContent = '';
+
+    var carregando = document.createElement('p');
+    carregando.className = 'pane-empty';
+    carregando.textContent = 'Procurando...';
+    box.appendChild(carregando);
+
+    var consulta = app.treeFilter;
+
+    fileIndex().then(function (arquivos) {
+      if (app.treeFilter !== consulta) return;
+      box.textContent = '';
+
+      var visiveis = arquivos.filter(function (f) {
+        return !settings.treeOnlyMarkdown || f.markdown;
+      });
+      var achados = filtraArquivos(consulta, visiveis);
+
+      if (!achados.length) {
+        var vazio = document.createElement('p');
+        vazio.className = 'pane-empty';
+        vazio.textContent = 'Nenhum arquivo com esse nome.';
+        box.appendChild(vazio);
+        return;
+      }
+
+      var limite = Math.min(achados.length, 300);
+      for (var i = 0; i < limite; i++) {
+        box.appendChild(linhaRasa(achados[i].f, consulta));
+      }
+
+      if (achados.length > limite) {
+        var mais = document.createElement('p');
+        mais.className = 'pane-empty';
+        mais.textContent = 'e mais ' + (achados.length - limite) + ' — refine o filtro.';
+        box.appendChild(mais);
+      }
+      markTreeActive();
+    });
+  }
+
+  function linhaRasa(f, consulta) {
+    var row = document.createElement('div');
+    row.className = 'tree-item is-flat';
+    row.style.setProperty('--indent', '6px');
+    row.setAttribute('data-path', f.path);
+    row.title = f.path;
+
+    var icon = document.createElement('span');
+    icon.className = 'twist';
+    var ic = window.MarkPadIcons.build('file-text', 13);
+    if (ic) icon.appendChild(ic);
+    row.appendChild(icon);
+
+    var name = document.createElement('span');
+    name.className = 'tree-name';
+    name.appendChild(marcaFuzzy(f.name, consulta));
+    row.appendChild(name);
+
+    var pasta = pastaDe(f);
+    if (pasta) {
+      var sub = document.createElement('span');
+      sub.className = 'tree-sub';
+      sub.textContent = pasta;
+      row.appendChild(sub);
+    }
+
+    row.onclick = function () { openPath(f.path); };
+    return row;
+  }
+
+  // ------------------------------------------------------- seletor rapido
+
+  /*
+   * Ctrl+P: abre um arquivo da pasta so pelo nome. Sem pasta aberta ele cai
+   * na lista de recentes, que e a unica coisa que ele tem para oferecer.
+   */
+  function openSwitcher() {
+    var box = $('switcher');
+    var input = $('switcherInput');
+    var listEl = $('switcherList');
+    var fonte = [];
+    var filtrados = [];
+    var active = 0;
+
+    function linhas(consulta) {
+      if (!consulta) return fonte.slice(0, 60);
+      return filtraArquivos(consulta, fonte).slice(0, 60).map(function (x) { return x.f; });
+    }
+
+    function draw() {
+      listEl.textContent = '';
+
+      if (!filtrados.length) {
+        var vazio = document.createElement('div');
+        vazio.className = 'palette-item is-empty';
+        vazio.textContent = app.folder
+          ? 'Nenhum arquivo com esse nome.'
+          : 'Abra uma pasta para procurar por nome.';
+        listEl.appendChild(vazio);
+        return;
+      }
+
+      filtrados.forEach(function (f, i) {
+        var el = document.createElement('div');
+        el.className = 'palette-item' + (i === active ? ' is-active' : '');
+
+        var ic = document.createElement('span');
+        ic.className = 'pal-icon';
+        var svg = window.MarkPadIcons.build('file-text', 15);
+        if (svg) ic.appendChild(svg);
+        el.appendChild(ic);
+
+        var nome = document.createElement('span');
+        nome.appendChild(marcaFuzzy(f.name, input.value.trim()));
+        el.appendChild(nome);
+
+        var pasta = pastaDe(f);
+        if (pasta) {
+          var sub = document.createElement('span');
+          sub.className = 'pal-sub';
+          sub.textContent = pasta;
+          el.appendChild(sub);
+        }
+
+        el.onclick = function () { fechar(); openPath(f.path); };
+        el.onmousemove = function () { if (active !== i) { active = i; draw(); } };
+        listEl.appendChild(el);
+      });
+
+      var cur = listEl.children[active];
+      if (cur) cur.scrollIntoView({ block: 'nearest' });
+    }
+
+    function fechar() {
+      box.hidden = true;
+      $('overlay').hidden = true;
+      document.removeEventListener('keydown', onKey, true);
+    }
+
+    function onKey(e) {
+      if (e.key === 'Escape') { e.preventDefault(); fechar(); return; }
+      if (e.key === 'ArrowDown') { e.preventDefault(); active = Math.min(active + 1, filtrados.length - 1); draw(); return; }
+      if (e.key === 'ArrowUp') { e.preventDefault(); active = Math.max(active - 1, 0); draw(); return; }
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        var f = filtrados[active];
+        fechar();
+        if (f) openPath(f.path);
+      }
+    }
+
+    input.value = '';
+    input.oninput = function () {
+      filtrados = linhas(input.value.trim());
+      active = 0;
+      draw();
+    };
+
+    box.hidden = false;
+    $('overlay').hidden = false;
+    $('overlay').onclick = fechar;
+    document.addEventListener('keydown', onKey, true);
+    input.focus();
+    draw();
+
+    var pronto = app.folder
+      ? fileIndex().then(function (arquivos) {
+          return arquivos.filter(function (f) { return !settings.treeOnlyMarkdown || f.markdown; });
+        })
+      : Promise.resolve((settings.recent || []).map(function (caminho) {
+          return { name: caminho.split(BARRA).pop(), path: caminho, rel: caminho, markdown: true };
+        }));
+
+    pronto.then(function (arquivos) {
+      if (box.hidden) return;
+      fonte = arquivos;
+      filtrados = linhas(input.value.trim());
+      draw();
+    });
+  }
+
   function refreshTree() {
     var box = $('fileTree');
     if (!app.folder) {
       box.innerHTML = '<p class="pane-empty">Abra uma pasta para navegar pelos arquivos.<br>Nao precisa de cofre.</p>';
       return;
     }
+    if (app.treeFilter) { renderTreeFlat(box); return; }
     box.textContent = '';
     buildTree(app.folder, box, 0);
   }
 
   function buildTree(dirPath, container, depth) {
     return bridge.call('listDir', { path: dirPath }).then(function (data) {
-      var visiveis = data.entries.filter(function (e) {
+      var visiveis = ordenaEntradas(data.entries.filter(function (e) {
         return e.dir || !settings.treeOnlyMarkdown || e.markdown;
-      });
+      }));
 
       if (!visiveis.length && depth === 0) {
         var aviso = document.createElement('p');
@@ -1993,13 +2383,17 @@
       { id: 'zoomReset', label: 'Fonte padrao', key: 'Ctrl+0', icon: 'refresh', action: function () { settings.fontSize = 16; settings.editorFontSize = 14; applyFontSizes(); renderStatus(); persist(); } },
       { id: 'sidebar', label: 'Painel lateral', key: 'Ctrl+\\', icon: 'panel-left', checked: settings.sidebarVisible, action: function () { toggleSidebar(); } },
       { id: 'export', label: 'Exportar como HTML...', icon: 'external', enabled: !!tab, action: exportHtml },
-      { id: 'print', label: 'Imprimir', key: 'Ctrl+P', icon: 'printer', enabled: !!tab, action: doPrint },
+      { id: 'print', label: 'Imprimir', key: 'Ctrl+Alt+P', icon: 'printer', enabled: !!tab, action: doPrint },
       { id: 'copyPath', label: 'Copiar caminho do arquivo', icon: 'copy', enabled: !!(tab && tab.path), action: function () { navigator.clipboard.writeText(activeTab().path); toast('Caminho copiado.', 'ok', 1200); } },
       { id: 'reveal', label: 'Mostrar no Explorer', icon: 'reveal', enabled: !!(tab && tab.path), action: function () { bridge.call('revealInExplorer', { path: activeTab().path }); } },
       { id: 'assoc', label: app.isDefault ? 'Remover o MarkPad como padrao de .md'
           : app.associated ? 'Definir o MarkPad como padrao de .md'
           : 'Abrir arquivos .md com o MarkPad',
         icon: 'link', checked: app.isDefault, action: toggleAssociation },
+      { id: 'switcher', label: 'Abrir arquivo pelo nome...', key: 'Ctrl+P', icon: 'search', action: function () { openSwitcher(); } },
+      { id: 'treeSearch', label: 'Filtrar arquivos por nome', icon: 'filter', action: function () { setPane('files'); toggleTreeFilter(true); } },
+      { id: 'treeSort', label: 'Ordenar arquivos por...', icon: 'sort', action: function () { setPane('files'); var r = $('btnTreeSort').getBoundingClientRect(); treeSortMenu(r.right - 250, r.bottom + 4); } },
+      { id: 'treeCollapse', label: 'Recolher todas as pastas', icon: 'chevrons-up', enabled: !!app.folder, action: collapseTree },
       { id: 'quickBar', label: 'Barra de acesso rapido', icon: 'command', checked: settings.quickBarVisible, action: function () { settings.quickBarVisible = !settings.quickBarVisible; renderQuickBar(); persist(); } },
       { id: 'settings', label: 'Configuracoes...', key: 'Ctrl+,', icon: 'settings', action: function () { openSettings(); } },
       { id: 'devtools', label: 'Ferramentas do desenvolvedor', icon: 'settings', action: function () { bridge.call('devTools', {}); } }
@@ -2016,7 +2410,8 @@
   var QUICK_DISPONIVEIS = [
     'open', 'openFolder', 'new', 'save', 'saveAs', 'close', 'reload',
     'lock', 'modeSource', 'modeSplit',
-    'find', 'findFolder', 'goto', 'foldAll', 'unfoldAll',
+    'find', 'findFolder', 'switcher', 'goto', 'foldAll', 'unfoldAll',
+    'treeSearch', 'treeSort', 'treeCollapse',
     'wrap', 'gutter', 'wide', 'theme', 'sidebar',
     'export', 'print', 'copyPath', 'reveal'
   ];
@@ -2350,6 +2745,15 @@
     setToggle(setLinha(pai, 'Mostrar so arquivos markdown', 'Desligado, a arvore lista todos os arquivos da pasta.'),
       function () { return settings.treeOnlyMarkdown; },
       function (v) { settings.treeOnlyMarkdown = v; renderTreeFilter(); refreshTree(); persist(); });
+
+    setSelect(setLinha(pai, 'Ordenar por', 'Vale para a arvore inteira. Tambem esta no botao de ordenar do painel.'),
+      ORDENS.map(function (o) { return { value: o.id, label: o.rotulo }; }),
+      function () { return settings.treeSort || 'nome-asc'; },
+      function (v) { settings.treeSort = v; refreshTree(); persist(); });
+
+    setToggle(setLinha(pai, 'Pastas antes dos arquivos', 'Desligado, pastas e arquivos entram na mesma ordenacao.'),
+      function () { return settings.treeFoldersFirst !== false; },
+      function (v) { settings.treeFoldersFirst = v; refreshTree(); persist(); });
 
     setSecao(pai, 'Ao abrir');
     setToggle(setLinha(pai, 'Avisar ao abrir arquivo nao-markdown', 'A confirmacao antes de abrir algo que nao parece markdown.'),
@@ -2918,8 +3322,10 @@
           return;
         case 'g': e.preventDefault(); promptGoToLine(); return;
         case 'p':
+          // Ctrl+P abre arquivo pelo nome, como em qualquer editor. Imprimir
+          // saiu para Ctrl+Alt+P e continua no menu, na paleta e na barra.
           e.preventDefault();
-          e.shiftKey ? openPalette() : doPrint();
+          e.shiftKey ? openPalette() : openSwitcher();
           return;
         case '\\': e.preventDefault(); toggleSidebar(); return;
         case 'tab':
@@ -2953,6 +3359,8 @@
       if (sk === 'l') { e.preventDefault(); togglePreviewPane(); return; }
     }
 
+    if (ctrl && e.altKey && e.key.toLowerCase() === 'p') { e.preventDefault(); doPrint(); return; }
+
     if (e.altKey && e.key.toLowerCase() === 'z') {
       e.preventDefault();
       settings.wordWrap = !settings.wordWrap;
@@ -2964,7 +3372,7 @@
     }
 
     if (e.key === 'Escape') {
-      if (!$('palette').hidden) return;
+      if (!$('palette').hidden || !$('switcher').hidden) return;
       if (!$('menu').hidden) { hideMenu(); return; }
       if (app.find.open) { e.preventDefault(); closeFind(); return; }
     }
@@ -2976,6 +3384,10 @@
     }
     if (e.target === $('replaceInput')) {
       if (e.key === 'Enter') { e.preventDefault(); replaceCurrent(); return; }
+      return;
+    }
+    if (e.target === $('treeFilterInput')) {
+      if (e.key === 'Escape') { e.preventDefault(); toggleTreeFilter(false); }
       return;
     }
     if (e.target === $('folderSearchInput')) {
@@ -3147,7 +3559,30 @@
     $('btnNewTab').onclick = newTab;
     $('btnCommandPalette').onclick = openPalette;
     $('btnOpenFolder').onclick = doOpenFolder;
-    $('btnRefreshTree').onclick = function () { app.treeOpen = Object.create(null); refreshTree(); };
+    $('btnRefreshTree').onclick = function () {
+      invalidateFileIndex();
+      app.treeOpen = Object.create(null);
+      refreshTree();
+    };
+    $('btnTreeSearch').onclick = function () { toggleTreeFilter(); };
+    $('btnTreeSort').onclick = function (e) {
+      var r = e.currentTarget.getBoundingClientRect();
+      treeSortMenu(r.right - 250, r.bottom + 4);
+    };
+    $('btnTreeCollapse').onclick = collapseTree;
+
+    // O filtro do painel espera o usuario parar de digitar: cada tecla
+    // reordenaria a lista inteira, e a lista pisca mais do que ajuda.
+    var treeFilterTimer = null;
+    $('treeFilterInput').addEventListener('input', function (ev) {
+      var valor = ev.target.value.trim();
+      clearTimeout(treeFilterTimer);
+      treeFilterTimer = setTimeout(function () {
+        if (app.treeFilter === valor) return;
+        app.treeFilter = valor;
+        refreshTree();
+      }, 160);
+    });
     $('btnTreeFilter').onclick = function () {
       settings.treeOnlyMarkdown = !settings.treeOnlyMarkdown;
       renderTreeFilter();

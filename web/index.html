@@ -42,9 +42,15 @@
           <header class="pane-head">
             <span class="pane-title" id="folderName">nenhuma pasta aberta</span>
             <button class="chip" id="btnTreeFilter" title="Alternar entre só markdown e todos os arquivos">.md</button>
+            <button class="icon-btn small" id="btnTreeSearch" data-icon="search" title="Filtrar por nome"></button>
+            <button class="icon-btn small" id="btnTreeSort" data-icon="sort" title="Ordenar"></button>
+            <button class="icon-btn small" id="btnTreeCollapse" data-icon="chevrons-up" title="Recolher tudo"></button>
             <button class="icon-btn small" id="btnOpenFolder" data-icon="folder-open" title="Abrir pasta (Ctrl+Shift+O)"></button>
             <button class="icon-btn small" id="btnRefreshTree" data-icon="refresh" title="Atualizar"></button>
           </header>
+          <div class="pane-controls" id="treeFilterRow" hidden>
+            <input type="text" id="treeFilterInput" class="text-input" placeholder="filtrar por nome" spellcheck="false">
+          </div>
           <div class="pane-scroll">
             <div class="file-tree" id="fileTree">
               <p class="pane-empty">Abra uma pasta para navegar pelos arquivos.<br>Nao precisa de cofre.</p>
@@ -217,6 +223,10 @@
 <div class="palette" id="palette" hidden>
   <input type="text" class="palette-input" id="paletteInput" placeholder="Digite um comando" spellcheck="false">
   <div class="palette-list" id="paletteList"></div>
+</div>
+<div class="palette" id="switcher" hidden>
+  <input type="text" class="palette-input" id="switcherInput" placeholder="Abrir arquivo pelo nome" spellcheck="false">
+  <div class="palette-list" id="switcherList"></div>
 </div>
 <div class="toasts" id="toasts"></div>
 
