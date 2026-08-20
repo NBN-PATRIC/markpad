@@ -80,6 +80,11 @@
     restoreSession: true,
     treeOnlyMarkdown: true,
     warnNonMarkdown: true,
+    animations: true,
+    quickBarVisible: true,
+    quickBarLabels: false,
+    quickBar: ['open', 'openFolder', 'new', 'save', 'close', 'lock', 'find'],
+    checkUpdates: true,
     recent: [],
     lastFolder: null,
     session: []
@@ -694,6 +699,7 @@
 
   function renderAll() {
     renderTabs();
+    renderQuickBar();
     renderHeader();
     renderViews();
     renderStatus();
@@ -1994,8 +2000,613 @@
           : app.associated ? 'Definir o MarkPad como padrao de .md'
           : 'Abrir arquivos .md com o MarkPad',
         icon: 'link', checked: app.isDefault, action: toggleAssociation },
+      { id: 'quickBar', label: 'Barra de acesso rapido', icon: 'command', checked: settings.quickBarVisible, action: function () { settings.quickBarVisible = !settings.quickBarVisible; renderQuickBar(); persist(); } },
+      { id: 'settings', label: 'Configuracoes...', key: 'Ctrl+,', icon: 'settings', action: function () { openSettings(); } },
       { id: 'devtools', label: 'Ferramentas do desenvolvedor', icon: 'settings', action: function () { bridge.call('devTools', {}); } }
     ];
+  }
+
+  // ================================================ barra de acesso rapido
+
+  /*
+   * A barra nao tem lista propria de acoes: ela desenha comandos de
+   * commands(). Assim um comando novo ja nasce disponivel aqui, e o estado
+   * (habilitado/marcado) segue a aba ativa sem codigo extra.
+   */
+  var QUICK_DISPONIVEIS = [
+    'open', 'openFolder', 'new', 'save', 'saveAs', 'close', 'reload',
+    'lock', 'modeSource', 'modeSplit',
+    'find', 'findFolder', 'goto', 'foldAll', 'unfoldAll',
+    'wrap', 'gutter', 'wide', 'theme', 'sidebar',
+    'export', 'print', 'copyPath', 'reveal'
+  ];
+
+  function renderQuickBar() {
+    var bar = $('quickBar');
+    if (!bar) return;
+
+    bar.hidden = !settings.quickBarVisible;
+    if (!settings.quickBarVisible) return;
+
+    var byId = {};
+    commands().forEach(function (c) { byId[c.id] = c; });
+
+    bar.textContent = '';
+    bar.classList.toggle('has-labels', !!settings.quickBarLabels);
+
+    (settings.quickBar || []).forEach(function (id) {
+      var c = byId[id];
+      if (!c) return;
+
+      var b = document.createElement('button');
+      b.className = 'quick-btn' + (c.checked ? ' is-active' : '');
+      b.title = c.label + (c.key ? '   ' + c.key : '');
+      b.disabled = c.enabled === false;
+
+      var svg = window.MarkPadIcons.build(c.icon || 'command', 16);
+      if (svg) b.appendChild(svg);
+
+      if (settings.quickBarLabels) {
+        var t = document.createElement('span');
+        t.className = 'quick-label';
+        t.textContent = c.label.replace(/\.\.\.$/, '');
+        b.appendChild(t);
+      }
+
+      b.onclick = function () { if (c.enabled !== false) c.action(); };
+      bar.appendChild(b);
+    });
+
+    var spacer = document.createElement('div');
+    spacer.className = 'quick-spacer';
+    bar.appendChild(spacer);
+
+    var cfg = document.createElement('button');
+    cfg.className = 'quick-btn';
+    cfg.title = 'Configuracoes   Ctrl+,';
+    var gear = window.MarkPadIcons.build('settings', 16);
+    if (gear) cfg.appendChild(gear);
+    cfg.onclick = function () { openSettings(); };
+    bar.appendChild(cfg);
+
+    bar.oncontextmenu = function (e) {
+      e.preventDefault();
+      showMenu([
+        { label: 'Configurar a barra...', icon: 'settings', action: function () { openSettings('barra'); } },
+        { label: 'Mostrar rotulos', icon: 'text', checked: settings.quickBarLabels,
+          action: function () { settings.quickBarLabels = !settings.quickBarLabels; renderQuickBar(); persist(); } },
+        '-',
+        { label: 'Ocultar a barra', icon: 'x',
+          action: function () { settings.quickBarVisible = false; renderQuickBar(); persist(); } }
+      ], e.clientX, e.clientY);
+    };
+  }
+
+  // ========================================================= configuracoes
+
+  /*
+   * dialog() so sabe titulo + texto + botoes. A tela de configuracoes tem
+   * desenho proprio, mas reusa o mesmo overlay e o mesmo ciclo de vida:
+   * Esc fecha, clique fora fecha, nada fica pendurado no DOM depois.
+   */
+
+  function setSecao(pai, nome) {
+    var h = document.createElement('h3');
+    h.className = 'set-section';
+    h.textContent = nome;
+    pai.appendChild(h);
+  }
+
+  function setLinha(pai, titulo, descricao) {
+    var row = document.createElement('div');
+    row.className = 'set-row';
+
+    var info = document.createElement('div');
+    info.className = 'set-info';
+
+    var t = document.createElement('div');
+    t.className = 'set-title';
+    t.textContent = titulo;
+    info.appendChild(t);
+
+    if (descricao) {
+      var d = document.createElement('div');
+      d.className = 'set-desc';
+      d.textContent = descricao;
+      info.appendChild(d);
+    }
+
+    var ctl = document.createElement('div');
+    ctl.className = 'set-control';
+
+    row.appendChild(info);
+    row.appendChild(ctl);
+    pai.appendChild(row);
+    return ctl;
+  }
+
+  function setToggle(ctl, get, set) {
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'switch' + (get() ? ' is-on' : '');
+    b.setAttribute('role', 'switch');
+    b.setAttribute('aria-checked', get() ? 'true' : 'false');
+
+    var knob = document.createElement('span');
+    knob.className = 'switch-knob';
+    b.appendChild(knob);
+
+    b.onclick = function () {
+      set(!get());
+      b.classList.toggle('is-on', !!get());
+      b.setAttribute('aria-checked', get() ? 'true' : 'false');
+    };
+
+    ctl.appendChild(b);
+    return b;
+  }
+
+  function setSelect(ctl, opcoes, get, set) {
+    var s = document.createElement('select');
+    s.className = 'set-select';
+    opcoes.forEach(function (o) {
+      var op = document.createElement('option');
+      op.value = o.value;
+      op.textContent = o.label;
+      s.appendChild(op);
+    });
+    s.value = String(get());
+    s.onchange = function () { set(s.value); };
+    ctl.appendChild(s);
+    return s;
+  }
+
+  function setRange(ctl, min, max, step, sufixo, get, set) {
+    var r = document.createElement('input');
+    r.type = 'range';
+    r.min = String(min); r.max = String(max); r.step = String(step);
+    r.value = String(get());
+    r.className = 'set-range';
+
+    var v = document.createElement('span');
+    v.className = 'set-value';
+    v.textContent = get() + sufixo;
+
+    r.oninput = function () { set(Number(r.value)); v.textContent = r.value + sufixo; };
+
+    ctl.appendChild(r);
+    ctl.appendChild(v);
+    return r;
+  }
+
+  function setBotao(ctl, rotulo, fn, cls) {
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'btn tiny' + (cls ? ' ' + cls : '');
+    b.textContent = rotulo;
+    b.onclick = fn;
+    ctl.appendChild(b);
+    return b;
+  }
+
+  function openSettings(abaInicial) {
+    if ($('settingsBox')) return;
+
+    var ABAS = [
+      { id: 'aparencia',   nome: 'Aparencia',      icon: 'sun',       render: abaAparencia },
+      { id: 'editor',      nome: 'Editor e trava', icon: 'lock',      render: abaEditor },
+      { id: 'arquivos',    nome: 'Arquivos',       icon: 'folder',    render: abaArquivos },
+      { id: 'barra',       nome: 'Barra rapida',   icon: 'command',   render: abaBarra },
+      { id: 'atalhos',     nome: 'Atalhos',        icon: 'list',      render: abaAtalhos },
+      { id: 'atualizacao', nome: 'Atualizacoes',   icon: 'refresh',   render: abaAtualizacao },
+      { id: 'sobre',       nome: 'Sobre',          icon: 'info',      render: abaSobre }
+    ];
+
+    var atual = abaInicial || 'aparencia';
+    var overlay = $('overlay');
+
+    var box = document.createElement('div');
+    box.id = 'settingsBox';
+    box.className = 'settings-dialog';
+
+    var nav = document.createElement('div');
+    nav.className = 'settings-nav';
+
+    var navTitle = document.createElement('div');
+    navTitle.className = 'settings-nav-title';
+    navTitle.textContent = 'Configuracoes';
+    nav.appendChild(navTitle);
+
+    var body = document.createElement('div');
+    body.className = 'settings-body';
+
+    var head = document.createElement('div');
+    head.className = 'settings-head';
+
+    var h = document.createElement('h2');
+    head.appendChild(h);
+
+    var btnFechar = document.createElement('button');
+    btnFechar.className = 'icon-btn';
+    btnFechar.title = 'Fechar (Esc)';
+    var xi = window.MarkPadIcons.build('x', 16);
+    if (xi) btnFechar.appendChild(xi);
+    btnFechar.onclick = function () { fechar(); };
+    head.appendChild(btnFechar);
+
+    var scroll = document.createElement('div');
+    scroll.className = 'settings-scroll';
+
+    body.appendChild(head);
+    body.appendChild(scroll);
+    box.appendChild(nav);
+    box.appendChild(body);
+
+    var botoesNav = {};
+    ABAS.forEach(function (aba) {
+      var b = document.createElement('button');
+      b.className = 'settings-nav-item';
+      var ic = window.MarkPadIcons.build(aba.icon, 15);
+      if (ic) b.appendChild(ic);
+      var t = document.createElement('span');
+      t.textContent = aba.nome;
+      b.appendChild(t);
+      b.onclick = function () { ir(aba.id); };
+      nav.appendChild(b);
+      botoesNav[aba.id] = b;
+    });
+
+    function ir(id) {
+      atual = id;
+      var aba = null;
+      ABAS.forEach(function (a) {
+        botoesNav[a.id].classList.toggle('is-active', a.id === id);
+        if (a.id === id) aba = a;
+      });
+      if (!aba) return;
+      h.textContent = aba.nome;
+      scroll.textContent = '';
+      scroll.scrollTop = 0;
+      aba.render(scroll, ir);
+    }
+
+    function fechar() {
+      overlay.hidden = true;
+      overlay.onclick = null;
+      box.remove();
+      document.removeEventListener('keydown', onKey, true);
+      persist();
+    }
+
+    function onKey(e) {
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); fechar(); }
+    }
+
+    document.body.appendChild(box);
+    overlay.hidden = false;
+    overlay.onclick = fechar;
+    document.addEventListener('keydown', onKey, true);
+    ir(atual);
+  }
+
+  function abaAparencia(pai) {
+    setSecao(pai, 'Tema');
+    setSelect(setLinha(pai, 'Tema da janela', 'O tema "sistema" segue a configuracao do Windows.'),
+      [{ value: 'dark', label: 'Escuro' }, { value: 'light', label: 'Claro' }, { value: 'system', label: 'Sistema' }],
+      function () { return settings.theme; },
+      function (v) { settings.theme = v; applyTheme(); renderStatus(); persist(); });
+
+    setSecao(pai, 'Texto');
+    setRange(setLinha(pai, 'Tamanho da fonte de leitura', 'Vale para o modo leitura e para o painel de leitura.'),
+      12, 26, 1, 'px',
+      function () { return settings.fontSize; },
+      function (v) { settings.fontSize = v; applyFontSizes(); renderStatus(); persist(); });
+
+    setRange(setLinha(pai, 'Tamanho da fonte do editor', 'Vale para o painel de codigo-fonte.'),
+      10, 22, 1, 'px',
+      function () { return settings.editorFontSize; },
+      function (v) { settings.editorFontSize = v; applyFontSizes(); renderStatus(); persist(); });
+
+    setToggle(setLinha(pai, 'Largura total da linha', 'Desligado, o texto fica numa coluna estreita, mais confortavel de ler.'),
+      function () { return settings.wideLines; },
+      function (v) { settings.wideLines = v; applyFontSizes(); persist(); });
+
+    setSecao(pai, 'Janela');
+    setToggle(setLinha(pai, 'Painel lateral visivel', 'Ctrl+\\ tambem alterna.'),
+      function () { return settings.sidebarVisible; },
+      function (v) { toggleSidebar(v); });
+
+    setToggle(setLinha(pai, 'Animacoes', 'Desligue para uma interface instantanea, sem transicoes.'),
+      function () { return settings.animations !== false; },
+      function (v) { settings.animations = v; applyAnimations(); persist(); });
+  }
+
+  function abaEditor(pai) {
+    setSecao(pai, 'A trava');
+    setToggle(setLinha(pai, 'Abrir sempre travado', 'O jeito seguro: nenhum arquivo abre em modo de edicao.'),
+      function () { return settings.lockOnOpen; },
+      function (v) { settings.lockOnOpen = v; persist(); });
+
+    setToggle(setLinha(pai, 'Pedir confirmacao ao destravar', 'Uma pergunta a mais antes de liberar a edicao.'),
+      function () { return settings.confirmUnlock; },
+      function (v) { settings.confirmUnlock = v; persist(); });
+
+    setSecao(pai, 'Edicao');
+    setToggle(setLinha(pai, 'Salvar automaticamente', 'Grava sozinho pouco depois de voce parar de digitar.'),
+      function () { return settings.autoSave; },
+      function (v) { settings.autoSave = v; persist(); });
+
+    setToggle(setLinha(pai, 'Quebra automatica de linha', 'Alt+Z tambem alterna.'),
+      function () { return settings.wordWrap; },
+      function (v) { settings.wordWrap = v; applyWrap(); renderEditorHighlight(); renderStatus(); persist(); });
+
+    setToggle(setLinha(pai, 'Numeros de linha', 'Na margem do painel de codigo-fonte.'),
+      function () { return settings.lineNumbers; },
+      function (v) { settings.lineNumbers = v; renderEditorHighlight(); persist(); });
+  }
+
+  function abaArquivos(pai) {
+    setSecao(pai, 'Painel de arquivos');
+    setToggle(setLinha(pai, 'Mostrar so arquivos markdown', 'Desligado, a arvore lista todos os arquivos da pasta.'),
+      function () { return settings.treeOnlyMarkdown; },
+      function (v) { settings.treeOnlyMarkdown = v; renderTreeFilter(); refreshTree(); persist(); });
+
+    setSecao(pai, 'Ao abrir');
+    setToggle(setLinha(pai, 'Avisar ao abrir arquivo nao-markdown', 'A confirmacao antes de abrir algo que nao parece markdown.'),
+      function () { return settings.warnNonMarkdown; },
+      function (v) { settings.warnNonMarkdown = v; persist(); });
+
+    setToggle(setLinha(pai, 'Restaurar a sessao anterior', 'Reabre as abas e a pasta que estavam abertas.'),
+      function () { return settings.restoreSession; },
+      function (v) { settings.restoreSession = v; persist(); });
+
+    setToggle(setLinha(pai, 'Carregar imagens da internet', 'Desligado, so imagens do proprio disco aparecem. Mais privado.'),
+      function () { return settings.loadRemoteImages; },
+      function (v) { settings.loadRemoteImages = v; renderViews(); persist(); });
+
+    setSecao(pai, 'Windows');
+    var assoc = setLinha(pai, 'Arquivos .md',
+      app.isDefault ? 'O MarkPad e o aplicativo padrao para .md.'
+        : app.associated ? 'O MarkPad aparece em "Abrir com". Ainda nao e o padrao.'
+        : 'O MarkPad ainda nao esta registrado para .md.');
+    setBotao(assoc, app.isDefault ? 'Remover' : app.associated ? 'Tornar padrao' : 'Registrar',
+      function () { toggleAssociation(); });
+
+    var dados = setLinha(pai, 'Pasta de dados',
+      (app.portable ? 'Modo portatil. ' : '') + (app.dataRoot || ''));
+    setBotao(dados, 'Abrir', function () {
+      if (app.dataRoot) bridge.call('revealInExplorer', { path: app.dataRoot });
+    });
+  }
+
+  function abaBarra(pai, ir) {
+    setSecao(pai, 'A barra');
+    setToggle(setLinha(pai, 'Mostrar a barra de acesso rapido', 'A fileira de botoes abaixo das abas.'),
+      function () { return settings.quickBarVisible; },
+      function (v) { settings.quickBarVisible = v; renderQuickBar(); persist(); });
+
+    setToggle(setLinha(pai, 'Mostrar os rotulos', 'Com o nome ao lado do icone, a barra fica mais larga.'),
+      function () { return settings.quickBarLabels; },
+      function (v) { settings.quickBarLabels = v; renderQuickBar(); persist(); });
+
+    setSecao(pai, 'Botoes');
+
+    var byId = {};
+    commands().forEach(function (c) { byId[c.id] = c; });
+
+    var lista = document.createElement('div');
+    lista.className = 'quick-editor';
+    pai.appendChild(lista);
+
+    function redesenhar() {
+      renderQuickBar();
+      persist();
+      ir('barra');
+    }
+
+    (settings.quickBar || []).forEach(function (id, i) {
+      var c = byId[id];
+      if (!c) return;
+
+      var item = document.createElement('div');
+      item.className = 'quick-editor-item';
+
+      var ic = window.MarkPadIcons.build(c.icon || 'command', 15);
+      if (ic) item.appendChild(ic);
+
+      var nome = document.createElement('span');
+      nome.className = 'quick-editor-name';
+      nome.textContent = c.label.replace(/\.\.\.$/, '');
+      item.appendChild(nome);
+
+      if (c.key) {
+        var k = document.createElement('span');
+        k.className = 'quick-editor-key';
+        k.textContent = c.key;
+        item.appendChild(k);
+      }
+
+      function acao(icone, titulo, fn, desativado) {
+        var b = document.createElement('button');
+        b.className = 'icon-btn small';
+        b.title = titulo;
+        b.disabled = !!desativado;
+        var s = window.MarkPadIcons.build(icone, 14);
+        if (s) b.appendChild(s);
+        b.onclick = fn;
+        item.appendChild(b);
+      }
+
+      acao('chevron-up', 'Subir', function () {
+        var arr = settings.quickBar;
+        var tmp = arr[i - 1]; arr[i - 1] = arr[i]; arr[i] = tmp;
+        redesenhar();
+      }, i === 0);
+
+      acao('chevron-down', 'Descer', function () {
+        var arr = settings.quickBar;
+        var tmp = arr[i + 1]; arr[i + 1] = arr[i]; arr[i] = tmp;
+        redesenhar();
+      }, i === settings.quickBar.length - 1);
+
+      acao('x', 'Tirar da barra', function () {
+        settings.quickBar.splice(i, 1);
+        redesenhar();
+      });
+
+      lista.appendChild(item);
+    });
+
+    if (!settings.quickBar || !settings.quickBar.length) {
+      var vazio = document.createElement('p');
+      vazio.className = 'set-desc';
+      vazio.textContent = 'A barra esta vazia. Escolha um comando abaixo para comecar.';
+      lista.appendChild(vazio);
+    }
+
+    var faltando = QUICK_DISPONIVEIS.filter(function (id) {
+      return byId[id] && (settings.quickBar || []).indexOf(id) < 0;
+    });
+
+    var addCtl = setLinha(pai, 'Adicionar um botao', faltando.length ? '' : 'Todos os comandos ja estao na barra.');
+    if (faltando.length) {
+      var sel = document.createElement('select');
+      sel.className = 'set-select';
+      var vazioOpt = document.createElement('option');
+      vazioOpt.value = '';
+      vazioOpt.textContent = 'escolha um comando';
+      sel.appendChild(vazioOpt);
+      faltando.forEach(function (id) {
+        var o = document.createElement('option');
+        o.value = id;
+        o.textContent = byId[id].label.replace(/\.\.\.$/, '');
+        sel.appendChild(o);
+      });
+      sel.onchange = function () {
+        if (!sel.value) return;
+        settings.quickBar.push(sel.value);
+        redesenhar();
+      };
+      addCtl.appendChild(sel);
+    }
+
+    var padraoCtl = setLinha(pai, 'Restaurar o padrao', 'Volta a barra para os sete botoes originais.');
+    setBotao(padraoCtl, 'Restaurar', function () {
+      settings.quickBar = DEFAULTS.quickBar.slice();
+      settings.quickBarLabels = DEFAULTS.quickBarLabels;
+      settings.quickBarVisible = DEFAULTS.quickBarVisible;
+      redesenhar();
+    });
+  }
+
+  function abaAtalhos(pai) {
+    var busca = document.createElement('input');
+    busca.type = 'text';
+    busca.className = 'text-input settings-filter';
+    busca.placeholder = 'Filtrar comandos';
+    busca.spellcheck = false;
+    pai.appendChild(busca);
+
+    var lista = document.createElement('div');
+    lista.className = 'hotkey-list';
+    pai.appendChild(lista);
+
+    var todos = commands();
+
+    function desenhar() {
+      var q = busca.value.trim().toLowerCase();
+      lista.textContent = '';
+
+      var n = 0;
+      todos.forEach(function (c) {
+        if (q && c.label.toLowerCase().indexOf(q) < 0 && (!c.key || c.key.toLowerCase().indexOf(q) < 0)) return;
+        n++;
+
+        var row = document.createElement('div');
+        row.className = 'hotkey-row';
+
+        var ic = window.MarkPadIcons.build(c.icon || 'command', 15);
+        if (ic) row.appendChild(ic);
+
+        var nome = document.createElement('span');
+        nome.className = 'hotkey-name';
+        nome.textContent = c.label;
+        row.appendChild(nome);
+
+        var key = document.createElement('span');
+        key.className = 'hotkey-key' + (c.key ? '' : ' is-empty');
+        key.textContent = c.key || 'sem atalho';
+        row.appendChild(key);
+
+        lista.appendChild(row);
+      });
+
+      if (!n) {
+        var vazio = document.createElement('p');
+        vazio.className = 'set-desc';
+        vazio.textContent = 'Nenhum comando com esse nome.';
+        lista.appendChild(vazio);
+      }
+    }
+
+    busca.oninput = desenhar;
+    desenhar();
+    setTimeout(function () { busca.focus(); }, 0);
+  }
+
+  function abaAtualizacao(pai) {
+    setSecao(pai, 'Versao');
+    var v = setLinha(pai, 'Versao instalada',
+      'MarkPad ' + (app.version || '?') + (app.portable ? ' (portatil)' : ''));
+    setBotao(v, 'Ver as versoes', function () {
+      bridge.call('openExternal', { url: 'https://github.com/NBN-PATRIC/markpad/releases' });
+    });
+
+    setSecao(pai, 'Atualizacao automatica');
+    setToggle(setLinha(pai, 'Procurar atualizacoes ao abrir',
+      'Consulta as versoes publicadas no GitHub quando o MarkPad inicia. Nada e baixado sem voce mandar.'),
+      function () { return settings.checkUpdates !== false; },
+      function (val) { settings.checkUpdates = val; persist(); });
+
+    var nota = document.createElement('p');
+    nota.className = 'set-desc set-note';
+    nota.textContent = 'A consulta ainda nao esta ligada nesta versao — a preferencia acima ja fica guardada '
+      + 'e passa a valer assim que a verificacao entrar. Ate la, use o botao "Ver as versoes".';
+    pai.appendChild(nota);
+  }
+
+  function abaSobre(pai) {
+    setSecao(pai, 'MarkPad');
+
+    var p = document.createElement('p');
+    p.className = 'set-desc';
+    p.textContent = 'Leitor e editor de Markdown para Windows. Sem cofre, sem projeto, sem cerimonia: '
+      + 'abre um arquivo e pronto. Todo arquivo abre travado — no estado travado nao existe campo de '
+      + 'texto na tela, entao nao ha tecla que edite, apague ou digite nada.';
+    pai.appendChild(p);
+
+    setLinha(pai, 'Versao', 'MarkPad ' + (app.version || '?'));
+    setLinha(pai, 'Instalacao', app.portable ? 'Portatil' : 'Instalado');
+    setLinha(pai, 'Licenca', 'MIT');
+
+    setSecao(pai, 'Links');
+    var repo = setLinha(pai, 'Codigo-fonte', 'github.com/NBN-PATRIC/markpad');
+    setBotao(repo, 'Abrir', function () {
+      bridge.call('openExternal', { url: 'https://github.com/NBN-PATRIC/markpad' });
+    });
+
+    var bug = setLinha(pai, 'Relatar um problema', 'Abre a pagina de issues do repositorio.');
+    setBotao(bug, 'Abrir', function () {
+      bridge.call('openExternal', { url: 'https://github.com/NBN-PATRIC/markpad/issues' });
+    });
+
+    setSecao(pai, 'Diagnostico');
+    var dev = setLinha(pai, 'Ferramentas do desenvolvedor', 'Console do WebView2, para investigar um erro.');
+    setBotao(dev, 'Abrir', function () { bridge.call('devTools', {}); });
+  }
+
+  function applyAnimations() {
+    document.body.classList.toggle('no-anim', settings.animations === false);
   }
 
   function toggleSource() {
@@ -2128,7 +2739,8 @@
       { label: 'Arquivos', header: true },
       entry('treeFilter'), entry('warnNonMd'), '-',
       entry('export'), entry('print'), entry('copyPath'), entry('reveal'), '-',
-      entry('remote'), entry('assoc'), entry('devtools')
+      entry('remote'), entry('assoc'), '-',
+      entry('quickBar'), entry('settings')
     ], x, y);
   }
 
@@ -2320,6 +2932,7 @@
           return;
       }
 
+      if (e.key === ',') { e.preventDefault(); openSettings(); return; }
       if (e.shiftKey && (e.key === '_' || e.key === '-')) { e.preventDefault(); setAllFolds(true); return; }
       if (e.shiftKey && (e.key === '+' || e.key === '=')) { e.preventDefault(); setAllFolds(false); return; }
       if (e.key === '+' || e.key === '=') { e.preventDefault(); zoom(1); return; }
@@ -2833,6 +3446,8 @@
   function applySettings() {
     applyTheme();
     applyFontSizes();
+    applyAnimations();
+    renderQuickBar();
     renderTreeFilter();
     document.documentElement.style.setProperty('--sidebar-width', settings.sidebarWidth + 'px');
     document.body.classList.toggle('sidebar-hidden', !settings.sidebarVisible);
@@ -2901,6 +3516,8 @@
       renderRecent();
       return bridge.call('ready', {});
     }).then(function (info) {
+      app.version = info.version;
+      app.dataRoot = info.dataRoot;
       app.exePath = info.exePath;
       app.associated = info.associated;
       app.isDefault = info.isDefault;
