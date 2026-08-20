@@ -311,6 +311,95 @@
     });
   }
 
+  /**
+   * Dialogo de uma linha de texto. Resolve com o texto ou null se cancelar.
+   * opts: { value, placeholder, okLabel, selectTo, validate(texto) }
+   *
+   * Existe porque window.prompt no WebView2 e uma caixa do sistema, fora do
+   * tema e fora do jeito — e porque renomear precisa validar antes de fechar.
+   */
+  function promptDialog(title, message, opts) {
+    opts = opts || {};
+
+    return new Promise(function (resolve) {
+      var overlay = $('overlay');
+      var box = document.createElement('div');
+      box.className = 'dialog';
+
+      var h = document.createElement('h2');
+      h.textContent = title;
+
+      var p = document.createElement('p');
+      p.textContent = message || '';   // pode citar nome de arquivo: nunca innerHTML
+
+      var input = document.createElement('input');
+      input.type = 'text';
+      input.className = 'dialog-input';
+      input.value = opts.value || '';
+      input.spellcheck = false;
+      if (opts.placeholder) input.placeholder = opts.placeholder;
+
+      var erro = document.createElement('p');
+      erro.className = 'dialog-error';
+      erro.hidden = true;
+
+      var actions = document.createElement('div');
+      actions.className = 'dialog-actions';
+
+      function finish(value) {
+        overlay.hidden = true;
+        box.remove();
+        document.removeEventListener('keydown', onKey, true);
+        resolve(value);
+      }
+
+      function confirmar() {
+        var texto = input.value.trim();
+        var problema = opts.validate ? opts.validate(texto) : (texto ? null : 'Digite alguma coisa.');
+        if (problema) {
+          erro.textContent = problema;
+          erro.hidden = false;
+          input.focus();
+          return;
+        }
+        finish(texto);
+      }
+
+      function onKey(e) {
+        if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); finish(null); }
+        if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); confirmar(); }
+      }
+
+      var cancelar = document.createElement('button');
+      cancelar.className = 'btn';
+      cancelar.textContent = 'Cancelar';
+      cancelar.onclick = function () { finish(null); };
+
+      var ok = document.createElement('button');
+      ok.className = 'btn primary';
+      ok.textContent = opts.okLabel || 'Confirmar';
+      ok.onclick = confirmar;
+
+      actions.appendChild(cancelar);
+      actions.appendChild(ok);
+
+      box.appendChild(h);
+      if (message) box.appendChild(p);
+      box.appendChild(input);
+      box.appendChild(erro);
+      box.appendChild(actions);
+      document.body.appendChild(box);
+      overlay.hidden = false;
+      overlay.onclick = function () { finish(null); };
+      document.addEventListener('keydown', onKey, true);
+
+      input.focus();
+      // Como no Explorer: a extensao fica fora da selecao inicial.
+      var ate = typeof opts.selectTo === 'number' ? opts.selectTo : input.value.length;
+      input.setSelectionRange(0, ate);
+    });
+  }
+
   function escapeText(s) {
     return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
@@ -320,6 +409,16 @@
   function showMenu(items, x, y) {
     var menu = $('menu');
     menu.textContent = '';
+
+    // Os menus sao montados por pedacos condicionais, entao sobra separador
+    // solto no meio ou na ponta. Limpar aqui vale para todos de uma vez.
+    var limpos = [];
+    items.forEach(function (item) {
+      if (item === '-' && (!limpos.length || limpos[limpos.length - 1] === '-')) return;
+      limpos.push(item);
+    });
+    while (limpos.length && limpos[limpos.length - 1] === '-') limpos.pop();
+    items = limpos;
 
     items.forEach(function (item) {
       if (item === '-') {
@@ -1914,6 +2013,10 @@
     }
 
     row.onclick = function () { openPath(f.path); };
+    row.oncontextmenu = function (e) {
+      e.preventDefault();
+      showMenu(fileContextMenu(f.path), e.clientX, e.clientY);
+    };
     return row;
   }
 
@@ -2109,11 +2212,7 @@
           row.onclick = function () { openPath(entry.path); };
           row.oncontextmenu = function (e) {
             e.preventDefault();
-            showMenu([
-              { label: 'Abrir', icon: 'file-text', action: function () { openPath(entry.path); } },
-              { label: 'Mostrar no Explorer', icon: 'reveal', action: function () { bridge.call('revealInExplorer', { path: entry.path }); } },
-              { label: 'Copiar caminho', icon: 'copy', action: function () { navigator.clipboard.writeText(entry.path); toast('Caminho copiado.', 'ok', 1200); } }
-            ], e.clientX, e.clientY);
+            showMenu(fileContextMenu(entry.path), e.clientX, e.clientY);
           };
         }
       });
@@ -2546,6 +2645,11 @@
       { id: 'zoomOut', label: 'Diminuir fonte', key: 'Ctrl+-', icon: 'x', action: function () { zoom(-1); } },
       { id: 'zoomReset', label: 'Fonte padrao', key: 'Ctrl+0', icon: 'refresh', action: function () { settings.fontSize = 16; settings.editorFontSize = 14; applyFontSizes(); renderStatus(); persist(); } },
       { id: 'sidebar', label: 'Painel lateral', key: 'Ctrl+\\', icon: 'panel-left', checked: settings.sidebarVisible, action: function () { toggleSidebar(); } },
+      { id: 'rename', label: 'Renomear...', key: 'F2', icon: 'text', enabled: !!(tab && tab.path), action: function () { renameDoc(activeTab().path); } },
+      { id: 'move', label: 'Mover para...', icon: 'folder', enabled: !!(tab && tab.path), action: function () { moveDoc(activeTab().path); } },
+      { id: 'duplicate', label: 'Duplicar', icon: 'copy', enabled: !!(tab && tab.path), action: function () { duplicateDoc(activeTab().path); } },
+      { id: 'openWith', label: 'Abrir no app padrao do Windows', icon: 'external', enabled: !!(tab && tab.path), action: function () { openWithDefaultApp(activeTab().path); } },
+      { id: 'delete', label: 'Excluir arquivo...', icon: 'trash', enabled: !!(tab && tab.path), action: function () { deleteDoc(activeTab().path); } },
       { id: 'export', label: 'Exportar como HTML...', icon: 'external', enabled: !!tab, action: exportHtml },
       { id: 'print', label: 'Imprimir', key: 'Ctrl+Alt+P', icon: 'printer', enabled: !!tab, action: doPrint },
       { id: 'copyPath', label: 'Copiar caminho do arquivo', icon: 'copy', enabled: !!(tab && tab.path), action: function () { navigator.clipboard.writeText(activeTab().path); toast('Caminho copiado.', 'ok', 1200); } },
@@ -2577,7 +2681,8 @@
     'find', 'findFolder', 'switcher', 'goto', 'foldAll', 'unfoldAll',
     'treeSearch', 'treeSort', 'treeCollapse',
     'wrap', 'gutter', 'properties', 'wide', 'theme', 'sidebar',
-    'export', 'print', 'copyPath', 'reveal'
+    'export', 'print', 'copyPath', 'reveal',
+    'rename', 'duplicate', 'openWith'
   ];
 
   function renderQuickBar() {
@@ -3300,20 +3405,44 @@
       return { label: c.label, icon: c.icon, key: c.key, checked: c.checked, action: c.action, disabled: c.enabled === false };
     }
 
+    // A ordem espelha a do Obsidian: o que se faz COM o documento primeiro,
+    // preferencia depois. Quem abre este menu quase sempre quer a primeira parte.
     showMenu([
       entry('save'), entry('saveAs'), entry('reload'), '-',
-      entry('find'), entry('findFolder'), entry('goto'), '-',
+      { label: 'Documento', header: true },
+      entry('rename'), entry('move'), entry('duplicate'), '-',
+      entry('export'), entry('print'), '-',
+      entry('openWith'), entry('reveal'), entry('copyPath'), '-',
+      entry('delete'), '-',
+      { label: 'Navegar', header: true },
+      entry('find'), entry('findFolder'), entry('goto'),
       entry('foldAll'), entry('unfoldAll'), '-',
       { label: 'Visual', header: true },
-      entry('wrap'), entry('gutter'), entry('wide'), entry('theme'), '-',
+      entry('wrap'), entry('gutter'), entry('properties'), entry('wide'), entry('theme'), '-',
       { label: 'Trava', header: true },
       entry('lockOnOpen'), entry('confirmUnlock'), entry('autoSave'), '-',
       { label: 'Arquivos', header: true },
       entry('treeFilter'), entry('warnNonMd'), '-',
-      entry('export'), entry('print'), entry('copyPath'), entry('reveal'), '-',
       entry('remote'), entry('assoc'), '-',
       entry('quickBar'), entry('settings')
     ], x, y);
+  }
+
+  /* O mesmo cardapio para qualquer arquivo do painel, arvore ou lista rasa. */
+  function fileContextMenu(path) {
+    return [
+      { label: 'Abrir', icon: 'file-text', action: function () { openPath(path); } },
+      '-',
+      { label: 'Renomear...', icon: 'text', action: function () { renameDoc(path); } },
+      { label: 'Mover para...', icon: 'folder', action: function () { moveDoc(path); } },
+      { label: 'Duplicar', icon: 'copy', action: function () { duplicateDoc(path); } },
+      '-',
+      { label: 'Abrir no app padrao', icon: 'external', action: function () { openWithDefaultApp(path); } },
+      { label: 'Mostrar no Explorer', icon: 'reveal', action: function () { bridge.call('revealInExplorer', { path: path }); } },
+      { label: 'Copiar caminho', icon: 'copy', action: function () { navigator.clipboard.writeText(path); toast('Caminho copiado.', 'ok', 1200); } },
+      '-',
+      { label: 'Excluir arquivo...', icon: 'trash', action: function () { deleteDoc(path); } }
+    ];
   }
 
   function tabContextMenu(tab) {
@@ -3324,9 +3453,136 @@
           app.tabs.slice().forEach(function (t) { if (t.id !== tab.id) closeTab(t.id); });
         } },
       '-',
+      { label: 'Renomear...', icon: 'text', key: 'F2', disabled: !tab.path, action: function () { renameDoc(tab.path); } },
+      { label: 'Mover para...', icon: 'folder', disabled: !tab.path, action: function () { moveDoc(tab.path); } },
+      { label: 'Duplicar', icon: 'copy', disabled: !tab.path, action: function () { duplicateDoc(tab.path); } },
+      '-',
+      { label: 'Abrir no app padrao', icon: 'external', disabled: !tab.path, action: function () { openWithDefaultApp(tab.path); } },
+      { label: 'Mostrar no Explorer', icon: 'reveal', disabled: !tab.path, action: function () { bridge.call('revealInExplorer', { path: tab.path }); } },
       { label: 'Copiar caminho', icon: 'copy', disabled: !tab.path, action: function () { navigator.clipboard.writeText(tab.path); toast('Caminho copiado.', 'ok', 1200); } },
-      { label: 'Mostrar no Explorer', icon: 'reveal', disabled: !tab.path, action: function () { bridge.call('revealInExplorer', { path: tab.path }); } }
+      '-',
+      { label: 'Excluir arquivo...', icon: 'trash', disabled: !tab.path, action: function () { deleteDoc(tab.path); } }
     ];
+  }
+
+  // ================================================= operacoes de documento
+
+  function baseName(path) {
+    return String(path || '').split(/[\\/]/).pop();
+  }
+
+  function dropRecent(path) {
+    if (!path) return;
+    var lower = path.toLowerCase();
+    settings.recent = (settings.recent || []).filter(function (p) { return p.toLowerCase() !== lower; });
+    renderRecent();
+  }
+
+  /* Depois de renomear ou mover, a aba, a arvore e os recentes seguem o arquivo. */
+  function adotarCaminho(tab, info, antigo) {
+    if (antigo) bridge.call('unwatchFile', { path: antigo }).catch(function () {});
+
+    tab.path = info.path;
+    tab.name = info.name;
+    tab.dir = info.dir;
+    tab.mtime = info.mtime;
+    tab.staleOnDisk = false;
+
+    bridge.call('watchFile', { path: info.path }).catch(function () {});
+    dropRecent(antigo);
+    addRecent(info.path);
+    refreshTree();
+    renderAll();
+    persist();
+  }
+
+  function falhaDoc(verbo) {
+    return function (err) {
+      if (err) toast('Nao consegui ' + verbo + ': ' + err.message, 'error', 6000);
+    };
+  }
+
+  function renameDoc(path) {
+    if (!path) return Promise.resolve();
+
+    var nome = baseName(path);
+    var ponto = nome.lastIndexOf('.');
+
+    return promptDialog('Renomear arquivo', 'Ele continua na mesma pasta.', {
+      value: nome,
+      okLabel: 'Renomear',
+      selectTo: ponto > 0 ? ponto : nome.length,
+      validate: function (t) {
+        if (!t) return 'Digite um nome.';
+        if (/[\\/]/.test(t)) return 'Sem barras — para trocar de pasta, use "Mover para...".';
+        if (/[<>:"|?*]/.test(t)) return 'O Windows nao aceita estes: < > : " | ? *';
+        return null;
+      }
+    }).then(function (novo) {
+      if (!novo || novo === nome) return null;
+      return bridge.call('renameFile', { path: path, name: novo }).then(function (info) {
+        var tab = tabByPath(path);
+        if (tab) adotarCaminho(tab, info, path);
+        else { dropRecent(path); refreshTree(); }
+        toast('Agora se chama ' + info.name, 'ok');
+      });
+    }).catch(falhaDoc('renomear'));
+  }
+
+  function moveDoc(path) {
+    if (!path) return Promise.resolve();
+
+    return bridge.call('openFolderDialog', {}).then(function (dir) {
+      if (!dir) return null;
+      return bridge.call('moveFile', { path: path, dir: dir }).then(function (info) {
+        var tab = tabByPath(path);
+        if (tab) adotarCaminho(tab, info, path);
+        else { dropRecent(path); refreshTree(); }
+        toast('Movido para ' + info.dir, 'ok', 3200);
+      });
+    }).catch(falhaDoc('mover'));
+  }
+
+  function duplicateDoc(path) {
+    if (!path) return Promise.resolve();
+
+    return bridge.call('duplicateFile', { path: path }).then(function (info) {
+      refreshTree();
+      toast('Copia criada: ' + info.name, 'ok');
+      return doOpenPath(info.path, {});
+    }).catch(falhaDoc('duplicar'));
+  }
+
+  function deleteDoc(path) {
+    if (!path) return Promise.resolve();
+
+    var nome = baseName(path);
+    var tab = tabByPath(path);
+    var sujo = !!(tab && tab.content !== tab.savedContent);
+
+    // Excluir vem primeiro e Cancelar por ultimo de proposito: o Enter aciona
+    // o ultimo botao, e o padrao do teclado nao pode ser apagar arquivo.
+    return dialog('Excluir arquivo?',
+      'O arquivo <strong>' + escapeText(nome) + '</strong> vai para a Lixeira do Windows' +
+      (sujo ? ', e as alteracoes que ainda nao foram salvas se perdem junto' : '') + '.',
+      [{ label: 'Excluir', value: true, cls: 'danger' },
+       { label: 'Cancelar', value: false }]
+    ).then(function (sim) {
+      if (!sim) return null;
+      return bridge.call('deleteFile', { path: path }).then(function () {
+        if (tab) closeTab(tab.id, true);
+        dropRecent(path);
+        refreshTree();
+        persist();
+        toast('Foi para a Lixeira: ' + nome, 'ok', 3600);
+      });
+    }).catch(falhaDoc('excluir'));
+  }
+
+  function openWithDefaultApp(path) {
+    if (!path) return Promise.resolve();
+    return bridge.call('openWithDefault', { path: path })
+      .catch(falhaDoc('abrir no app padrao'));
   }
 
   // ============================================================== acoes
@@ -3528,6 +3784,13 @@
     }
 
     if (ctrl && e.altKey && e.key.toLowerCase() === 'p') { e.preventDefault(); doPrint(); return; }
+
+    if (e.key === 'F2' && !ctrl && !e.altKey && !e.shiftKey) {
+      e.preventDefault();
+      if (tab && tab.path) renameDoc(tab.path);
+      else toast('Salve o documento antes de renomear.', 'warn');
+      return;
+    }
 
     if (e.altKey && e.key.toLowerCase() === 'z') {
       e.preventDefault();

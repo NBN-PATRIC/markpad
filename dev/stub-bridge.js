@@ -118,9 +118,50 @@
             case 'listDir':
               result = { path: 'C:\\notas', name: 'notas', entries: [
                 { name: 'arquivo', path: 'C:\\notas\\arquivo', dir: true },
-                { name: 'guia.md', path: 'C:\\notas\\guia.md', dir: false, size: 900 },
-                { name: 'leiame.md', path: 'C:\\notas\\leiame.md', dir: false, size: 40 }
+                { name: 'guia.md', path: 'C:\\notas\\guia.md', dir: false, size: 900, markdown: true },
+                { name: 'leiame.md', path: 'C:\\notas\\leiame.md', dir: false, size: 40, markdown: true },
+                { name: 'planilha.csv', path: 'C:\\notas\\planilha.csv', dir: false, size: 120, markdown: false }
               ] };
+              break;
+            case 'listFiles':
+              result = { files: Object.keys(FILES).map(function (k) {
+                return { path: k, name: k.split('\\').pop(), dir: k.replace(/\\[^\\]*$/, ''),
+                         markdown: /\.md$/i.test(k), size: FILES[k].length };
+              }) };
+              break;
+            case 'openFolderDialog': result = 'C:\\notas'; break;
+            case 'renameFile':
+              var deR = msg.args.path, paraR = 'C:\\notas\\' + msg.args.name;
+              if (!FILES[deR]) throw new Error('o arquivo nao esta mais no disco.');
+              if (paraR !== deR && FILES[paraR]) throw new Error('ja existe um arquivo com esse nome nesta pasta.');
+              FILES[paraR] = FILES[deR];
+              if (paraR !== deR) delete FILES[deR];
+              result = { path: paraR, name: msg.args.name, dir: 'C:\\notas', size: FILES[paraR].length, mtime: Date.now() };
+              break;
+            case 'moveFile':
+              var deM = msg.args.path, nomeM = deM.split('\\').pop();
+              var paraM = msg.args.dir + '\\' + nomeM;
+              if (!FILES[deM]) throw new Error('o arquivo nao esta mais no disco.');
+              FILES[paraM] = FILES[deM];
+              if (paraM !== deM) delete FILES[deM];
+              result = { path: paraM, name: nomeM, dir: msg.args.dir, size: FILES[paraM].length, mtime: Date.now() };
+              break;
+            case 'duplicateFile':
+              var deD = msg.args.path;
+              if (!FILES[deD]) throw new Error('o arquivo nao esta mais no disco.');
+              var nomeD = deD.split('\\').pop().replace(/(\.[^.]+)?$/, ' copia$1');
+              var paraD = 'C:\\notas\\' + nomeD;
+              FILES[paraD] = FILES[deD];
+              result = { path: paraD, name: nomeD, dir: 'C:\\notas', size: FILES[paraD].length, mtime: Date.now() };
+              break;
+            case 'deleteFile':
+              if (!FILES[msg.args.path]) throw new Error('o arquivo nao esta mais no disco.');
+              delete FILES[msg.args.path];
+              result = true;
+              break;
+            case 'openWithDefault':
+              if (/\\.(exe|bat|cmd|ps1)$/i.test(msg.args.path)) throw new Error('e executavel: abrir seria executar.');
+              result = true;
               break;
             case 'pathInfo': result = { path: msg.args.path, kind: 'file', exists: true }; break;
             case 'resolveAsset': result = null; break;

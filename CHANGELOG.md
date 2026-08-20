@@ -6,6 +6,28 @@ Versionamento [SemVer](https://semver.org/lang/pt-BR/).
 ## [Não lançado]
 
 ### Adicionado
+- **Menu ⋮ reorganizado como no Obsidian**: o que se faz *com* o documento
+  primeiro — salvar, renomear, mover, duplicar, exportar, imprimir, abrir
+  fora, excluir — e as preferências depois, em grupos com cabeçalho. Quem
+  abre esse menu quase sempre quer a primeira parte.
+- **Renomear** (`F2`), **Mover para...**, **Duplicar**, **Abrir no app padrão
+  do Windows** e **Excluir arquivo**. Estão no menu ⋮, no clique direito da
+  guia e no clique direito de qualquer arquivo do painel — árvore ou lista
+  filtrada, o mesmo cardápio nos três. A guia, o título, os recentes e o
+  vigia de disco seguem o arquivo quando ele muda de nome ou de pasta.
+- **Excluir manda para a Lixeira do Windows**, nunca para o vazio
+  (`SHFileOperation` com `FOF_ALLOWUNDO`). A confirmação diz o nome do
+  arquivo, avisa quando há alteração não salva — e deixa *Cancelar* como
+  padrão do teclado, para que `Enter` nunca apague nada.
+- **Caixa de texto própria para renomear**, com validação antes de fechar
+  (nome vazio, barras, `< > : " | ? *`) e a extensão fora da seleção inicial.
+  `window.prompt` no WebView2 é caixa do sistema: fora do tema e sem
+  validação.
+- Ponte: `renameFile`, `moveFile`, `duplicateFile`, `deleteFile` e
+  `openWithDefault`. Todas respeitam a trava de caminho autorizado (só vale
+  para arquivo aberto nesta sessão) e abrir no app padrão recusa executáveis
+  (`.exe`, `.bat`, `.ps1`, `.lnk`…) — num leitor de texto, “abrir” nunca
+  pode virar “executar”.
 - **Tarefas clicáveis no modo leitura.** Com o giz destravado, marcar `- [ ]`
   é um clique na caixinha: a linha de origem é reescrita, o documento fica
   sujo e o backup entra na fila. Travado, a caixinha continua desabilitada —
@@ -38,6 +60,13 @@ Versionamento [SemVer](https://semver.org/lang/pt-BR/).
   interruptor em Aparência e respeito automático a `prefers-reduced-motion`.
 - Ponte: operação `listFiles`, um índice raso da pasta (caminho, nome e datas,
   nunca conteúdo) que alimenta o filtro e o seletor rápido.
+- **Licença MIT** (`LICENSE`), © NBN Telecom e Patric Farias.
+- `tools/new-signing-cert.ps1` e `tools/sign.ps1` — geração de certificado
+  próprio e assinatura com carimbo de tempo, usando apenas o PowerShell do
+  Windows (sem precisar do SDK nem do `signtool`).
+- `docs/ASSINATURA.md` — o que assinatura resolve, o que não resolve e quanto
+  custa cada caminho.
+- `.gitignore` passa a barrar `*.pfx`, `*.p12`, `*.snk` e `.certs/`.
 
 ### Alterado
 - `Ctrl+P` passa a abrir arquivo pelo nome, como em qualquer editor.
@@ -51,14 +80,10 @@ Versionamento [SemVer](https://semver.org/lang/pt-BR/).
   apontavam uma linha que não era a deles. Isso desalinhava a edição ao vivo,
   o “ir para a linha” e o realce de alterações em qualquer parágrafo, código
   ou citação indentado sob um `-`. Há teste travando o caso.
-
-- **Licença MIT** (`LICENSE`), © NBN Telecom e Patric Farias.
-- `tools/new-signing-cert.ps1` e `tools/sign.ps1` — geração de certificado
-  próprio e assinatura com carimbo de tempo, usando apenas o PowerShell do
-  Windows (sem precisar do SDK nem do `signtool`).
-- `docs/ASSINATURA.md` — o que assinatura resolve, o que não resolve e quanto
-  custa cada caminho.
-- `.gitignore` passa a barrar `*.pfx`, `*.p12`, `*.snk` e `.certs/`.
+- **Separador solto no menu de contexto da guia** (dois seguidos, sem nada
+  entre eles). `showMenu` passa a limpar separadores repetidos e nas pontas,
+  o que vale para todos os menus de uma vez — eles são montados por pedaços
+  condicionais, então sempre sobra um.
 
 ### Sobre o aviso do SmartScreen
 

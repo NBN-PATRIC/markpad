@@ -33,6 +33,26 @@ public partial class MainWindow : Window
         ".rar", ".gz", ".tar", ".pdf", ".docx", ".xlsx", ".pptx", ".pfx", ".p12"
     };
 
+    /// <summary>
+    /// O que nao mandamos para o app padrao do Windows. "Abrir com o padrao" e
+    /// conveniencia para documento; para um executavel seria executar, e isso
+    /// nunca deve sair de um clique dentro de um leitor de texto.
+    /// </summary>
+    private static readonly HashSet<string> UnlaunchableExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".exe", ".com", ".bat", ".cmd", ".ps1", ".psm1", ".vbs", ".vbe", ".js",
+        ".jse", ".wsf", ".wsh", ".msi", ".msp", ".scr", ".cpl", ".lnk", ".pif",
+        ".reg", ".hta", ".msc", ".jar", ".dll", ".sys", ".url", ".appref-ms"
+    };
+
+    /// <summary>Nomes que o DOS reservou e o Windows nunca esqueceu.</summary>
+    private static readonly HashSet<string> ReservedNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "CON", "PRN", "AUX", "NUL",
+        "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+        "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"
+    };
+
     /// <summary>Extensoes de texto reconhecidas, usadas na busca em pasta.</summary>
     private static readonly HashSet<string> TextExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -436,6 +456,21 @@ public partial class MainWindow : Window
                     if (File.Exists(p) || Directory.Exists(p)) NativeMethods.RevealInExplorer(Path.GetFullPath(p));
                     return true;
                 }
+
+            case "renameFile":
+                return RenameFile(Str(args, "path"), Str(args, "name"));
+
+            case "moveFile":
+                return MoveFile(Str(args, "path"), Str(args, "dir"));
+
+            case "duplicateFile":
+                return DuplicateFile(Str(args, "path"));
+
+            case "deleteFile":
+                return DeleteFile(Str(args, "path"));
+
+            case "openWithDefault":
+                return OpenWithDefault(Str(args, "path"));
 
             case "openExternal":
                 OpenExternal(Str(args, "url"));
@@ -1193,6 +1228,143 @@ public partial class MainWindow : Window
 
         var kind = e.ChangeType == WatcherChangeTypes.Deleted ? "deleted" : "changed";
         Dispatcher.InvokeAsync(() => PostEvent("fileChanged", new { path = full, kind }));
+    }
+
+    // ------------------------------------------------- operacoes de arquivo
+
+    /// <summary>
+    /// Nome de arquivo aceitavel: sem barra (isso mudaria de pasta), sem os
+    /// caracteres que o Windows recusa e sem os nomes reservados do DOS.
+    /// </summary>
+    private static string GuardFileName(string name)
+    {
+        name = name.Trim();
+
+        if (name.Length == 0)
+            throw new ArgumentException("o nome nao pode ficar vazio.");
+
+        if (name.Contains('\\') || name.Contains('/'))
+            throw new ArgumentException("o nome nao pode ter barras - para trocar de pasta, use 'Mover para...'.");
+
+        if (name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+            throw new ArgumentException("o nome tem caractere que o Windows nao aceita.");
+
+        if (name == "." || name == ".." || name.EndsWith('.'))
+            throw new ArgumentException("nome invalido para o Windows.");
+
+        if (ReservedNames.Contains(Path.GetFileNameWithoutExtension(name)))
+            throw new ArgumentException($"'{name}' usa um nome reservado do Windows.");
+
+        return name;
+    }
+
+    private static object FileFacts(string path)
+    {
+        var info = new FileInfo(path);
+        return new
+        {
+            path = info.FullName,
+            name = info.Name,
+            dir = info.DirectoryName ?? "",
+            size = info.Length,
+            mtime = new DateTimeOffset(info.LastWriteTimeUtc).ToUnixTimeMilliseconds()
+        };
+    }
+
+    /// <summary>
+    /// O arquivo mudou de lugar: a permissao de gravar tem que ir junto, senao
+    /// o proximo Ctrl+S bate na trave de caminho autorizado.
+    /// </summary>
+    private object AdoptMovedFile(string from, string to)
+    {
+        _writablePaths.Remove(from);
+        _writablePaths.Add(to);
+        _watchedFiles.Remove(from);
+        _watchedFiles.Add(to);
+        return FileFacts(to);
+    }
+
+    private object RenameFile(string path, string name)
+    {
+        var full = Path.GetFullPath(path);
+        if (!File.Exists(full)) throw new FileNotFoundException("o arquivo nao esta mais no disco.");
+
+        var target = Path.Combine(Path.GetDirectoryName(full)!, GuardFileName(name));
+        if (string.Equals(target, full, StringComparison.Ordinal)) return FileFacts(full);
+
+        // Trocar so a caixa do nome e renomeacao legitima - o disco e que nao
+        // distingue "Notas.md" de "notas.md".
+        if (Directory.Exists(target))
+            throw new IOException("ja existe uma pasta com esse nome aqui.");
+        if (File.Exists(target) && !string.Equals(target, full, StringComparison.OrdinalIgnoreCase))
+            throw new IOException("ja existe um arquivo com esse nome nesta pasta.");
+
+        File.Move(full, target);
+        return AdoptMovedFile(full, target);
+    }
+
+    private object MoveFile(string path, string dir)
+    {
+        var full = Path.GetFullPath(path);
+        if (!File.Exists(full)) throw new FileNotFoundException("o arquivo nao esta mais no disco.");
+
+        var destino = Path.GetFullPath(dir);
+        if (!Directory.Exists(destino)) throw new DirectoryNotFoundException("a pasta de destino nao existe.");
+
+        var target = Path.Combine(destino, Path.GetFileName(full));
+        if (string.Equals(target, full, StringComparison.OrdinalIgnoreCase)) return FileFacts(full);
+        if (File.Exists(target)) throw new IOException("ja existe um arquivo com esse nome na pasta de destino.");
+
+        File.Move(full, target);
+        return AdoptMovedFile(full, target);
+    }
+
+    private object DuplicateFile(string path)
+    {
+        var full = Path.GetFullPath(path);
+        if (!File.Exists(full)) throw new FileNotFoundException("o arquivo nao esta mais no disco.");
+
+        var dir = Path.GetDirectoryName(full)!;
+        var bare = Path.GetFileNameWithoutExtension(full);
+        var ext = Path.GetExtension(full);
+
+        var target = Path.Combine(dir, bare + " copia" + ext);
+        for (var n = 2; File.Exists(target) && n <= 999; n++)
+            target = Path.Combine(dir, bare + " copia " + n + ext);
+
+        if (File.Exists(target))
+            throw new IOException("copias demais com esse nome - renomeie alguma antes.");
+
+        File.Copy(full, target, false);
+        _writablePaths.Add(target);
+        return FileFacts(target);
+    }
+
+    private object DeleteFile(string path)
+    {
+        var full = Path.GetFullPath(path);
+        if (!File.Exists(full)) throw new FileNotFoundException("o arquivo nao esta mais no disco.");
+
+        if (!NativeMethods.SendToRecycleBin(full))
+            throw new IOException("o Windows recusou a exclusao - o arquivo pode estar aberto em outro programa.");
+
+        _writablePaths.Remove(full);
+        _watchedFiles.Remove(full);
+        return true;
+    }
+
+    private static object OpenWithDefault(string path)
+    {
+        var full = Path.GetFullPath(path);
+        if (!File.Exists(full)) throw new FileNotFoundException("o arquivo nao esta mais no disco.");
+
+        var ext = Path.GetExtension(full);
+        if (UnlaunchableExtensions.Contains(ext))
+            throw new UnauthorizedAccessException(
+                $"'{ext}' e executavel: abrir seria executar, e isso nao sai de um clique aqui dentro.");
+
+        Process.Start(new ProcessStartInfo(full) { UseShellExecute = true });
+        return true;
     }
 
     // -------------------------------------------------------------- shell

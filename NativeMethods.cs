@@ -3,7 +3,8 @@ using System.Runtime.InteropServices;
 namespace MarkPad;
 
 /// <summary>
-/// Interop minimo: barra de titulo escura (DWM) e "mostrar no Explorer".
+/// Interop minimo: barra de titulo escura (DWM), "mostrar no Explorer" e
+/// exclusao para a Lixeira.
 /// </summary>
 internal static class NativeMethods
 {
@@ -24,6 +25,33 @@ internal static class NativeMethods
     [DllImport("shell32.dll", ExactSpelling = true)]
     private static extern void ILFree(IntPtr pidl);
 
+    private const uint FO_DELETE = 0x0003;
+    private const ushort FOF_SILENT = 0x0004;
+    private const ushort FOF_NOCONFIRMATION = 0x0010;
+    private const ushort FOF_ALLOWUNDO = 0x0040;
+    private const ushort FOF_NOERRORUI = 0x0400;
+
+    /// <summary>
+    /// Sem Pack: a receita antiga que circula por ai usa Pack = 1 e derruba o
+    /// processo em x64 (violacao de acesso ja na primeira chamada). O
+    /// alinhamento natural e o que casa com o struct de verdade.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    private struct SHFILEOPSTRUCTW
+    {
+        public IntPtr hwnd;
+        public uint wFunc;
+        public string pFrom;
+        public string? pTo;
+        public ushort fFlags;
+        [MarshalAs(UnmanagedType.Bool)] public bool fAnyOperationsAborted;
+        public IntPtr hNameMappings;
+        public string? lpszProgressTitle;
+    }
+
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode, ExactSpelling = true)]
+    private static extern int SHFileOperationW(ref SHFILEOPSTRUCTW op);
+
     public static void ApplyTitleBarTheme(IntPtr hwnd, bool dark)
     {
         if (hwnd == IntPtr.Zero) return;
@@ -37,6 +65,23 @@ internal static class NativeMethods
         // COLORREF 0x00BBGGRR. Casa a barra de titulo com o fundo do app.
         int caption = dark ? 0x001E1E1E : 0x00FFFFFF;
         DwmSetWindowAttribute(hwnd, DWMWA_CAPTION_COLOR, ref caption, sizeof(int));
+    }
+
+    /// <summary>
+    /// Manda o arquivo para a Lixeira, nao para o vazio: excluir daqui tem que
+    /// ter volta. Retorna false se o shell recusou ou a operacao foi abortada.
+    /// </summary>
+    public static bool SendToRecycleBin(string path)
+    {
+        // pFrom e uma lista terminada por dois nulos; o marshal poe um, nos o outro.
+        var op = new SHFILEOPSTRUCTW
+        {
+            wFunc = FO_DELETE,
+            pFrom = path + "\0",
+            fFlags = FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_SILENT | FOF_NOERRORUI
+        };
+
+        return SHFileOperationW(ref op) == 0 && !op.fAnyOperationsAborted;
     }
 
     public static void RevealInExplorer(string path)

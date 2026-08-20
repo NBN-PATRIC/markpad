@@ -1413,6 +1413,23 @@ body.no-gutter .ed-row .ln { display: none; }
 .dialog p { margin: 0 0 18px; font-size: var(--font-ui-small); color: var(--text-muted); line-height: 1.55; }
 .dialog p strong { color: var(--text-normal); }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.dialog-input {
+  width: 100%;
+  margin: 0 0 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  background: var(--background-primary);
+  color: var(--text-normal);
+  font: inherit;
+  font-size: var(--font-ui-small);
+}
+.dialog-input:focus { outline: none; border-color: var(--color-accent); }
+.dialog-error {
+  margin: -6px 0 12px !important;
+  color: var(--color-red, #e05252);
+  font-size: var(--font-ui-smaller);
+}
 .dialog-check {
   display: flex;
   align-items: center;
