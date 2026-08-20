@@ -83,6 +83,7 @@
     treeFoldersFirst: true,
     warnNonMarkdown: true,
     animations: true,
+    showProperties: true,
     quickBarVisible: true,
     quickBarLabels: false,
     quickBar: ['open', 'openFolder', 'new', 'save', 'close', 'lock', 'find'],
@@ -888,6 +889,9 @@
       if (svg) icons[i].appendChild(svg);
     }
 
+    if (settings.showProperties !== false) renderProperties(container, result.frontmatter);
+    liberaTarefas(container, tab);
+
     applyFolding(container, tab);
     marcaBlocosAlterados(container, tab);
     resolveLocalImages(container, tab);
@@ -1082,8 +1086,167 @@
     if (img.parentNode) img.parentNode.replaceChild(span, img);
   }
 
+  /*
+   * Propriedades: o bloco --- do topo virando ficha, como no Obsidian. O
+   * texto vai por textContent, nunca por innerHTML — e conteudo de arquivo.
+   */
+  function renderProperties(container, campos) {
+    if (!campos || !campos.length) return;
+
+    var caixa = document.createElement('div');
+    caixa.className = 'properties';
+
+    var head = document.createElement('button');
+    head.className = 'properties-head';
+    head.type = 'button';
+
+    var chev = window.MarkPadIcons.build('chevron-down', 14);
+    if (chev) head.appendChild(chev);
+
+    var rotulo = document.createElement('span');
+    rotulo.textContent = 'Propriedades';
+    head.appendChild(rotulo);
+
+    var conta = document.createElement('span');
+    conta.className = 'properties-count';
+    conta.textContent = String(campos.length);
+    head.appendChild(conta);
+
+    caixa.appendChild(head);
+
+    var corpo = document.createElement('div');
+    corpo.className = 'properties-body';
+
+    campos.forEach(function (campo) {
+      var linha = document.createElement('div');
+      linha.className = 'property';
+
+      var chave = document.createElement('span');
+      chave.className = 'property-key';
+      chave.textContent = campo.key;
+      linha.appendChild(chave);
+
+      var valor = document.createElement('span');
+      valor.className = 'property-value';
+
+      if (campo.list && campo.list.length) {
+        campo.list.forEach(function (v) { valor.appendChild(fichaValor(campo.key, v)); });
+      } else if (campo.value) {
+        // "tags: a, b" e lista escrita na horizontal — vale o mesmo tratamento.
+        var solto = campo.value.replace(/^\[|\]$/g, '');
+        var partes = /^(tags?|aliases?)$/i.test(campo.key)
+          ? solto.split(',').map(function (v) { return v.trim(); }).filter(Boolean)
+          : [campo.value];
+        partes.forEach(function (v) { valor.appendChild(fichaValor(campo.key, v)); });
+      } else {
+        var vazio = document.createElement('span');
+        vazio.className = 'property-empty';
+        vazio.textContent = 'vazio';
+        valor.appendChild(vazio);
+      }
+
+      linha.appendChild(valor);
+      corpo.appendChild(linha);
+    });
+
+    caixa.appendChild(corpo);
+
+    head.onclick = function () {
+      var fechado = caixa.classList.toggle('is-collapsed');
+      head.setAttribute('aria-expanded', String(!fechado));
+    };
+
+    container.insertBefore(caixa, container.firstChild);
+  }
+
+  /* Tag e alias viram ficha clicavel; o resto e so texto. */
+  function fichaValor(chave, texto) {
+    var limpo = String(texto).replace(/^["']|["']$/g, '');
+
+    if (/^tags?$/i.test(chave)) {
+      var tag = document.createElement('a');
+      tag.className = 'property-tag';
+      tag.href = '#';
+      tag.textContent = '#' + limpo.replace(/^#/, '');
+      tag.onclick = function (e) {
+        e.preventDefault();
+        openFolderSearch('#' + limpo.replace(/^#/, ''));
+      };
+      return tag;
+    }
+
+    var item = document.createElement('span');
+    item.className = 'property-item';
+    item.textContent = limpo;
+    return item;
+  }
+
+  /*
+   * A trava vale tambem para a caixinha de tarefa: destravado ela clica e
+   * reescreve a linha; travado fica desabilitada, como o resto do leitor.
+   */
+  function liberaTarefas(container, tab) {
+    var podeEditar = !!(tab && !tab.locked);
+    var caixas = container.querySelectorAll('.task-item > input[type="checkbox"]');
+
+    for (var i = 0; i < caixas.length; i++) {
+      caixas[i].disabled = !podeEditar;
+      caixas[i].title = podeEditar
+        ? 'Marcar ou desmarcar'
+        : 'Destrave a edicao (Ctrl+E) para marcar';
+    }
+    container.classList.toggle('tasks-live', podeEditar);
+  }
+
+  /* Troca [ ] por [x] (e volta) na linha de origem, sem redesenhar a pagina. */
+  function toggleTask(tab, linha, caixa) {
+    if (!tab || tab.locked) return;
+
+    var linhas = tab.content.split('\n');
+    if (linha < 0 || linha >= linhas.length) return;
+
+    var m = /^(\s*(?:[-*+]|\d+[.)])\s+\[)([ xX~/-])(\][\s\S]*)$/.exec(linhas[linha]);
+    if (!m) return;
+
+    var marcado = m[2].toLowerCase() !== 'x';
+    linhas[linha] = m[1] + (marcado ? 'x' : ' ') + m[3];
+    tab.content = linhas.join('\n');
+
+    if (caixa) {
+      caixa.checked = marcado;
+      var li = caixa.parentElement;
+      if (li) li.classList.toggle('is-checked', marcado);
+    }
+
+    if (tab === activeTab() && tab.showSource) {
+      $('editorInput').value = tab.content;
+      renderEditorHighlight();
+    }
+
+    invalidateLineStatus(tab);
+    renderTabs();
+    renderHeader();
+    renderStatus();
+    scheduleBackup(tab);
+
+    if (settings.autoSave && tab.path) {
+      clearTimeout(onEditorInput.saveTimer);
+      onEditorInput.saveTimer = setTimeout(function () { saveTab(tab); }, 1200);
+    }
+  }
+
   function wirePreviewClicks(container, tab) {
     container.onclick = function (e) {
+      var caixa = e.target;
+      if (caixa && caixa.tagName === 'INPUT' && caixa.type === 'checkbox') {
+        var li = caixa.parentElement;
+        var linha = li && li.getAttribute('data-task-line');
+        if (linha == null) { e.preventDefault(); return; }
+        if (tab.locked) { e.preventDefault(); toast('Edicao travada. Ctrl+E para liberar.', '', 1600); return; }
+        toggleTask(tab, parseInt(linha, 10), caixa);
+        return;
+      }
+
       var el = e.target.closest ? e.target.closest('[data-external],[data-file],[data-wikilink],[data-anchor],[data-copy],[data-remote],[data-tag]') : null;
       if (!el) return;
       e.preventDefault();
@@ -2369,6 +2532,7 @@
       { id: 'unfoldAll', label: 'Expandir todas as secoes', key: 'Ctrl+Shift++', icon: 'chevron-down', enabled: !!tab, action: function () { setAllFolds(false); } },
       { id: 'reload', label: 'Recarregar do disco', icon: 'refresh', enabled: !!(tab && tab.path), action: function () { reloadFromDisk(); } },
       { id: 'wrap', label: 'Quebra automatica de linha', key: 'Alt+Z', icon: 'wrap', checked: settings.wordWrap, action: function () { settings.wordWrap = !settings.wordWrap; applyWrap(); renderEditorHighlight(); renderStatus(); persist(); } },
+      { id: 'properties', label: 'Mostrar propriedades', icon: 'list', checked: settings.showProperties !== false, action: function () { settings.showProperties = settings.showProperties === false; renderViews(); persist(); } },
       { id: 'gutter', label: 'Numeros de linha', icon: 'list', checked: settings.lineNumbers, action: function () { settings.lineNumbers = !settings.lineNumbers; renderEditorHighlight(); persist(); } },
       { id: 'wide', label: 'Largura total da linha', icon: 'columns', checked: settings.wideLines, action: function () { settings.wideLines = !settings.wideLines; applyFontSizes(); persist(); } },
       { id: 'lockOnOpen', label: 'Abrir sempre travado', icon: 'lock', checked: settings.lockOnOpen, action: function () { settings.lockOnOpen = !settings.lockOnOpen; persist(); toast(settings.lockOnOpen ? 'Novos arquivos abrirao travados.' : 'Novos arquivos abrirao destravados.', 'ok'); } },
@@ -2412,7 +2576,7 @@
     'lock', 'modeSource', 'modeSplit',
     'find', 'findFolder', 'switcher', 'goto', 'foldAll', 'unfoldAll',
     'treeSearch', 'treeSort', 'treeCollapse',
-    'wrap', 'gutter', 'wide', 'theme', 'sidebar',
+    'wrap', 'gutter', 'properties', 'wide', 'theme', 'sidebar',
     'export', 'print', 'copyPath', 'reveal'
   ];
 
@@ -2710,6 +2874,10 @@
     setToggle(setLinha(pai, 'Painel lateral visivel', 'Ctrl+\\ tambem alterna.'),
       function () { return settings.sidebarVisible; },
       function (v) { toggleSidebar(v); });
+
+    setToggle(setLinha(pai, 'Mostrar propriedades', 'A ficha com o bloco --- do topo do documento, no modo leitura.'),
+      function () { return settings.showProperties !== false; },
+      function (v) { settings.showProperties = v; renderViews(); persist(); });
 
     setToggle(setLinha(pai, 'Animacoes', 'Desligue para uma interface instantanea, sem transicoes.'),
       function () { return settings.animations !== false; },

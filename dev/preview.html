@@ -1,8 +1,9 @@
 <!DOCTYPE html>
+<!-- GERADO por dev/make-preview.js a partir de web/index.html. Nao edite a mao. -->
 <html lang="pt-BR">
 <head>
   <meta charset="utf-8">
-  <!-- sem CSP: pagina de desenvolvimento, nao vai pro app -->
+  <!-- sem CSP: pagina de desenvolvimento, gerada por dev/make-preview.js -->
   <title>MarkPad — preview de desenvolvimento</title>
   <link rel="stylesheet" href="../web/style.css">
 </head>
@@ -18,6 +19,11 @@
     <div class="tab-bar-spacer"></div>
     <button class="icon-btn tab-bar-btn" id="btnCommandPalette" data-icon="command" title="Paleta de comandos (Ctrl+Shift+P)"></button>
   </div>
+
+  <!-- ------------------------------------------------- acesso rapido -->
+  <!-- Montada por renderQuickBar() a partir de commands(): a lista de
+       botoes e o que o usuario escolheu em Configuracoes > Barra. -->
+  <div class="quick-bar" id="quickBar" hidden></div>
 
   <!-- -------------------------------------------------------- area util -->
   <div class="workspace">
@@ -35,9 +41,16 @@
         <section class="pane" data-pane="files">
           <header class="pane-head">
             <span class="pane-title" id="folderName">nenhuma pasta aberta</span>
+            <button class="chip" id="btnTreeFilter" title="Alternar entre só markdown e todos os arquivos">.md</button>
+            <button class="icon-btn small" id="btnTreeSearch" data-icon="search" title="Filtrar por nome"></button>
+            <button class="icon-btn small" id="btnTreeSort" data-icon="sort" title="Ordenar"></button>
+            <button class="icon-btn small" id="btnTreeCollapse" data-icon="chevrons-up" title="Recolher tudo"></button>
             <button class="icon-btn small" id="btnOpenFolder" data-icon="folder-open" title="Abrir pasta (Ctrl+Shift+O)"></button>
             <button class="icon-btn small" id="btnRefreshTree" data-icon="refresh" title="Atualizar"></button>
           </header>
+          <div class="pane-controls" id="treeFilterRow" hidden>
+            <input type="text" id="treeFilterInput" class="text-input" placeholder="filtrar por nome" spellcheck="false">
+          </div>
           <div class="pane-scroll">
             <div class="file-tree" id="fileTree">
               <p class="pane-empty">Abra uma pasta para navegar pelos arquivos.<br>Nao precisa de cofre.</p>
@@ -102,9 +115,13 @@
         </div>
 
         <div class="view-actions">
+          <!-- Alternadores independentes: dá para ter os dois painéis ao mesmo
+               tempo. Sem o de código, o próprio leitor aceita edição. -->
           <div class="mode-switch" id="modeSwitch" hidden>
-            <button class="mode-btn is-active" data-mode="source" data-icon="code" title="Codigo-fonte"></button>
-            <button class="mode-btn" data-mode="split" data-icon="columns" title="Dividido"></button>
+            <button class="mode-btn" id="btnToggleSource" data-icon="code"
+                    title="Painel de código-fonte (Ctrl+Shift+C)"></button>
+            <button class="mode-btn" id="btnTogglePreview" data-icon="columns"
+                    title="Painel de leitura ao lado (Ctrl+Shift+L)"></button>
           </div>
           <button class="icon-btn" id="btnFind" data-icon="search" title="Localizar (Ctrl+F)"></button>
           <button class="icon-btn" id="btnMore" data-icon="more" title="Mais opcoes"></button>
@@ -207,12 +224,18 @@
   <input type="text" class="palette-input" id="paletteInput" placeholder="Digite um comando" spellcheck="false">
   <div class="palette-list" id="paletteList"></div>
 </div>
+<div class="palette" id="switcher" hidden>
+  <input type="text" class="palette-input" id="switcherInput" placeholder="Abrir arquivo pelo nome" spellcheck="false">
+  <div class="palette-list" id="switcherList"></div>
+</div>
 <div class="toasts" id="toasts"></div>
 
 <script src="stub-bridge.js"></script>
 <script src="../web/icons.js"></script>
 <script src="../web/highlight.js"></script>
 <script src="../web/markdown.js"></script>
+<script src="../web/changes.js"></script>
+<script src="../web/liveedit.js"></script>
 <script src="../web/app.js"></script>
 </body>
 </html>

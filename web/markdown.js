@@ -621,6 +621,11 @@
   }
 
   function renderList(items, ordered, startNumber, loose, ctx, baseLine, attr) {
+    // item.line e indice dentro do bloco que o parseBlocks recebeu, enquanto
+    // baseLine ja e absoluto. Descontar o primeiro item poe os dois na mesma
+    // regua — sem isso, tudo dentro de lista aponta uma linha inventada.
+    var origem = items.length ? items[0].line : 0;
+    function linhaDe(item) { return baseLine + (item.line - origem); }
     var tag = ordered ? 'ol' : 'ul';
     var startAttr = ordered && startNumber !== 1 ? ' start="' + startNumber + '"' : '';
     var hasTasks = false;
@@ -635,6 +640,7 @@
         hasTasks = true;
         var checked = task[1].toLowerCase() === 'x';
         cls = ' class="task-item' + (checked ? ' is-checked' : '') + '"';
+        if (ctx.opts.lineMap) cls += ' data-task-line="' + linhaDe(item) + '"';
         prefix = '<input type="checkbox" disabled' + (checked ? ' checked' : '') + '>';
         item = { lines: [task[2]].concat(item.lines.slice(1)), line: item.line };
         text = item.lines.join('\n');
@@ -644,7 +650,7 @@
       var multiline = item.lines.length > 1 && item.lines.some(function (l, idx) { return idx > 0 && l.trim(); });
 
       if (multiline || loose) {
-        inner = parseBlocks(item.lines, ctx, baseLine + item.line);
+        inner = parseBlocks(item.lines, ctx, linhaDe(item));
         if (!loose) inner = inner.replace(/^<p[^>]*>/, '').replace(/<\/p>$/, '');
       } else {
         var inline = new Inline(ctx);
@@ -721,7 +727,7 @@
 
   var ALLOWED_ATTRS = {};
   ('class id href src alt title colspan rowspan start type checked disabled style ' +
-   'data-line data-line-end data-icon data-callout data-wikilink data-file data-anchor data-external ' +
+   'data-line data-line-end data-task-line data-icon data-callout data-wikilink data-file data-anchor data-external ' +
    'data-tag data-src data-remote data-copy data-lang open rel loading'
   ).split(' ').forEach(function (a) { ALLOWED_ATTRS[a] = true; });
 

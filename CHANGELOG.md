@@ -6,6 +6,19 @@ Versionamento [SemVer](https://semver.org/lang/pt-BR/).
 ## [Não lançado]
 
 ### Adicionado
+- **Tarefas clicáveis no modo leitura.** Com o giz destravado, marcar `- [ ]`
+  é um clique na caixinha: a linha de origem é reescrita, o documento fica
+  sujo e o backup entra na fila. Travado, a caixinha continua desabilitada —
+  a trava vale para ela também.
+- **Bloco de propriedades** no início do documento, montado a partir do
+  frontmatter `---` (que antes sumia da leitura). Recolhível, com `tags` e
+  `aliases` virando fichas; clicar numa tag abre a busca da pasta por ela.
+  Liga e desliga em Configurações › Aparência ou pela paleta.
+- `data-task-line` no HTML gerado: a linha exata de cada tarefa, só quando o
+  mapa de linhas está ligado. É atributo próprio de propósito — `data-line`
+  significa “bloco editável” para o editor ao vivo, e um `<li>` não é um.
+- `dev/make-preview.js`: a página de desenvolvimento passa a ser **gerada** a
+  partir de `web/index.html`. Era mantida à mão e vivia atrasada.
 - **Barra de acesso rápido** abaixo das guias, com os botões que o usuário
   escolher. É montada a partir do mesmo registro de comandos que alimenta a
   paleta e o menu ⋮, então todo comando novo aparece nela sem código extra.
@@ -31,6 +44,13 @@ Versionamento [SemVer](https://semver.org/lang/pt-BR/).
   **Imprimir foi para `Ctrl+Alt+P`** e continua no menu ⋮, na paleta de
   comandos e disponível para a barra rápida.
 - Devtools saiu do menu ⋮ (segue na paleta e em Configurações › Sobre).
+
+### Corrigido
+- **Linhas erradas dentro de listas.** Blocos aninhados num item de lista
+  recebiam `data-line` somado duas vezes (índice local + base absoluta), então
+  apontavam uma linha que não era a deles. Isso desalinhava a edição ao vivo,
+  o “ir para a linha” e o realce de alterações em qualquer parágrafo, código
+  ou citação indentado sob um `-`. Há teste travando o caso.
 
 - **Licença MIT** (`LICENSE`), © NBN Telecom e Patric Farias.
 - `tools/new-signing-cert.ps1` e `tools/sign.ps1` — geração de certificado

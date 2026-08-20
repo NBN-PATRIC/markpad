@@ -108,6 +108,12 @@ Texto com <b>negrito html</b> e <em>enfase</em>.
 
 const window = sandbox;
 const out = window.MarkPadMarkdown.render(SAMPLE, { lineMap: true });
+const semMapa = window.MarkPadMarkdown.render(SAMPLE, {});
+
+// Bloco dentro de item de lista ja saiu com a regua trocada uma vez:
+// item.line e local, baseLine e absoluto, e a soma contava duas vezes.
+const ANINHADO = ['titulo', '', '- item', '', '  paragrafo do item', ''].join(String.fromCharCode(10));
+const aninhado = window.MarkPadMarkdown.render(ANINHADO, { lineMap: true });
 
 console.log('=== FRONTMATTER ===');
 console.log(JSON.stringify(out.frontmatter));
@@ -147,8 +153,28 @@ const checks = [
   ['hr', /<hr/.test(out.html)],
   ['data-line presente', /data-line="/.test(out.html)],
   ['paragrafo iniciado por tag inline', /<b>Paragrafo<\/b> que comeca com tag inline/.test(out.html)],
-  ['segundo paragrafo inline', /<em>Outro<\/em> desses/.test(out.html)]
+  ['segundo paragrafo inline', /<em>Outro<\/em> desses/.test(out.html)],
+  ['tarefa com data-task-line', /class="task-item" data-task-line="\d+"/.test(out.html)],
+  ['tarefa marcada com data-task-line', /class="task-item is-checked" data-task-line="\d+"/.test(out.html)],
+  ['data-task-line aponta a linha certa', conferaLinhasDeTarefa(SAMPLE, out.html)],
+  ['data-task-line desliga sem lineMap', !/data-task-line/.test(semMapa.html)],
+  ['bloco aninhado em lista usa a linha certa', /<p data-line="4"[^>]*>paragrafo do item/.test(aninhado.html)]
 ];
+
+// A linha apontada tem de ser mesmo a linha da tarefa no texto original —
+// incluindo o deslocamento do bloco --- do topo, que nao vira HTML.
+function conferaLinhasDeTarefa(src, html) {
+  const linhas = src.split(String.fromCharCode(10));
+  const re = /data-task-line="(\d+)"/g;
+  let m, achou = 0;
+  while ((m = re.exec(html))) {
+    achou++;
+    const linha = linhas[Number(m[1])];
+    if (linha === undefined) return false;
+    if (!/^\s*(?:[-*+]|\d+[.)])\s+\[[ xX~/-]\]\s/.test(linha)) return false;
+  }
+  return achou >= 2;
+}
 
 let fails = 0;
 for (const [name, ok] of checks) {
