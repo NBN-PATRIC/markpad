@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<!-- GERADO por dev/make-preview.js a partir de web/index.html. Nao edite a mao. -->
 <html lang="pt-BR">
 <head>
   <meta charset="utf-8">
-  <!-- sem CSP: pagina de desenvolvimento, gerada por dev/make-preview.js -->
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'none'; form-action 'none'; base-uri 'none'; frame-src 'none'; object-src 'none'">
   <title>MarkPad — preview de desenvolvimento</title>
   <link rel="stylesheet" href="../web/style.css">
 </head>
@@ -134,14 +134,12 @@
         </div>
 
         <div class="view-actions">
-          <!-- Alternadores independentes: dá para ter os dois painéis ao mesmo
-               tempo. Sem o de código, o próprio leitor aceita edição. -->
-          <div class="mode-switch" id="modeSwitch" hidden>
-            <button class="mode-btn" id="btnToggleSource" data-icon="code"
-                    title="Painel de código-fonte (Ctrl+Shift+C)"></button>
-            <button class="mode-btn" id="btnTogglePreview" data-icon="columns"
-                    title="Painel de leitura ao lado (Ctrl+Shift+L)"></button>
-          </div>
+          <!-- Bandeira do modo: diz em que modo o documento está, e só. Trocar
+               de modo é no seletor do rodapé — ou clicando aqui, que abre o
+               mesmo cardápio. Um documento, um painel. -->
+          <button class="mode-flag" id="btnModeFlag" type="button" title="Modo de exibição">
+            <span class="mode-flag-icon" data-icon="book-open"></span>
+          </button>
           <button class="icon-btn" id="btnFind" data-icon="search" title="Localizar (Ctrl+F)"></button>
           <button class="icon-btn" id="btnMore" data-icon="more" title="Mais opcoes"></button>
 
@@ -218,9 +216,28 @@
   <!-- ------------------------------------------------------ barra de status -->
   <footer class="status-bar">
     <div class="status-left">
-      <button class="status-lock is-locked" id="statusLock" type="button">
-        <span class="status-lock-icon" data-icon="lock"></span>
-        <span id="statusLockText">Somente leitura</span>
+      <!-- O seletor de modo mora aqui embaixo, como no Obsidian: fica longe
+           do texto e perto do resto do estado do documento. -->
+      <div class="mode-seg" id="modeSeg" role="group" aria-label="Modo de exibição">
+        <button class="mode-seg-btn" type="button" data-mode="leitura"
+                title="Leitura — o giz trava a edição (Ctrl+E)">
+          <span class="mode-seg-icon" data-icon="book-open"></span>
+          <span class="mode-seg-label">Leitura</span>
+        </button>
+        <button class="mode-seg-btn" type="button" data-mode="vivo"
+                title="Edição ao vivo — edita no próprio leitor">
+          <span class="mode-seg-icon" data-icon="pencil"></span>
+          <span class="mode-seg-label">Ao vivo</span>
+        </button>
+        <button class="mode-seg-btn" type="button" data-mode="fonte"
+                title="Código-fonte — markdown cru (Ctrl+Shift+C)">
+          <span class="mode-seg-icon" data-icon="code"></span>
+          <span class="mode-seg-label">Fonte</span>
+        </button>
+      </div>
+      <button class="status-item clickable status-side" id="statusSplit"
+              title="Leitura ao lado do código (Ctrl+Shift+L)">
+        <span class="status-side-icon" data-icon="columns"></span>
       </button>
       <span class="status-item" id="statusPath"></span>
     </div>

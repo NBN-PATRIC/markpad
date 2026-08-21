@@ -65,7 +65,7 @@
     lockOnOpen: true,
     confirmUnlock: false,
     showSource: false,
-    showPreview: true,
+    sideReader: false,
     wordWrap: true,
     lineNumbers: true,
     fontSize: 16,
@@ -518,7 +518,7 @@
       readOnlyOnDisk: !!data.readOnlyOnDisk,
       locked: settings.lockOnOpen,
       showSource: !!settings.showSource,
-      showPreview: settings.showPreview !== false,
+      showPreview: !!settings.sideReader,
       scrollTop: 0,
       selStart: 0,
       selEnd: 0,
@@ -897,7 +897,6 @@
     }
 
     var lock = $('btnLock');
-    var statusLock = $('statusLock');
     var unlocked = tab && !tab.locked;
 
     lock.classList.toggle('is-locked', !unlocked);
@@ -908,21 +907,133 @@
       : 'Edicao travada — clique ou Ctrl+E para liberar';
     $('lockText').textContent = unlocked ? 'Editando' : 'Travado';
 
-    statusLock.classList.toggle('is-locked', !unlocked);
-    statusLock.classList.toggle('is-unlocked', !!unlocked);
-    var icon = statusLock.querySelector('.status-lock-icon');
-    icon.setAttribute('data-icon', unlocked ? 'unlock' : 'lock');
-    icon.textContent = '';
-    var svg = window.MarkPadIcons.build(unlocked ? 'unlock' : 'lock', 12);
-    if (svg) icon.appendChild(svg);
-    $('statusLockText').textContent = unlocked ? 'Edicao liberada' : 'Somente leitura';
-
     document.body.classList.toggle('is-editing', !!unlocked);
 
-    $('modeSwitch').hidden = !unlocked;
-    $('btnToggleSource').classList.toggle('is-active', !!(tab && tab.showSource));
-    $('btnTogglePreview').classList.toggle('is-active', !!(tab && tab.showSource && tab.showPreview));
-    $('btnTogglePreview').disabled = !(tab && tab.showSource);
+    renderModo(tab);
+  }
+
+  // ================================================================== modos
+  //
+  // Um documento, um painel. O que antes eram dois alternadores independentes
+  // (codigo on/off, leitura ao lado on/off) virou um estado so, com tres
+  // valores exclusivos. O par (locked, showSource) continua sendo a verdade —
+  // 'modo' e a leitura dele em voz alta, sem estado duplicado para dessincronizar.
+
+  var MODOS = [
+    { id: 'leitura', label: 'Leitura', icon: 'book-open', key: 'Ctrl+E',
+      dica: 'o giz esta travado, a tecla nao escreve' },
+    { id: 'vivo', label: 'Edicao ao vivo', icon: 'pencil', key: '',
+      dica: 'edita no proprio leitor, sem ver o codigo' },
+    { id: 'fonte', label: 'Codigo-fonte', icon: 'code', key: 'Ctrl+Shift+C',
+      dica: 'markdown cru, com numeros de linha' }
+  ];
+
+  function modoDe(tab) {
+    if (!tab || tab.locked) return 'leitura';
+    return tab.showSource ? 'fonte' : 'vivo';
+  }
+
+  function modoInfo(id) {
+    for (var i = 0; i < MODOS.length; i++) if (MODOS[i].id === id) return MODOS[i];
+    return MODOS[0];
+  }
+
+  function renderModo(tab) {
+    var modo = modoDe(tab);
+    var info = modoInfo(modo);
+
+    var flag = $('btnModeFlag');
+    if (flag) {
+      flag.disabled = !tab;
+      flag.title = tab
+        ? 'Modo: ' + info.label + ' — ' + info.dica
+        : 'Modo de exibicao';
+      flag.classList.toggle('is-live', !!(tab && !tab.locked));
+      var fi = flag.querySelector('.mode-flag-icon');
+      fi.setAttribute('data-icon', info.icon);
+      fi.textContent = '';
+      var fsvg = window.MarkPadIcons.build(info.icon, 15);
+      if (fsvg) fi.appendChild(fsvg);
+    }
+
+    var seg = $('modeSeg');
+    if (seg) {
+      seg.classList.toggle('is-off', !tab);
+      var botoes = seg.querySelectorAll('.mode-seg-btn');
+      for (var i = 0; i < botoes.length; i++) {
+        botoes[i].classList.toggle('is-active',
+          !!tab && botoes[i].getAttribute('data-mode') === modo);
+        botoes[i].disabled = !tab;
+      }
+    }
+
+    var lado = $('statusSplit');
+    if (lado) {
+      lado.disabled = !(tab && modo === 'fonte');
+      lado.classList.toggle('is-active', !!(tab && modo === 'fonte' && tab.showPreview));
+    }
+  }
+
+  /** Troca de modo. Passar do travado para qualquer outro pede o giz. */
+  function setModo(id, tab) {
+    tab = tab || activeTab();
+    if (!tab) return;
+    if (id === modoDe(tab)) return;
+
+    if (id === 'leitura') { setLocked(tab, true); return; }
+
+    var querFonte = id === 'fonte';
+
+    if (tab.locked) {
+      var libera = function () {
+        tab.showSource = querFonte;
+        settings.showSource = querFonte;
+        setLocked(tab, false);
+        persist();
+      };
+      if (settings.confirmUnlock) {
+        dialog('Liberar edicao?',
+          'O documento <strong>' + escapeText(tab.name) + '</strong> passara a aceitar digitacao.',
+          [{ label: 'Cancelar', value: false }, { label: 'Liberar', value: true, cls: 'primary' }]
+        ).then(function (yes) { if (yes) libera(); });
+        return;
+      }
+      libera();
+      return;
+    }
+
+    if (live) live.commit();
+    tab.showSource = querFonte;
+    settings.showSource = querFonte;
+    renderHeader();
+    renderViews();
+    persist();
+
+    if (querFonte) $('editorInput').focus();
+  }
+
+  function modeMenu(x, y) {
+    var tab = activeTab();
+    var modo = modoDe(tab);
+
+    var itens = MODOS.map(function (m) {
+      return {
+        label: m.label, icon: m.icon, key: m.key,
+        checked: m.id === modo,
+        disabled: !tab,
+        action: function () { setModo(m.id); }
+      };
+    });
+
+    itens.push('-');
+    itens.push({
+      label: 'Leitura ao lado do codigo', icon: 'columns', key: 'Ctrl+Shift+L',
+      checked: !!(tab && modo === 'fonte' && tab.showPreview),
+      disabled: !(tab && modo === 'fonte'),
+      action: togglePreviewPane
+    });
+
+    showMenu(itens, x, y);
   }
 
   /**
@@ -2953,6 +3064,8 @@
     var tab = activeTab();
     var unlocked = tab && !tab.locked;
 
+    var modo = modoDe(tab);
+
     return [
       { id: 'open', label: 'Abrir arquivo...', key: 'Ctrl+O', icon: 'file-text', action: doOpen },
       { id: 'openFolder', label: 'Abrir pasta...', key: 'Ctrl+Shift+O', icon: 'folder-open', action: doOpenFolder },
@@ -2961,8 +3074,10 @@
       { id: 'saveAs', label: 'Salvar como...', key: 'Ctrl+Shift+S', icon: 'save', enabled: !!tab, action: function () { saveTab(activeTab(), true); } },
       { id: 'close', label: 'Fechar aba', key: 'Ctrl+W', icon: 'x', enabled: !!tab, action: function () { closeTab(app.activeId); } },
       { id: 'lock', label: unlocked ? 'Travar edicao' : 'Liberar edicao', key: 'Ctrl+E', icon: unlocked ? 'lock' : 'unlock', enabled: !!tab, action: toggleLock },
-      { id: 'modeSource', label: 'Painel de codigo-fonte', key: 'Ctrl+Shift+C', icon: 'code', enabled: !!unlocked, checked: !!(tab && tab.showSource), action: toggleSource },
-      { id: 'modeSplit', label: 'Painel de leitura ao lado', key: 'Ctrl+Shift+L', icon: 'columns', enabled: !!(unlocked && tab.showSource), checked: !!(tab && tab.showSource && tab.showPreview), action: togglePreviewPane },
+      { id: 'modeRead', label: 'Modo: leitura', icon: 'book-open', enabled: !!tab, checked: modo === 'leitura', action: function () { setModo('leitura'); } },
+      { id: 'modeLive', label: 'Modo: edicao ao vivo', icon: 'pencil', enabled: !!tab, checked: modo === 'vivo', action: function () { setModo('vivo'); } },
+      { id: 'modeSource', label: 'Modo: codigo-fonte', key: 'Ctrl+Shift+C', icon: 'code', enabled: !!tab, checked: modo === 'fonte', action: function () { setModo('fonte'); } },
+      { id: 'modeSplit', label: 'Leitura ao lado do codigo', key: 'Ctrl+Shift+L', icon: 'columns', enabled: modo === 'fonte', checked: !!(tab && tab.showSource && tab.showPreview), action: togglePreviewPane },
       { id: 'find', label: 'Localizar no documento', key: 'Ctrl+F', icon: 'search', enabled: !!tab, action: openFind },
       { id: 'findFolder', label: 'Buscar na pasta', key: 'Ctrl+Shift+F', icon: 'search', action: function () { openFolderSearch(); } },
       { id: 'goto', label: 'Ir para a linha...', key: 'Ctrl+G', icon: 'list', enabled: !!tab, action: promptGoToLine },
@@ -3018,7 +3133,7 @@
    */
   var QUICK_DISPONIVEIS = [
     'open', 'openFolder', 'new', 'save', 'saveAs', 'close', 'reload',
-    'lock', 'modeSource', 'modeSplit',
+    'lock', 'modeRead', 'modeLive', 'modeSource', 'modeSplit',
     'find', 'findFolder', 'switcher', 'goto', 'foldAll', 'unfoldAll',
     'treeSearch', 'treeSort', 'treeCollapse', 'tags',
     'wrap', 'gutter', 'properties', 'wide', 'theme', 'sidebar',
@@ -3627,22 +3742,19 @@
     document.body.classList.toggle('no-anim', settings.animations === false);
   }
 
+  /** Ctrl+Shift+C: entra e sai do codigo-fonte, venha de onde vier. */
   function toggleSource() {
     var tab = activeTab();
-    if (!tab || tab.locked) return;
-    if (live) live.commit();
-    tab.showSource = !tab.showSource;
-    settings.showSource = tab.showSource;
-    renderHeader();
-    renderViews();
-    persist();
+    if (!tab) return;
+    setModo(modoDe(tab) === 'fonte' ? 'vivo' : 'fonte', tab);
   }
 
+  /** O leitor ao lado e um extra do modo fonte, nao um quarto modo. */
   function togglePreviewPane() {
     var tab = activeTab();
     if (!tab || tab.locked || !tab.showSource) return;
     tab.showPreview = !tab.showPreview;
-    settings.showPreview = tab.showPreview;
+    settings.sideReader = tab.showPreview;
     renderHeader();
     renderViews();
     persist();
@@ -4383,7 +4495,6 @@
     $('btnClearRecent').onclick = function () { settings.recent = []; renderRecent(); persist(); };
 
     $('btnLock').onclick = toggleLock;
-    $('statusLock').onclick = toggleLock;
     $('btnFind').onclick = openFind;
     $('btnMore').onclick = function (e) {
       var r = e.currentTarget.getBoundingClientRect();
@@ -4394,8 +4505,18 @@
     $('btnEmptyFolder').onclick = doOpenFolder;
     $('btnEmptyNew').onclick = newTab;
 
-    $('btnToggleSource').onclick = toggleSource;
-    $('btnTogglePreview').onclick = togglePreviewPane;
+    $('btnModeFlag').onclick = function (e) {
+      var r = e.currentTarget.getBoundingClientRect();
+      modeMenu(r.right - 230, r.bottom + 4);
+    };
+    $('statusSplit').onclick = togglePreviewPane;
+
+    var segBtns = document.querySelectorAll('.mode-seg-btn');
+    for (var m = 0; m < segBtns.length; m++) {
+      (function (btn) {
+        btn.onclick = function () { setModo(btn.getAttribute('data-mode')); };
+      })(segBtns[m]);
+    }
 
     var sideTabs = document.querySelectorAll('.sidebar-tab');
     for (var j = 0; j < sideTabs.length; j++) {

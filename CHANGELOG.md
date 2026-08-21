@@ -5,6 +5,37 @@ Versionamento [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Não lançado]
 
+### Corrigido
+- **O painel de código não some mais quando deveria sumir.** `.editing-view`,
+  `.reading-view` e `.preview-pane` declaravam `display: flex`, e isso ganha do
+  `display: none` que o navegador dá para `[hidden]`. Resultado: o leitor e o
+  editor ficavam lado a lado na mesma janela — o leitor espremido em meia tela
+  (texto descentralizado) e o painel de código mostrando o documento da *outra*
+  guia, porque ninguém o atualizava. Uma regra `[hidden] { display: none
+  !important; }` no topo da folha mata a armadilha inteira, e não só nesses
+  três: qualquer classe com `display` quebrava o `hidden` dela.
+
+### Alterado
+- **Um documento, um painel.** Os dois alternadores independentes do cabeçalho
+  (`<>` e colunas) viraram **um modo só, com três valores exclusivos**:
+  **Leitura**, **Edição ao vivo** e **Código-fonte**. É o mesmo par
+  (travado, código) de antes — só que dito em voz alta, sem dois botões que
+  podiam se contradizer.
+- **O seletor de modo desceu para o rodapé**, como no Obsidian: longe do texto,
+  perto do resto do estado do documento. É um segmentado com nome em cada
+  opção; em janela estreita fica só o ícone.
+- **No cabeçalho ficou uma bandeira**: um ícone que diz em que modo o documento
+  está — livro (leitura), lápis (ao vivo), `<>` (fonte). Clicar abre o mesmo
+  cardápio. Ela indica; quem troca é o rodapé.
+- **A tela dividida virou opcional de verdade.** Deixou de ser o padrão
+  (`sideReader`, novo e desligado) e só existe dentro do modo código-fonte, num
+  botão próprio do rodapé (`Ctrl+Shift+L`). Abrir um arquivo agora dá uma
+  coluna de texto centralizada, e não três painelões.
+- `Ctrl+Shift+C` entra e sai do código-fonte vindo de qualquer modo — antes
+  só funcionava com o giz já destravado.
+- A pastilha de trava do rodapé saiu: dizia a mesma coisa que o seletor de modo
+  agora diz melhor. O giz continua no canto superior direito, onde sempre esteve.
+
 ### Adicionado
 - **Painel de tags**, a quarta aba da barra lateral. Junta as tags de todos
   os arquivos da pasta aberta — `#a/b` vira árvore, com contagem por nível

@@ -4,6 +4,17 @@
  * para o modo leitura ficar visualmente igual ao que o usuario ja conhece.
  */
 
+/* ------------------------------------------------------------------------
+ * O atributo hidden vale mais que qualquer display do autor.
+ *
+ * Sem isto, '.editing-view { display: flex }' ganhava do 'display:none' que o
+ * navegador da para [hidden] -- e o painel de codigo continuava na tela ao
+ * lado do leitor, mostrando o documento da OUTRA guia, com o texto do leitor
+ * espremido em meia janela. Regra unica no topo porque a armadilha e geral:
+ * qualquer classe com display quebra o hidden dela.
+ * ---------------------------------------------------------------------- */
+[hidden] { display: none !important; }
+
 /* ============================================================== tokens */
 
 :root {
@@ -581,16 +592,19 @@ body.sidebar-hidden .main { border-left: none; border-radius: var(--radius-m) va
 
 .view-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
 
-.mode-switch { display: flex; gap: 1px; background: var(--background-secondary); border-radius: var(--radius-s); padding: 2px; }
-.mode-btn {
+/* Bandeira do modo — indicador, nao painel de controle. */
+.mode-flag {
   display: flex; align-items: center; justify-content: center;
-  width: 24px; height: 22px;
-  border-radius: 3px;
+  width: 26px; height: 24px;
+  border-radius: var(--radius-s);
   color: var(--text-faint);
+  transition: color var(--anim-fast) var(--anim-ease),
+              background var(--anim-fast) var(--anim-ease);
 }
-.mode-btn svg { width: 14px; height: 14px; }
-.mode-btn:hover { color: var(--text-normal); }
-.mode-btn.is-active { background: var(--background-primary); color: var(--text-accent); box-shadow: 0 1px 2px rgba(0,0,0,.15); }
+.mode-flag svg { width: 15px; height: 15px; }
+.mode-flag:hover:not(:disabled) { background: var(--background-modifier-hover); color: var(--text-normal); }
+.mode-flag.is-live { color: var(--text-accent); }
+.mode-flag:disabled { opacity: .35; }
 
 /* ==================================================== A TRAVA (destaque) */
 
@@ -1300,21 +1314,58 @@ body.no-gutter .ed-row .ln { display: none; }
 .status-item.clickable:hover { background: var(--background-modifier-hover); color: var(--text-normal); }
 #statusPath { overflow: hidden; text-overflow: ellipsis; direction: rtl; text-align: left; }
 
-.status-lock {
+/* ------------------------------------------------ seletor de modo (rodape) */
+
+.mode-seg {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  padding: 2px;
+  border-radius: 10px;
+  background: var(--background-modifier-form-field);
+  flex-shrink: 0;
+}
+.mode-seg.is-off { opacity: .45; }
+.mode-seg-btn {
   display: flex;
   align-items: center;
   gap: 5px;
-  height: 18px;
+  height: 16px;
   padding: 0 8px;
-  border-radius: 9px;
+  border-radius: 8px;
   font-size: 11px;
   font-weight: 600;
-  flex-shrink: 0;
+  color: var(--text-faint);
+  white-space: nowrap;
+  transition: background var(--anim-fast) var(--anim-ease),
+              color var(--anim-fast) var(--anim-ease);
 }
-.status-lock svg { width: 12px; height: 12px; }
-.status-lock.is-locked { background: var(--background-modifier-form-field); color: var(--text-muted); }
-.status-lock.is-locked:hover { background: var(--interactive-hover); color: var(--text-normal); }
-.status-lock.is-unlocked { background: var(--color-accent); color: var(--text-on-accent); }
+.mode-seg-btn svg { width: 11px; height: 11px; }
+.mode-seg-btn:hover:not(:disabled):not(.is-active) { color: var(--text-normal); }
+.mode-seg-btn.is-active {
+  background: var(--background-primary);
+  color: var(--text-normal);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .18);
+}
+/* Destravado ganha a cor do acento: da para ver de longe que a tecla escreve. */
+.mode-seg-btn[data-mode="vivo"].is-active,
+.mode-seg-btn[data-mode="fonte"].is-active {
+  background: var(--color-accent);
+  color: var(--text-on-accent);
+  box-shadow: none;
+}
+.mode-seg-btn:disabled { opacity: .5; }
+
+.status-side { display: flex; align-items: center; padding: 0 4px; }
+.status-side svg { width: 13px; height: 13px; }
+.status-side.is-active { color: var(--text-accent); }
+.status-side:disabled { opacity: .3; }
+
+/* Janela estreita: o rodape perde os nomes antes de perder os botoes. */
+@media (max-width: 880px) {
+  .mode-seg-label { display: none; }
+  .mode-seg-btn { padding: 0 6px; }
+}
 
 /* ============================================= menus, paleta, avisos */
 
