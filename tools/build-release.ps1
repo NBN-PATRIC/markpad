@@ -113,14 +113,8 @@ Get-ChildItem $dist | ForEach-Object {
     '{0,-46} {1,8:N1} MB  {2}' -f $_.Name, ($_.Length / 1MB), $hash.Substring(0, 16)
 }
 
-# Arquivo de somas, para conferencia do download.
-# Atencao: -Exclude so filtra os filhos se o -Path terminar em curinga.
-# Sem o '*', o filtro se aplica a propria pasta e o resultado vem vazio.
-$sums = Get-ChildItem (Join-Path $dist '*') -File -Exclude 'SHA256SUMS.txt' | ForEach-Object {
-    '{0}  {1}' -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash, $_.Name
-}
-if (-not $sums) { throw 'nenhum artefato encontrado para somar' }
-$sums | Out-File -FilePath (Join-Path $dist 'SHA256SUMS.txt') -Encoding ascii
-
-Write-Host ""
-Write-Host "somas gravadas em dist\SHA256SUMS.txt" -ForegroundColor Green
+# Arquivo de somas, para conferencia do download e para o atualizador
+# automatico. Fica num script a parte porque o build-installer.ps1 roda
+# depois deste e precisa reescrever o arquivo com o setup.exe e o .msi
+# ja dentro; antes eles ficavam de fora.
+& (Join-Path $PSScriptRoot 'write-sums.ps1') -Pasta $dist

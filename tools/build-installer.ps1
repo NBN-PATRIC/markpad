@@ -83,6 +83,11 @@ if (-not $OnlyInno) {
         -d "ExeSource=$exeSource" `
         -o $msi
     if ($LASTEXITCODE -ne 0) { throw "wix build falhou (codigo $LASTEXITCODE)" }
+
+    # O wix deixa um .wixpdb ao lado do .msi. E arquivo de simbolos, so serve
+    # para depurar o proprio instalador, e ja vazou uma vez para a release
+    # publica da 1.2.0. Fora da pasta de distribuicao.
+    Remove-Item (Join-Path $dist '*.wixpdb') -Force -ErrorAction SilentlyContinue
 }
 
 # ---------------------------------------------------------------- resumo
@@ -92,3 +97,9 @@ Write-Host "instaladores em $dist" -ForegroundColor Green
 Get-ChildItem $dist -File | Where-Object { $_.Extension -in '.exe', '.msi' } | ForEach-Object {
     '{0,-46} {1,8:N1} MB' -f $_.Name, ($_.Length / 1MB)
 }
+
+# Regrava as somas agora que o setup.exe e o .msi existem. O build-release.ps1
+# ja tinha gravado uma versao so com o .zip e o .exe avulso; sem este passo,
+# os dois instaladores chegariam na release sem hash publicado e o atualizador
+# automatico se recusaria a instala-los.
+& (Join-Path $PSScriptRoot 'write-sums.ps1') -Pasta $dist

@@ -97,11 +97,10 @@ jobs:
         if: steps.signing.outcome == 'success'
         shell: pwsh
         run: |
-          # Assinar muda o binário, logo muda o hash.
-          Get-ChildItem (Join-Path 'signed' '*') -File -Exclude 'SHA256SUMS.txt' | ForEach-Object {
-            '{0}  {1}' -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash, $_.Name
-          } | Out-File signed\SHA256SUMS.txt -Encoding ascii
-          Get-Content signed\SHA256SUMS.txt
+          # Assinar muda o binário, logo muda o hash. Mesmas exclusões do build
+          # local — o atualizador automático recusa o que não está nessa lista,
+          # então ela precisa cobrir todos os instaladores.
+          .\tools\write-sums.ps1 -Pasta signed
 
       # ---------------------------------------------------------------- release
 
@@ -113,5 +112,11 @@ jobs:
         run: |
           $pasta = if (Test-Path signed) { 'signed' } else { 'dist' }
           Write-Host "publicando de: $pasta"
-          $arquivos = Get-ChildItem $pasta -File | ForEach-Object { $_.FullName }
+          # Símbolos não são artefato de distribuição — a 1.2.0 saiu com um
+          # .wixpdb anexado porque este glob não filtrava nada.
+          # (o -Exclude so pega os filhos quando o caminho termina em curinga)
+          $arquivos = Get-ChildItem (Join-Path $pasta '*') -File -Exclude '*.wixpdb', '*.pdb' |
+            ForEach-Object { $_.FullName }
+          if (-not $arquivos) { throw 'nada para publicar' }
+          $arquivos | ForEach-Object { Write-Host "  $(Split-Path $_ -Leaf)" }
           gh release upload $env:GITHUB_REF_NAME @arquivos --clobber
