@@ -233,8 +233,10 @@ distribuição é um arquivo só.
 | `Ctrl+P` · `Ctrl+Shift+P` | abrir arquivo pelo nome · paleta de comandos |
 | `Ctrl+N` · `Ctrl+S` · `Ctrl+Shift+S` | nova nota · salvar · salvar como |
 | `Ctrl+W` · `Ctrl+Tab` · `Ctrl+1..9` | fechar aba · próxima aba · ir para aba |
+| `Ctrl+Shift+T` | reabrir a última aba fechada |
 | `F2` | renomear o documento aberto |
 | `Ctrl+F` / `Ctrl+Shift+F` | localizar no arquivo / na pasta |
+| `Ctrl+H` | substituir no arquivo |
 | `Ctrl+G` | ir para a linha |
 | `Ctrl+Shift+-` / `Ctrl+Shift++` | recolher / expandir todas as seções |
 | `Ctrl+\` · `Alt+Z` · `Ctrl+,` | painel lateral · quebra de linha · configurações |

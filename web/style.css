@@ -1939,3 +1939,19 @@ body.no-anim *::after {
   font-size: 10px;
 }
 .pane-foot[hidden] { display: none; }
+
+/* ------------------------------------------------ alvo de um salto
+ *
+ * Ir para uma linha, clicar num titulo do sumario ou seguir um link interno
+ * so rola a pagina. Sem um sinal no destino, no meio de um documento longo
+ * nao da para saber se algo aconteceu. O realce apaga sozinho.
+ */
+@keyframes alvo-pisca {
+  0%   { background: var(--text-selection); }
+  70%  { background: var(--text-selection); }
+  100% { background: transparent; }
+}
+.markdown-preview .is-flashing {
+  animation: alvo-pisca 1.3s var(--anim-ease-out);
+  border-radius: var(--radius-s);
+}

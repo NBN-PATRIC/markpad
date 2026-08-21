@@ -112,6 +112,9 @@
     associated: false,
     find: { open: false, query: '', caseSensitive: false, regex: false, index: 0, total: 0 },
     folderSearch: { caseSensitive: false, regex: false },
+    // Pilha do Ctrl+Shift+T. O conteudo vai junto porque uma nota que nunca
+    // foi salva morre no fechar e nao teria de onde voltar.
+    fechadas: [],
     closing: false
   };
 
@@ -687,6 +690,7 @@
 
         if (tab.path) bridge.call('unwatchFile', { path: tab.path }).catch(function () {});
         dropBackup(tab);
+        guardaFechada(tab);
         app.tabs.splice(idx, 1);
 
         if (app.activeId === id) {
@@ -698,6 +702,52 @@
         return true;
       });
     });
+  }
+
+  /** Anota a aba na pilha do Ctrl+Shift+T. Aba em branco sem nome fica fora. */
+  function guardaFechada(tab) {
+    if (!tab.path && !tab.content) return;
+
+    app.fechadas.push({
+      path: tab.path, name: tab.name,
+      content: tab.content, savedContent: tab.savedContent,
+      originContent: tab.originContent,
+      encoding: tab.encoding, eol: tab.eol,
+      locked: tab.locked, showSource: tab.showSource, scrollTop: tab.scrollTop
+    });
+    if (app.fechadas.length > 12) app.fechadas.shift();
+  }
+
+  /**
+   * Reabre a ultima aba fechada. Com arquivo, le do disco de novo — quem
+   * fechou descartando mudancas pediu justamente para descarta-las. Sem
+   * arquivo, a nota volta do snapshot, que e a unica copia que sobrou dela.
+   */
+  function reabrirAba() {
+    var snap = app.fechadas.pop();
+    if (!snap) { toast('Nenhuma aba fechada para reabrir.', 'warn'); return; }
+
+    if (snap.path) {
+      var jaAberta = tabByPath(snap.path);
+      if (jaAberta) { selectTab(jaAberta.id); return; }
+
+      doOpenPath(snap.path, {}).then(function (aberta) {
+        if (!aberta) return;
+        aberta.locked = snap.locked;
+        aberta.showSource = snap.showSource;
+        aberta.scrollTop = snap.scrollTop;
+        renderAll();
+      }).catch(function () {});
+      return;
+    }
+
+    var tab = makeTab({ name: snap.name, content: snap.content, encoding: snap.encoding, eol: snap.eol });
+    tab.savedContent = snap.savedContent;
+    tab.originContent = snap.originContent;
+    tab.locked = snap.locked;
+    tab.showSource = snap.showSource;
+    app.tabs.push(tab);
+    selectTab(tab.id);
   }
 
   function selectTab(id) {
@@ -1500,7 +1550,7 @@
 
       if (el.hasAttribute('data-anchor')) {
         var target = container.querySelector('#' + CSS.escape(el.getAttribute('data-anchor')));
-        if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        if (target) { target.scrollIntoView({ behavior: 'smooth', block: 'start' }); piscaAlvo(target); }
         return;
       }
 
@@ -1677,6 +1727,18 @@
     }
   }
 
+  /**
+   * Pisca o alvo de um salto. Sem um sinal, rolar ate o lugar certo no meio
+   * de um documento longo nao se distingue de nao ter saido do lugar.
+   */
+  function piscaAlvo(el) {
+    if (!el) return;
+    el.classList.remove('is-flashing');
+    void el.offsetWidth; // reinicia a animacao quando o alvo e o mesmo de novo
+    el.classList.add('is-flashing');
+    setTimeout(function () { el.classList.remove('is-flashing'); }, 1300);
+  }
+
   function goToLine(line) {
     var tab = activeTab();
     if (!tab) return;
@@ -1684,7 +1746,7 @@
     if (tab.locked) {
       var target = $('preview').querySelector('[data-line="' + (line - 1) + '"]') ||
                    $('preview').querySelector('[data-line="' + line + '"]');
-      if (target) target.scrollIntoView({ block: 'center' });
+      if (target) { target.scrollIntoView({ block: 'center' }); piscaAlvo(target); }
       return;
     }
 
@@ -2845,6 +2907,17 @@
     if (tab && !tab.locked) $('editorInput').focus();
   }
 
+  /** Ctrl+H: a mesma barra, mas com o cursor ja no campo de substituir. */
+  function openReplace() {
+    var tab = activeTab();
+    if (!tab) return;
+
+    openFind();
+    if (tab.locked) { toast('Destrave a edicao para substituir.', 'warn'); return; }
+    $('replaceInput').focus();
+    $('replaceInput').select();
+  }
+
   function updateReplaceAvailability() {
     var tab = activeTab();
     var canEdit = tab && !tab.locked;
@@ -3080,12 +3153,14 @@
       { id: 'save', label: 'Salvar', key: 'Ctrl+S', icon: 'save', enabled: !!unlocked, action: function () { saveTab(); } },
       { id: 'saveAs', label: 'Salvar como...', key: 'Ctrl+Shift+S', icon: 'save', enabled: !!tab, action: function () { saveTab(activeTab(), true); } },
       { id: 'close', label: 'Fechar aba', key: 'Ctrl+W', icon: 'x', enabled: !!tab, action: function () { closeTab(app.activeId); } },
+      { id: 'reopen', label: 'Reabrir aba fechada', key: 'Ctrl+Shift+T', icon: 'refresh', enabled: !!app.fechadas.length, action: reabrirAba },
       { id: 'lock', label: unlocked ? 'Travar edicao' : 'Liberar edicao', key: 'Ctrl+E', icon: unlocked ? 'lock' : 'unlock', enabled: !!tab, action: toggleLock },
       { id: 'modeRead', label: 'Modo: leitura', icon: 'book-open', enabled: !!tab, checked: modo === 'leitura', action: function () { setModo('leitura'); } },
       { id: 'modeLive', label: 'Modo: edicao ao vivo', icon: 'pencil', enabled: !!tab, checked: modo === 'vivo', action: function () { setModo('vivo'); } },
       { id: 'modeSource', label: 'Modo: codigo-fonte', key: 'Ctrl+Shift+C', icon: 'code', enabled: !!tab, checked: modo === 'fonte', action: function () { setModo('fonte'); } },
       { id: 'modeSplit', label: 'Leitura ao lado do codigo', key: 'Ctrl+Shift+L', icon: 'columns', enabled: modo === 'fonte', checked: !!(tab && tab.showSource && tab.showPreview), action: togglePreviewPane },
       { id: 'find', label: 'Localizar no documento', key: 'Ctrl+F', icon: 'search', enabled: !!tab, action: openFind },
+      { id: 'replace', label: 'Substituir no documento', key: 'Ctrl+H', icon: 'text', enabled: !!unlocked, action: openReplace },
       { id: 'findFolder', label: 'Buscar na pasta', key: 'Ctrl+Shift+F', icon: 'search', action: function () { openFolderSearch(); } },
       { id: 'goto', label: 'Ir para a linha...', key: 'Ctrl+G', icon: 'list', enabled: !!tab, action: promptGoToLine },
       { id: 'foldAll', label: 'Recolher todas as secoes', key: 'Ctrl+Shift+-', icon: 'chevron-up', enabled: !!tab, action: function () { setAllFolds(true); } },
@@ -3139,9 +3214,9 @@
    * (habilitado/marcado) segue a aba ativa sem codigo extra.
    */
   var QUICK_DISPONIVEIS = [
-    'open', 'openFolder', 'new', 'save', 'saveAs', 'close', 'reload',
+    'open', 'openFolder', 'new', 'save', 'saveAs', 'close', 'reopen', 'reload',
     'lock', 'modeRead', 'modeLive', 'modeSource', 'modeSplit',
-    'find', 'findFolder', 'switcher', 'goto', 'foldAll', 'unfoldAll',
+    'find', 'replace', 'findFolder', 'switcher', 'goto', 'foldAll', 'unfoldAll',
     'treeSearch', 'treeSort', 'treeCollapse', 'tags',
     'wrap', 'gutter', 'properties', 'wide', 'theme', 'sidebar',
     'export', 'print', 'copyPath', 'reveal',
@@ -4187,6 +4262,33 @@
     return el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA');
   }
 
+  /* --------------------------------------------------------- colar um link
+   *
+   * Com texto selecionado, colar uma URL troca a selecao por [texto](url),
+   * como no Obsidian. Vale nos dois lugares onde se digita: o textarea do
+   * codigo-fonte e o bloco aberto na edicao ao vivo (tambem um textarea).
+   * Fica no capture para chegar antes do colar normal do navegador.
+   */
+  var SO_URL = /^(?:https?|ftp|mailto):\S+$/i;
+
+  document.addEventListener('paste', function (e) {
+    var ta = e.target;
+    if (!ta || ta.tagName !== 'TEXTAREA') return;
+    if (ta.id !== 'editorInput' && !ta.classList.contains('block-source')) return;
+    if (ta.selectionStart === ta.selectionEnd) return;
+
+    var url = ((e.clipboardData && e.clipboardData.getData('text/plain')) || '').trim();
+    if (!SO_URL.test(url)) return;
+
+    var sel = ta.value.slice(ta.selectionStart, ta.selectionEnd);
+    // Selecao com quebra de linha, ou que ja e um link, fica de fora:
+    // [http://a](http://b) nunca e o que se queria.
+    if (/[\n\r]/.test(sel) || SO_URL.test(sel.trim())) return;
+
+    e.preventDefault();
+    document.execCommand('insertText', false, '[' + sel + '](' + url + ')');
+  }, true);
+
   document.addEventListener('keydown', function (e) {
     var ctrl = e.ctrlKey || e.metaKey;
     var tab = activeTab();
@@ -4205,6 +4307,7 @@
           e.shiftKey ? openFolderSearch() : openFind();
           return;
         case 'g': e.preventDefault(); promptGoToLine(); return;
+        case 'h': e.preventDefault(); openReplace(); return;
         case 'p':
           // Ctrl+P abre arquivo pelo nome, como em qualquer editor. Imprimir
           // saiu para Ctrl+Alt+P e continua no menu, na paleta e na barra.
@@ -4241,6 +4344,7 @@
       var sk = e.key.toLowerCase();
       if (sk === 'c') { e.preventDefault(); toggleSource(); return; }
       if (sk === 'l') { e.preventDefault(); togglePreviewPane(); return; }
+      if (sk === 't') { e.preventDefault(); reabrirAba(); return; }
     }
 
     if (ctrl && e.altKey && e.key.toLowerCase() === 'p') { e.preventDefault(); doPrint(); return; }
