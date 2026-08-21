@@ -804,6 +804,41 @@ body.wide-lines .markdown-preview { max-width: none; }
 .markdown-preview .task-item input[type=checkbox]:disabled { cursor: default; opacity: 0.75; }
 .markdown-preview .task-item.is-checked { transition: color var(--anim-fast) var(--anim-ease); }
 
+/* --------------------------------------------- estados de tarefa custom
+ *
+ * O Obsidian aceita qualquer caractere entre colchetes: [>] adiada, [?]
+ * duvida, [/] em andamento, [-] cancelada. A caixinha nativa nao sabe
+ * desenhar isso, entao com data-task ela vira uma caixa nossa e o proprio
+ * caractere aparece dentro dela — appearance:none e o que libera o ::before.
+ */
+.markdown-preview .task-item > input[data-task] {
+  appearance: none;
+  -webkit-appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 3px;
+  background: var(--background-primary);
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  font-family: var(--font-mono, monospace);
+}
+.markdown-preview .task-item > input[data-task]::before { content: attr(data-task); }
+
+/* Os quatro que todo mundo usa ganham cor; o resto fica no cinza. */
+.markdown-preview .task-item > input[data-task="/"],
+.markdown-preview .task-item > input[data-task=">"],
+.markdown-preview .task-item > input[data-task="<"] { color: var(--text-accent); border-color: var(--text-accent); }
+.markdown-preview .task-item > input[data-task="?"] { color: #d29922; border-color: #d29922; }
+.markdown-preview .task-item > input[data-task="!"] { color: #e5534b; border-color: #e5534b; }
+
+/* Cancelada risca o texto, como concluida, mas sem a caixa marcada. */
+.markdown-preview .task-item[data-task="-"],
+.markdown-preview .task-item[data-task="~"] { color: var(--text-muted); text-decoration: line-through; }
+
 /* ---------------------------------------------------------- propriedades */
 
 .properties {

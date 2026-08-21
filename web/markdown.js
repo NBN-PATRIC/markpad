@@ -121,11 +121,25 @@
     var self = this;
     var text = String(src == null ? '' : src);
 
+    // 0. nota de rodape inline do Obsidian: ^[o texto da nota vem aqui].
+    // Precisa vir antes do codigo inline porque o corpo e guardado cru — quem
+    // renderiza e o renderFootnotes, com outra instancia, que nao enxerga os
+    // slots desta. Vira uma referencia [^id] comum e segue o caminho normal.
+    text = text.replace(/\^\[([^\]\n]+)\]/g, function (_, corpo) {
+      var id = 'mp-inline-' + (++self.ctx.inlineFootnoteSeq);
+      self.ctx.footnotes[id] = corpo;
+      return '[^' + id + ']';
+    });
+
     // 1. codigo inline: `x`, ``x com ` dentro``
     text = text.replace(/(`+)([\s\S]*?[^`])\1(?!`)/g, function (all, ticks, code) {
       var body = code.replace(/^ (.*) $/, '$1');
       return self.stash('<code>' + escapeHtml(body) + '</code>');
     });
+
+    // 1b. comentarios do Obsidian: %%isto some%%. Depois do codigo inline de
+    // proposito — `%%assim%%` dentro de crase continua aparecendo.
+    text = text.replace(/%%[\s\S]*?%%/g, '');
 
     // 2. matematica: $$bloco$$ e $inline$ (sem TeX real, mas preserva e destaca)
     text = text.replace(/\$\$([\s\S]+?)\$\$/g, function (_, m) {
@@ -235,31 +249,47 @@
     return '<a class="internal-link" data-file="' + escapeAttr(decodeURIComponent(raw)) + '" href="#"' + t + '>' + innerHtml + '</a>';
   };
 
+  /** ' style="width:300px"' a partir de '300' ou '300x200'. Vazio se nao for. */
+  function estiloDeTamanho(size) {
+    if (/^\d+$/.test(size)) return ' style="width:' + Number(size) + 'px"';
+    if (/^\d+x\d+$/.test(size)) {
+      var wh = size.split('x');
+      return ' style="width:' + Number(wh[0]) + 'px;height:' + Number(wh[1]) + 'px"';
+    }
+    return '';
+  }
+
   Inline.prototype.image = function (src, alt, title) {
     var raw = String(src || '').trim();
+
+    // ![alt|300](foto.png) — o Obsidian aceita o tamanho no alt tambem na
+    // sintaxe padrao, nao so no embed ![[...]]. Se o que vem depois da barra
+    // nao for medida, era mesmo parte do alt e fica onde estava.
+    var style = '';
+    var corte = String(alt == null ? '' : alt).lastIndexOf('|');
+    if (corte !== -1) {
+      style = estiloDeTamanho(alt.slice(corte + 1).trim());
+      if (style) alt = alt.slice(0, corte).trim();
+    }
+
     var a = ' alt="' + escapeAttr(alt || '') + '"';
     var t = title ? ' title="' + escapeAttr(title) + '"' : '';
 
-    if (/^data:image\//i.test(raw)) return '<img src="' + escapeAttr(raw) + '"' + a + t + '>';
+    if (/^data:image\//i.test(raw)) return '<img src="' + escapeAttr(raw) + '"' + a + t + style + '>';
 
     if (/^https?:/i.test(raw)) {
-      if (this.ctx.opts.loadRemoteImages) return '<img src="' + escapeAttr(raw) + '"' + a + t + ' loading="lazy">';
+      if (this.ctx.opts.loadRemoteImages) return '<img src="' + escapeAttr(raw) + '"' + a + t + style + ' loading="lazy">';
       return '<span class="remote-image" data-remote="' + escapeAttr(raw) + '">' +
         'imagem externa bloqueada — clique para carregar</span>';
     }
     if (/^[a-z][a-z0-9+.-]*:/i.test(raw)) return '<span class="blocked-link">imagem bloqueada</span>';
 
-    return '<img class="local-image" data-src="' + escapeAttr(decodeURIComponent(raw)) + '"' + a + t + '>';
+    return '<img class="local-image" data-src="' + escapeAttr(decodeURIComponent(raw)) + '"' + a + t + style + '>';
   };
 
   Inline.prototype.embed = function (target, size) {
     if (/\.(png|jpe?g|gif|webp|bmp|svg|avif|ico)$/i.test(target)) {
-      var style = '';
-      if (/^\d+$/.test(size)) style = ' style="width:' + Number(size) + 'px"';
-      else if (/^\d+x\d+$/.test(size)) {
-        var wh = size.split('x');
-        style = ' style="width:' + Number(wh[0]) + 'px;height:' + Number(wh[1]) + 'px"';
-      }
+      var style = estiloDeTamanho(size);
       return '<img class="local-image" data-src="' + escapeAttr(target) + '" alt="' + escapeAttr(target) + '"' + style + '>';
     }
     return '<a class="internal-link embed-link" data-wikilink="' + escapeAttr(target) + '" href="#">' +
@@ -321,6 +351,16 @@
       var line = lines[i];
 
       if (!line.trim()) { i++; continue; }
+
+      // --- comentario de bloco do Obsidian: %% sozinho abre, %% sozinho fecha.
+      // O caso sem linha em branco no meio ja morre no inline; este aqui e o
+      // que atravessa paragrafos.
+      if (line.trim() === '%%') {
+        i++;
+        while (i < lines.length && lines[i].trim() !== '%%') i++;
+        i++;
+        continue;
+      }
 
       // --- bloco de codigo cercado
       var fence = RE_FENCE.exec(line);
@@ -447,7 +487,10 @@
       }
       if (para && para.length) {
         var pInline = new Inline(ctx);
-        out.push('<p' + lineAttr(pStart, i - 1) + '>' + pInline.render(para.join('\n')) + '</p>');
+        var pHtml = pInline.render(para.join('\n'));
+        // Paragrafo que era so comentario %% sai vazio; um <p></p> so serviria
+        // para abrir um vao no texto.
+        if (pHtml.trim()) out.push('<p' + lineAttr(pStart, i - 1) + '>' + pHtml + '</p>');
       }
       if (para === null) continue;
       if (!para || !para.length) i++;
@@ -632,16 +675,24 @@
 
     var body = items.map(function (item) {
       var text = item.lines.join('\n');
-      var task = /^\[([ xX~/-])\]\s+([\s\S]*)$/.exec(item.lines[0] || '');
+      // Qualquer caractere entre colchetes e uma tarefa, como no Obsidian:
+      // [x] feita, [ ] aberta, e [>] [?] [!] [/] [-] ... estados que o tema
+      // pinta pelo data-task. So x/X contam como concluida.
+      var task = /^\[(.)\]\s+([\s\S]*)$/.exec(item.lines[0] || '');
       var cls = '';
       var prefix = '';
 
       if (task) {
         hasTasks = true;
-        var checked = task[1].toLowerCase() === 'x';
+        var estado = task[1];
+        var checked = estado.toLowerCase() === 'x';
         cls = ' class="task-item' + (checked ? ' is-checked' : '') + '"';
+        if (estado !== ' ') cls += ' data-task="' + escapeAttr(estado) + '"';
         if (ctx.opts.lineMap) cls += ' data-task-line="' + linhaDe(item) + '"';
-        prefix = '<input type="checkbox" disabled' + (checked ? ' checked' : '') + '>';
+        // O estado tambem vai no input: e dele que o CSS tira o desenho da
+        // caixinha, com content: attr(data-task).
+        prefix = '<input type="checkbox" disabled' + (checked ? ' checked' : '') +
+          (estado !== ' ' && !checked ? ' data-task="' + escapeAttr(estado) + '"' : '') + '>';
         item = { lines: [task[2]].concat(item.lines.slice(1)), line: item.line };
         text = item.lines.join('\n');
       }
@@ -651,7 +702,11 @@
 
       if (multiline || loose) {
         inner = parseBlocks(item.lines, ctx, linhaDe(item));
-        if (!loose) inner = inner.replace(/^<p[^>]*>/, '').replace(/<\/p>$/, '');
+        // Lista apertada nao embrulha o primeiro paragrafo em <p>. Antes so a
+        // abertura era removida e o </p> ficava orfao sempre que vinha uma
+        // sublista depois; o navegador, ao ver </p> sem par, inventa um
+        // <p></p> vazio e abre um vao no meio do item. Tirar o par inteiro.
+        if (!loose) inner = inner.replace(/^<p[^>]*>([\s\S]*?)<\/p>/, function (_, dentro) { return dentro; });
       } else {
         var inline = new Inline(ctx);
         inner = inline.render(text);
@@ -701,6 +756,7 @@
       slugs: {},
       footnotes: {},
       footnoteOrder: [],
+      inlineFootnoteSeq: 0,
       opts: opts || {}
     };
 
@@ -727,7 +783,7 @@
 
   var ALLOWED_ATTRS = {};
   ('class id href src alt title colspan rowspan start type checked disabled style ' +
-   'data-line data-line-end data-task-line data-icon data-callout data-wikilink data-file data-anchor data-external ' +
+   'data-line data-line-end data-task data-task-line data-icon data-callout data-wikilink data-file data-anchor data-external ' +
    'data-tag data-src data-remote data-copy data-lang open rel loading'
   ).split(' ').forEach(function (a) { ALLOWED_ATTRS[a] = true; });
 

@@ -155,11 +155,44 @@ const checks = [
   ['paragrafo iniciado por tag inline', /<b>Paragrafo<\/b> que comeca com tag inline/.test(out.html)],
   ['segundo paragrafo inline', /<em>Outro<\/em> desses/.test(out.html)],
   ['tarefa com data-task-line', /class="task-item" data-task-line="\d+"/.test(out.html)],
-  ['tarefa marcada com data-task-line', /class="task-item is-checked" data-task-line="\d+"/.test(out.html)],
+  ['tarefa marcada com data-task-line', /class="task-item is-checked" data-task="x" data-task-line="\d+"/.test(out.html)],
   ['data-task-line aponta a linha certa', conferaLinhasDeTarefa(SAMPLE, out.html)],
   ['data-task-line desliga sem lineMap', !/data-task-line/.test(semMapa.html)],
-  ['bloco aninhado em lista usa a linha certa', /<p data-line="4"[^>]*>paragrafo do item/.test(aninhado.html)]
+  ['bloco aninhado em lista usa a linha certa', /<p data-line="4"[^>]*>paragrafo do item/.test(aninhado.html)],
+
+  // --- o que entrou depois da 1.2.0
+  ['lista apertada nao deixa </p> orfao', !/<\/p>/.test(r('- a\n  - b\n').html)],
+  ['lista apertada aninhada mantem o texto', /<li>a\s*<ul>/.test(r('- a\n  - b\n').html)],
+  ['lista solta continua com <p>', /<li><p[^>]*>a<\/p>/.test(r('- a\n\n- b\n').html)],
+
+  ['comentario %% some do texto', r('antes %%oculto%% depois\n').html === '<p>antes  depois</p>'],
+  ['comentario %% em bloco some inteiro',
+    !/segredo/.test(r('# t\n\n%%\nsegredo\n\nmais segredo\n%%\n\nfim\n').html)],
+  ['comentario %% em bloco preserva o resto', /<p[^>]*>fim<\/p>/.test(r('%%\nx\n%%\n\nfim\n').html)],
+  ['comentario %% nao vaza <p> vazio', !/<p[^>]*><\/p>/.test(r('%%so isso%%\n\nfim\n').html)],
+  ['crase protege o %%', /<code>%%isto%%<\/code>/.test(r('`%%isto%%`\n').html)],
+
+  ['nota inline ^[] vira referencia', /<sup class="footnote-ref">/.test(r('texto^[a nota]\n').html)],
+  ['nota inline ^[] rende o corpo', /<li id="fn-mp-inline-1">a <strong>nota<\/strong>/
+    .test(r('texto^[a **nota**]\n').html)],
+  ['nota inline ^[] numera junto das outras',
+    (r('a^[um] b^[dois]\n').html.match(/footnote-ref/g) || []).length === 2],
+
+  ['tamanho no alt vira style', /style="width:300px"/.test(r('![alt|300](f.png)\n').html)],
+  ['tamanho no alt sai do alt', /alt="alt"/.test(r('![alt|300](f.png)\n').html)],
+  ['largura x altura no alt', /style="width:300px;height:200px"/.test(r('![a|300x200](f.png)\n').html)],
+  ['barra que nao e medida fica no alt',
+    /alt="foto \| do gato"/.test(r('![foto | do gato](f.png)\n').html)],
+  ['embed ![[x|300]] continua funcionando', /style="width:300px"/.test(r('![[f.png|300]]\n').html)],
+
+  ['estado custom de tarefa vira caixa', /class="task-item" data-task="&gt;"/.test(r('- [>] adiada\n').html)],
+  ['estado custom nao conta como feita', !/is-checked/.test(r('- [>] adiada\n').html)],
+  ['tarefa aberta segue sem data-task', !/data-task=/.test(r('- [ ] aberta\n').html)],
+  ['link no comeco do item nao vira tarefa', /<a /.test(r('- [x](http://e.com) nao\n').html)]
 ];
+
+/** Render curto para os casos acima — sem mapa de linha, so o HTML. */
+function r(src) { return sandbox.MarkPadMarkdown.render(src); }
 
 // A linha apontada tem de ser mesmo a linha da tarefa no texto original —
 // incluindo o deslocamento do bloco --- do topo, que nao vira HTML.
@@ -171,7 +204,7 @@ function conferaLinhasDeTarefa(src, html) {
     achou++;
     const linha = linhas[Number(m[1])];
     if (linha === undefined) return false;
-    if (!/^\s*(?:[-*+]|\d+[.)])\s+\[[ xX~/-]\]\s/.test(linha)) return false;
+    if (!/^\s*(?:[-*+]|\d+[.)])\s+\[.\]\s/.test(linha)) return false;
   }
   return achou >= 2;
 }

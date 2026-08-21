@@ -1420,17 +1420,24 @@
     var linhas = tab.content.split('\n');
     if (linha < 0 || linha >= linhas.length) return;
 
-    var m = /^(\s*(?:[-*+]|\d+[.)])\s+\[)([ xX~/-])(\][\s\S]*)$/.exec(linhas[linha]);
+    var m = /^(\s*(?:[-*+]|\d+[.)])\s+\[)(.)(\][\s\S]*)$/.exec(linhas[linha]);
     if (!m) return;
 
+    // Estado custom ([>], [?], [/]...) vira [x] no primeiro clique e volta
+    // para [ ] no segundo — o estado original nao sobrevive, e nem no
+    // Obsidian sobrevive. Desmarcar sempre devolve a caixa vazia.
     var marcado = m[2].toLowerCase() !== 'x';
     linhas[linha] = m[1] + (marcado ? 'x' : ' ') + m[3];
     tab.content = linhas.join('\n');
 
     if (caixa) {
       caixa.checked = marcado;
+      caixa.removeAttribute('data-task');
       var li = caixa.parentElement;
-      if (li) li.classList.toggle('is-checked', marcado);
+      if (li) {
+        li.classList.toggle('is-checked', marcado);
+        if (marcado) li.setAttribute('data-task', 'x'); else li.removeAttribute('data-task');
+      }
     }
 
     if (tab === activeTab() && tab.showSource) {
@@ -4347,7 +4354,7 @@
     var bounds = lineBounds(text, pos);
     var line = text.slice(bounds.start, pos);
 
-    var m = /^(\s*)([-*+]|\d{1,9}[.)])(\s+)(\[[ xX]\]\s+)?(.*)$/.exec(line);
+    var m = /^(\s*)([-*+]|\d{1,9}[.)])(\s+)(\[.\]\s+)?(.*)$/.exec(line);
     if (m) {
       var isEmpty = !m[5].trim();
       if (isEmpty) { replaceRange(bounds.start, pos, m[1]); return true; }
