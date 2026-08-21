@@ -44,6 +44,20 @@ public partial class App : Application
             }
         }
 
+        // Atualizacao ja baixada e conferida entra aqui, antes de existir
+        // qualquer janela: o instalador precisa sobrescrever o executavel, e
+        // este e o unico momento em que nada nosso esta segurando o arquivo.
+        // So vale se o MarkPad nao estiver aberto em outro lugar — com duas
+        // instancias no ar a troca nao teria como acontecer.
+        if (!MutexJaExiste())
+        {
+            if (Updater.ApplyPendingAtStartup(e.Args))
+            {
+                Shutdown();
+                return;
+            }
+        }
+
         _mutex = new Mutex(true, MutexName, out bool isFirst);
 
         if (!isFirst)
@@ -61,6 +75,22 @@ public partial class App : Application
         window.Show();
 
         StartPipeServer(window);
+    }
+
+    /// <summary>Ha outro MarkPad rodando nesta sessao do Windows?</summary>
+    private static bool MutexJaExiste()
+    {
+        try
+        {
+            if (!Mutex.TryOpenExisting(MutexName, out var outro)) return false;
+            outro.Dispose();
+            return true;
+        }
+        catch
+        {
+            // Na duvida, assume que ha — o pior caso e so adiar a atualizacao.
+            return true;
+        }
     }
 
     protected override void OnExit(ExitEventArgs e)

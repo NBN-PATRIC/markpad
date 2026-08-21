@@ -3,6 +3,43 @@
 Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 Versionamento [SemVer](https://semver.org/lang/pt-BR/).
 
+## [Não lançado]
+
+### Adicionado
+- **Atualização automática.** Uma consulta por dia ao GitHub, na abertura, e
+  uma faixa no canto quando sai versão nova — nunca um modal, porque quem abriu
+  o MarkPad queria ler um arquivo. Baixar é um clique; a troca acontece na hora
+  (o app fecha, instala e volta) ou na próxima abertura, antes de a janela
+  existir. Reiniciando por conta própria, o MarkPad se relança com os mesmos
+  argumentos, então o `.md` que você clicou continua abrindo.
+  - **Nada é executado sem o SHA-256 conferir com o publicado na release**, e
+    conferido duas vezes: ao terminar o download e no instante de instalar.
+    Sem assinatura de autoridade certificadora, essa é a única coisa entre o
+    atualizador e um instalador trocado no meio do caminho. Release sem somas
+    publicadas não ganha botão de baixar — ganha um link.
+  - Só URLs `https` de `github.com`, `api.github.com` e `*.githubusercontent.com`;
+    nome de arquivo sem caminho embutido; teto de 300 MB conferido no cabeçalho
+    **e** durante a leitura.
+  - A troca na próxima abertura exige que **nenhuma outra instância** esteja no
+    ar, e um pendente apontando para versão igual ou mais velha se descarta
+    sozinho. Falha em qualquer ponto não impede o app de abrir.
+  - A **portátil não se autoinstala** de propósito (pendrive só de leitura,
+    várias cópias): é avisada e mandada para a página.
+  - Aba **Atualizações** nas configurações: ligar/desligar a consulta,
+    *Procurar agora* (ignora o intervalo), e descartar um download pronto.
+  - Projeto e travas em [docs/ATUALIZACAO.md](docs/ATUALIZACAO.md).
+
+### Corrigido
+- **`SHA256SUMS.txt` cobria só metade dos artefatos.** As somas eram gravadas
+  no fim do `build-release.ps1`, que roda *antes* do `build-installer.ps1` — o
+  instalador e o `.msi` chegavam à release sem hash nenhum. Como o atualizador
+  recusa o que não consegue conferir, isso deixava justamente o instalador
+  fora do caminho de atualização. Virou um passo à parte
+  (`tools/write-sums.ps1`), chamado pelos dois scripts e também pelo CI depois
+  de assinar; o último a rodar reescreve o arquivo já completo.
+- **`.wixpdb` não vai mais para a release.** Símbolo de depuração do instalador
+  não é artefato de distribuição, e um deles vazou para a 1.2.0.
+
 ## [1.2.0] — 2026-08-21
 
 ### Corrigido

@@ -1531,7 +1531,9 @@ body.no-gutter .ed-row .ln { display: none; }
 /* avisos */
 .toasts {
   position: fixed;
-  right: 16px; bottom: 34px;
+  /* Sobe quando o aviso de atualizacao esta no canto (ver alturaDoAviso). */
+  right: 16px; bottom: calc(34px + var(--update-bar-h, 0px));
+  transition: bottom var(--anim-moderate) var(--anim-ease-out);
   z-index: 70;
   display: flex;
   flex-direction: column;
@@ -1955,3 +1957,91 @@ body.no-anim *::after {
   animation: alvo-pisca 1.3s var(--anim-ease-out);
   border-radius: var(--radius-s);
 }
+
+/* ================================================ aviso de atualizacao
+ *
+ * Mora acima dos toasts, no mesmo canto, mas nao some sozinho: aqui ha uma
+ * decisao a tomar (baixar, reiniciar, adiar) e um aviso de 2,6 segundos
+ * perderia essa decisao. Nunca e um modal — atualizar e importante, mas nao
+ * mais do que o arquivo que o usuario abriu o MarkPad para ler.
+ */
+.update-bar {
+  position: fixed;
+  right: 16px; bottom: 34px;
+  z-index: 71;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 380px;
+  max-width: calc(100vw - 32px);
+  padding: 12px 12px 12px 14px;
+  border-radius: var(--radius-m);
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-left: 3px solid var(--color-accent);
+  box-shadow: var(--shadow-s);
+  animation: toast-in 200ms var(--anim-ease-out);
+}
+.update-bar[hidden] { display: none; }
+
+.update-icon {
+  flex: none;
+  margin-top: 1px;
+  color: var(--color-accent);
+  display: inline-flex;
+}
+.update-bar.is-working .update-icon { animation: update-gira 1.1s linear infinite; }
+@keyframes update-gira { to { transform: rotate(360deg); } }
+
+.update-text { flex: 1; min-width: 0; }
+.update-title {
+  display: block;
+  font-size: var(--font-ui-small);
+  color: var(--text-normal);
+}
+.update-desc {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.update-progress {
+  height: 4px;
+  margin-top: 8px;
+  border-radius: 2px;
+  background: var(--background-modifier-border);
+  overflow: hidden;
+}
+.update-progress[hidden] { display: none; }
+.update-progress > i {
+  display: block;
+  height: 100%;
+  width: 0;
+  border-radius: 2px;
+  background: var(--color-accent);
+  transition: width var(--anim-moderate) linear;
+}
+
+.update-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+/* Os botoes ficam sob o texto, nao ao lado: "Na proxima vez que abrir" nao
+   cabe numa coluna estreita e quebrar o rotulo no meio esconde a escolha. */
+.update-text .update-actions { margin-top: 10px; }
+
+.update-close {
+  flex: none;
+  width: 22px; height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-s);
+  color: var(--text-faint);
+}
+.update-close:hover { background: var(--background-modifier-hover); color: var(--text-normal); }

@@ -264,6 +264,24 @@
   <input type="text" class="palette-input" id="switcherInput" placeholder="Abrir arquivo pelo nome" spellcheck="false">
   <div class="palette-list" id="switcherList"></div>
 </div>
+<!-- ------------------------------------------------ aviso de atualizacao
+     Fica preso no canto ate o usuario decidir o que fazer, e nunca vira um
+     modal: quem abriu o MarkPad queria ler um arquivo, nao ser interrompido
+     por uma caixa pedindo para atualizar. O X apenas esconde — o aviso volta
+     na proxima consulta, e a versao pendente continua nas configuracoes. -->
+<div class="update-bar" id="updateBar" hidden>
+  <span class="update-icon" data-icon="refresh"></span>
+  <div class="update-text">
+    <strong class="update-title" id="updateTitle"></strong>
+    <span class="update-desc" id="updateDesc"></span>
+    <div class="update-progress" id="updateProgress" hidden><i id="updateProgressFill"></i></div>
+  </div>
+  <div class="update-actions" id="updateActions"></div>
+  <button class="update-close" id="updateClose" type="button" title="Agora nao" aria-label="Fechar aviso">
+    <span data-icon="x"></span>
+  </button>
+</div>
+
 <div class="toasts" id="toasts"></div>
 
 <script src="stub-bridge.js"></script>

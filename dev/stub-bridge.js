@@ -91,6 +91,12 @@
     'C:\\notas\\leiame.md': '---\ntags:\n  - ideia\n  - projeto/api\n---\n\n# Leiame\n\nArquivo curto de teste com #ideia.\n\n- um\n- dois\n'
   };
 
+  /* Fora do WebView nao ha rede nem instalador. Abra o preview com
+     ?update=1 para o atualizador encenar o fluxo inteiro: aviso, download
+     com barra de progresso e "pronta para instalar". */
+  var ENCENA_UPDATE = /[?&]update=1\b/.test(location.search);
+  var pendenteFalso = null;
+
   window.chrome = {
     webview: {
       _handlers: [],
@@ -189,6 +195,33 @@
             case 'pathInfo': result = { path: msg.args.path, kind: 'file', exists: true }; break;
             case 'resolveAsset': result = null; break;
             case 'grepFolder': result = { results: [], truncated: false }; break;
+
+            // ------------------------------------------------ atualizacao
+            case 'updateCheck':
+              result = ENCENA_UPDATE
+                ? { ok: true, available: true, current: '1.2.0', latest: '1.3.0',
+                    name: 'MarkPad 1.3.0', notes: 'Atualizador automatico.',
+                    page: 'https://github.com/NBN-PATRIC/markpad/releases',
+                    asset: 'MarkPad-1.3.0-setup-win-x64.exe',
+                    url: 'https://example.invalid/setup.exe',
+                    sha256: new Array(65).join('0'), size: 57 * 1024 * 1024,
+                    canInstall: true, portable: false }
+                : { ok: true, available: false, current: '1.2.0', latest: '1.2.0' };
+              break;
+
+            case 'updatePending': result = pendenteFalso; break;
+            case 'updateDiscard': pendenteFalso = null; result = true; break;
+
+            case 'updateApply':
+              if (!pendenteFalso) throw new Error('nao ha atualizacao pronta para instalar.');
+              console.log('(preview) aqui o MarkPad fecharia e o instalador rodaria.');
+              result = true;
+              break;
+
+            case 'updateDownload':
+              baixaFalso(msg.args, self, msg.id);
+              return; // a resposta sai la de dentro, depois da barra encher
+
             default: result = true;
           }
         } catch (e) { error = e.message; }
@@ -201,4 +234,27 @@
       }
     }
   };
+
+  /* Emite os mesmos eventos updateProgress do lado C# — um por pedaco — e
+     so entao resolve a chamada, para a barra do canto percorrer os quatro
+     estados sem precisar de rede nem de um .exe de verdade. */
+  function baixaFalso(args, bridge, id) {
+    var total = 57 * 1024 * 1024;
+    var feito = 0;
+
+    var passo = setInterval(function () {
+      feito = Math.min(total, feito + Math.round(total / 12));
+      bridge._handlers.forEach(function (h) {
+        h({ data: { evt: 'updateProgress', data: { done: feito, total: total } } });
+      });
+
+      if (feito < total) return;
+
+      clearInterval(passo);
+      pendenteFalso = { version: args.version, file: args.asset };
+      bridge._handlers.forEach(function (h) {
+        h({ data: { id: id, ok: true, result: pendenteFalso, error: null } });
+      });
+    }, 260);
+  }
 })();

@@ -107,6 +107,33 @@ Reforços contra edição acidental:
   deixa o original truncado.
 - Recarrega sozinho quando o arquivo muda no disco (se não houver edição pendente).
 - Exportar HTML, imprimir, tema claro/escuro/sistema, zoom.
+- **Atualização automática** com verificação de SHA-256 — ver abaixo.
+
+## Atualização automática
+
+Uma vez por dia, na abertura, o MarkPad pergunta ao GitHub se saiu versão nova.
+Havendo, aparece uma faixa no canto — nunca um diálogo no meio da tela. Baixar
+é decisão sua; a consulta é que é automática.
+
+**Nada é instalado sem o SHA-256 bater com o publicado na release.** Os
+binários ainda não têm assinatura de autoridade certificadora, então essa
+conferência é o que impede um instalador trocado no meio do caminho de ser
+executado. Se a release não publicar as somas, o botão de baixar simplesmente
+não aparece: a faixa vira um link para a página de releases.
+
+Baixado e conferido, você escolhe: **reiniciar agora** (o app fecha, o
+instalador roda e ele volta sozinho) ou **na próxima vez** (a troca acontece
+na próxima abertura, antes de a janela existir — e os arquivos que você mandou
+abrir na linha de comando abrem normalmente depois).
+
+A versão **portátil não se autoinstala**: ela pode estar num pendrive só de
+leitura ou existir em várias cópias, então apenas avisa e aponta o link.
+
+Para desligar a consulta: **Configurações → Atualizações**. O botão *Procurar
+agora* ignora tanto o intervalo de um dia quanto a preferência.
+
+Detalhes de projeto e as travas de segurança em
+[docs/ATUALIZACAO.md](docs/ATUALIZACAO.md).
 
 ## Segurança do conteúdo
 
@@ -252,7 +279,9 @@ alimenta a paleta, o menu ⋮ e a barra de acesso rápido.
 MarkPad.csproj        WPF + WebView2 (net9.0-windows)
 MainWindow.xaml.cs    ponte com o disco: leitura, gravação, diálogos,
                       busca em pasta, monitoramento, allowlist de escrita
-App.xaml.cs           instância única (named pipe) + argumentos de linha
+App.xaml.cs           instância única (named pipe) + argumentos de linha,
+                      e a troca de versão pendente antes de abrir a janela
+Updater.cs            atualização automática: consulta, download, SHA-256
 FileAssociation.cs    registro de .md em HKCU (menu, --register-md, instalador)
 NativeMethods.cs      barra de título escura, "mostrar no Explorer"
 web/                  a interface inteira (embutida no exe publicado)
@@ -265,7 +294,7 @@ web/                  a interface inteira (embutida no exe publicado)
   app.js              abas, trava, modos, painéis, busca, comandos
   style.css           tokens de cor e layout
 dev/                  preview no navegador + testes
-tools/                ícone, artefatos de release e instaladores
+tools/                ícone, artefatos de release, somas e instaladores
 installer/            markpad.iss (Inno Setup) e markpad.wxs (WiX)
 ```
 

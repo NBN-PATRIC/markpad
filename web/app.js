@@ -89,6 +89,9 @@
     quickBarLabels: false,
     quickBar: ['open', 'openFolder', 'new', 'save', 'close', 'lock', 'find'],
     checkUpdates: true,
+    // Marca da ultima consulta ao GitHub. Sem ela, abrir e fechar o MarkPad
+    // dez vezes num dia sao dez consultas — e a API tem limite por IP.
+    lastUpdateCheck: 0,
     recent: [],
     lastFolder: null,
     session: []
@@ -3770,24 +3773,48 @@
   }
 
   function abaAtualizacao(pai) {
+    function redesenha() { pai.textContent = ''; abaAtualizacao(pai); }
+
     setSecao(pai, 'Versao');
     var v = setLinha(pai, 'Versao instalada',
       'MarkPad ' + (app.version || '?') + (app.portable ? ' (portatil)' : ''));
-    setBotao(v, 'Ver as versoes', function () {
-      bridge.call('openExternal', { url: 'https://github.com/NBN-PATRIC/markpad/releases' });
-    });
+    setBotao(v, 'Ver as versoes', abrePaginaReleases);
 
     setSecao(pai, 'Atualizacao automatica');
     setToggle(setLinha(pai, 'Procurar atualizacoes ao abrir',
-      'Consulta as versoes publicadas no GitHub quando o MarkPad inicia. Nada e baixado sem voce mandar.'),
+      'Consulta as versoes publicadas no GitHub uma vez por dia, quando o MarkPad inicia. '
+      + 'Nada e baixado sem voce mandar.'),
       function () { return settings.checkUpdates !== false; },
       function (val) { settings.checkUpdates = val; persist(); });
 
-    var nota = document.createElement('p');
-    nota.className = 'set-desc set-note';
-    nota.textContent = 'A consulta ainda nao esta ligada nesta versao — a preferencia acima ja fica guardada '
-      + 'e passa a valer assim que a verificacao entrar. Ate la, use o botao "Ver as versoes".';
-    pai.appendChild(nota);
+    var linha = setLinha(pai, 'Procurar agora', descreveEstadoAtualizacao());
+    var botao = setBotao(linha, 'Procurar', function () {
+      botao.disabled = true;
+      botao.textContent = 'Procurando...';
+      verificaAtualizacao(true).then(function (r) {
+        if (r && r.ok && !r.available) toast('O MarkPad ja esta na versao mais nova.', 'ok');
+        else if (!r || !r.ok) toast('Nao deu para consultar as versoes agora.', 'warn');
+        redesenha();
+      });
+    });
+
+    if (atualizacao.pendente) {
+      setSecao(pai, 'Download pronto');
+      var d = setLinha(pai, 'MarkPad ' + atualizacao.pendente.version,
+        'Ja baixado e conferido. Entra sozinho na proxima vez que o MarkPad abrir, '
+        + 'ou agora, se voce mandar.');
+      setBotao(d, 'Instalar agora', aplicaAtualizacao, 'primary');
+      setBotao(d, 'Descartar', function () { descartaAtualizacao().then(redesenha); }, 'danger');
+    }
+  }
+
+  /** Estado da aba de atualizacoes, em uma frase. */
+  function descreveEstadoAtualizacao() {
+    if (atualizacao.estado === 'baixando') return 'Baixando agora...';
+    if (atualizacao.pendente) return 'MarkPad ' + atualizacao.pendente.version + ' ja esta baixada.';
+    if (atualizacao.info) return 'MarkPad ' + atualizacao.info.latest + ' esta disponivel.';
+    if (!settings.lastUpdateCheck) return 'Ainda nao foi consultado nesta instalacao.';
+    return 'Ultima consulta: ' + new Date(Number(settings.lastUpdateCheck)).toLocaleString();
   }
 
   function abaSobre(pai) {
@@ -4544,6 +4571,214 @@
     replaceRange(first, last, next);
   }
 
+  // ========================================================== atualizacao
+  //
+  // O trabalho pesado esta no Updater.cs; aqui so mora a conversa com o
+  // usuario. Duas regras que valem para tudo nesta secao:
+  //
+  //   1. Nada baixa sem um clique. A consulta e automatica, o download nao.
+  //   2. Nada instala sem o SHA-256 publicado na release conferir — o C#
+  //      recusa sozinho, mas e por isso que existe o estado "so a pagina":
+  //      sem soma publicada, o aviso vira um link e nao um botao.
+  //
+  // O aviso nunca e modal. Quem abriu o MarkPad queria ler um arquivo.
+
+  var UM_DIA = 24 * 60 * 60 * 1000;
+  var RELEASES_URL = 'https://github.com/NBN-PATRIC/markpad/releases';
+
+  var atualizacao = {
+    estado: 'nada',   // nada | disponivel | baixando | pronta
+    info: null,       // resposta do updateCheck, quando ha novidade
+    pendente: null,   // { version, file } ja baixado e conferido
+    escondida: false, // o X foi clicado nesta sessao
+    baixado: 0,
+    total: 0
+  };
+
+  /** "55,3 MB" — so para o usuario ter ideia do tamanho do download. */
+  function tamanhoLegivel(bytes) {
+    var n = Number(bytes) || 0;
+    if (n < 1024) return n + ' B';
+    if (n < 1024 * 1024) return (n / 1024).toFixed(0) + ' KB';
+    return (n / (1024 * 1024)).toFixed(1).replace('.', ',') + ' MB';
+  }
+
+  /**
+   * Consulta as versoes publicadas.
+   *
+   * `manual` pula a preferencia e o intervalo: quem clicou em "Procurar
+   * agora" quer a resposta agora, mesmo tendo desligado a consulta
+   * automatica. Nunca rejeita — rede fora nao e assunto do usuario.
+   */
+  function verificaAtualizacao(manual) {
+    if (!manual) {
+      if (settings.checkUpdates === false) return Promise.resolve(null);
+      var desde = Date.now() - Number(settings.lastUpdateCheck || 0);
+      if (desde >= 0 && desde < UM_DIA) return Promise.resolve(null);
+    }
+
+    settings.lastUpdateCheck = Date.now();
+    persist();
+
+    return bridge.call('updateCheck', {}).then(function (r) {
+      if (!r || !r.ok || !r.available) return r || null;
+
+      atualizacao.info = r;
+      atualizacao.estado = 'disponivel';
+      atualizacao.escondida = false;
+      desenhaBarraAtualizacao();
+      return r;
+    }).catch(function () { return null; });
+  }
+
+  /** Ha download conferido esperando? Sobra quando o app nao pode se trocar. */
+  function conferePendente() {
+    return bridge.call('updatePending', {}).then(function (p) {
+      if (!p || !p.version) return null;
+      atualizacao.pendente = p;
+      atualizacao.estado = 'pronta';
+      desenhaBarraAtualizacao();
+      return p;
+    }).catch(function () { return null; });
+  }
+
+  function baixaAtualizacao() {
+    var info = atualizacao.info;
+    if (!info || !info.canInstall) return;
+
+    atualizacao.estado = 'baixando';
+    atualizacao.baixado = 0;
+    atualizacao.total = Number(info.size) || 0;
+    desenhaBarraAtualizacao();
+
+    bridge.call('updateDownload', {
+      url: info.url, asset: info.asset, sha256: info.sha256, version: info.latest
+    }).then(function (p) {
+      atualizacao.pendente = p;
+      atualizacao.estado = 'pronta';
+      desenhaBarraAtualizacao();
+    }).catch(function (err) {
+      atualizacao.estado = 'disponivel';
+      desenhaBarraAtualizacao();
+      toast('Nao deu para baixar a atualizacao: ' + mensagemDeErro(err), 'warn', 6000);
+    });
+  }
+
+  /**
+   * Fecha o MarkPad e deixa o instalador rodar. O que estiver por salvar
+   * passa antes pelo caminho de sempre — o host pergunta ao fechar.
+   */
+  function aplicaAtualizacao() {
+    bridge.call('updateApply', {}).catch(function (err) {
+      toast('Nao deu para iniciar a instalacao: ' + mensagemDeErro(err), 'warn', 6000);
+    });
+  }
+
+  function descartaAtualizacao() {
+    return bridge.call('updateDiscard', {}).then(function () {
+      atualizacao.pendente = null;
+      atualizacao.estado = atualizacao.info ? 'disponivel' : 'nada';
+      desenhaBarraAtualizacao();
+    }).catch(function () {});
+  }
+
+  function mensagemDeErro(err) {
+    return (err && err.message) ? err.message : String(err);
+  }
+
+  function abrePaginaReleases() {
+    bridge.call('openExternal', {
+      url: (atualizacao.info && atualizacao.info.page) || RELEASES_URL
+    }).catch(function () {});
+  }
+
+  /** Redesenha o aviso do canto conforme o estado. */
+  function desenhaBarraAtualizacao() {
+    var bar = $('updateBar');
+    if (!bar) return;
+
+    var estado = atualizacao.estado;
+    if (estado === 'nada' || (atualizacao.escondida && estado !== 'baixando')) {
+      bar.hidden = true;
+      alturaDoAviso(0);
+      return;
+    }
+
+    var info = atualizacao.info || {};
+    var titulo = $('updateTitle');
+    var desc = $('updateDesc');
+    var acoes = $('updateActions');
+    var prog = $('updateProgress');
+
+    acoes.textContent = '';
+    prog.hidden = true;
+    bar.classList.toggle('is-working', estado === 'baixando');
+
+    function botao(rotulo, fn, cls) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'btn tiny' + (cls ? ' ' + cls : '');
+      b.textContent = rotulo;
+      b.onclick = fn;
+      acoes.appendChild(b);
+    }
+
+    if (estado === 'disponivel') {
+      titulo.textContent = 'MarkPad ' + info.latest + ' disponivel';
+
+      if (info.canInstall) {
+        desc.textContent = 'Voce esta na ' + info.current + '.'
+          + (info.size ? ' O download tem ' + tamanhoLegivel(info.size) + '.' : '');
+        botao('Baixar', baixaAtualizacao, 'primary');
+        botao('Ver as notas', abrePaginaReleases);
+      } else if (info.portable) {
+        // Portatil pode estar num pendrive so de leitura, ou existir em tres
+        // copias na maquina. Trocar sozinho seria trocar a copia errada.
+        desc.textContent = 'Esta e a versao portatil: baixe o novo .zip e substitua a pasta.';
+        botao('Abrir a pagina', abrePaginaReleases, 'primary');
+      } else {
+        desc.textContent = 'Esta versao nao publicou a soma de conferencia do instalador, '
+          + 'entao o download automatico fica de fora. Baixe pela pagina.';
+        botao('Abrir a pagina', abrePaginaReleases, 'primary');
+      }
+    } else if (estado === 'baixando') {
+      titulo.textContent = 'Baixando MarkPad ' + (info.latest || '');
+      desc.textContent = atualizacao.total
+        ? tamanhoLegivel(atualizacao.baixado) + ' de ' + tamanhoLegivel(atualizacao.total)
+        : tamanhoLegivel(atualizacao.baixado) + ' ate agora';
+
+      prog.hidden = false;
+      var pct = atualizacao.total
+        ? Math.min(100, Math.round(atualizacao.baixado * 100 / atualizacao.total))
+        : 0;
+      $('updateProgressFill').style.width = pct + '%';
+    } else if (estado === 'pronta') {
+      var v = (atualizacao.pendente && atualizacao.pendente.version) || info.latest || '';
+      titulo.textContent = 'MarkPad ' + v + ' pronta para instalar';
+      desc.textContent = 'O MarkPad fecha, instala e abre de novo — leva alguns segundos. '
+        + 'Se preferir, a troca acontece sozinha na proxima vez que voce abrir.';
+      botao('Reiniciar agora', aplicaAtualizacao, 'primary');
+      botao('Na proxima vez', function () {
+        atualizacao.escondida = true;
+        desenhaBarraAtualizacao();
+        toast('A atualizacao entra na proxima vez que o MarkPad abrir.', '', 4000);
+      });
+    }
+
+    bar.hidden = false;
+    window.MarkPadIcons.apply(bar);
+    alturaDoAviso(bar.offsetHeight);
+  }
+
+  /**
+   * O aviso e os toasts moram no mesmo canto. Em vez de escolher um z-index e
+   * deixar um cobrir o outro, os toasts sobem exatamente a altura do aviso —
+   * que muda conforme o texto, entao a medida vai para o CSS como variavel.
+   */
+  function alturaDoAviso(px) {
+    document.body.style.setProperty('--update-bar-h', px ? (px + 8) + 'px' : '0px');
+  }
+
   // ============================================================== eventos
 
   function wireUi() {
@@ -4917,6 +5152,17 @@
   function boot() {
     wireUi();
 
+    $('updateClose').onclick = function () {
+      atualizacao.escondida = true;
+      desenhaBarraAtualizacao();
+    };
+
+    bridge.on('updateProgress', function (d) {
+      atualizacao.baixado = (d && d.done) || 0;
+      if (d && d.total) atualizacao.total = d.total;
+      if (atualizacao.estado === 'baixando') desenhaBarraAtualizacao();
+    });
+
     bridge.on('openPaths', function (paths) { openPaths(paths); });
 
     bridge.on('fileChanged', function (data) {
@@ -4995,6 +5241,13 @@
       // Depois de restaurar a sessão, para o diálogo não competir com a
       // abertura dos arquivos.
       return offerBackups();
+    }).then(function () {
+      // Por ultimo, e sem segurar nada: se a rede estiver fora, o MarkPad ja
+      // abriu e o usuario nem fica sabendo que houve uma tentativa. Download
+      // pendente tem prioridade — nao adianta anunciar o que ja esta no disco.
+      return conferePendente().then(function (p) {
+        if (!p) return verificaAtualizacao(false);
+      });
     }).catch(function (err) {
       applySettings();
       renderAll();

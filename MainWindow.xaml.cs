@@ -545,6 +545,34 @@ public partial class MainWindow : Window
                     };
                 }
 
+            // ------------------------------------------------- atualizacao
+            //
+            // Ver Updater.cs. Nada aqui instala coisa alguma sem conferir o
+            // SHA-256 publicado na release.
+
+            case "updateCheck":
+                return await Updater.CheckAsync();
+
+            case "updateDownload":
+                return await Updater.DownloadAsync(
+                    Str(args, "url"), Str(args, "asset"),
+                    Str(args, "sha256"), Str(args, "version"),
+                    (feito, total) => Dispatcher.InvokeAsync(
+                        () => PostEvent("updateProgress", new { done = feito, total })));
+
+            case "updatePending":
+                return Updater.Pending();
+
+            case "updateDiscard":
+                return Updater.Discard();
+
+            case "updateApply":
+                if (!Updater.ApplyNow())
+                    throw new InvalidOperationException("nao ha atualizacao pronta para instalar.");
+                _allowClose = true;
+                Close();
+                return true;
+
             case "confirmClose":
                 _allowClose = true;
                 Close();
