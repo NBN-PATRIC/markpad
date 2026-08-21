@@ -59,13 +59,23 @@
   /* Animacao. Uma escala so, usada por tudo: assim da para desligar o
      conjunto inteiro em Configuracoes > Aparencia (body.no-anim) e o
      app continua funcionando identico, so que sem movimento. */
-  --anim-instant: 0ms;
   --anim-fast: 90ms;
   --anim-moderate: 160ms;
-  --anim-slow: 250ms;
   --anim-ease: cubic-bezier(0.4, 0, 0.2, 1);
   --anim-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
-  --anim-ease-in: cubic-bezier(0.4, 0, 1, 1);
+
+  /* Empilhamento. Nomes em vez de numeros crus porque a ordem entre estas
+     cinco camadas e uma decisao, nao um detalhe de implementacao: o menu
+     que voce acabou de abrir tem de ficar por cima do aviso que apareceu
+     sozinho no canto. Espalhado em sete numeros soltos, esse criterio se
+     perdia — o toast estava em 70 e o menu em 50, entao um "salvo" tapava
+     o menu aberto. Os z-index 1..5 do editor sao empilhamento interno de
+     um componente e ficam de fora desta escala. */
+  --layer-overlay: 40;
+  --layer-modal: 50;
+  --layer-toast: 60;
+  --layer-update: 62;
+  --layer-menu: 65;
 }
 
 body.theme-dark {
@@ -99,7 +109,9 @@ body.theme-dark {
   --background-secondary-alt: var(--color-base-30);
   --background-modifier-border: var(--color-base-30);
   --background-modifier-border-hover: var(--color-base-35);
-  --background-modifier-hover: rgba(255, 255, 255, 0.067);
+  /* 6,7% de branco sobre fundo escuro e quase invisivel — o hover da arvore,
+     dos menus e da paleta praticamente nao aparecia no tema padrao. */
+  --background-modifier-hover: rgba(255, 255, 255, 0.15);
   --background-modifier-active: rgba(var(--interactive-accent-hsl), 0.15);
   --background-modifier-form-field: var(--color-base-25);
   --interactive-normal: var(--color-base-30);
@@ -252,6 +264,7 @@ kbd {
   display: flex;
   flex: 1;
   min-height: 0;
+  overflow: hidden;   /* recorta o painel enquanto ele desliza para fora */
 }
 
 .main {
@@ -266,7 +279,16 @@ kbd {
   overflow: hidden;
 }
 
-body.sidebar-hidden .sidebar,
+body.sidebar-hidden .sidebar {
+  margin-left: calc(-1 * var(--sidebar-width));
+  /* Recortado nao e escondido: so a margem negativa deixaria o Tab entrar
+     na caixa de busca de um painel que o usuario acabou de fechar. O atraso
+     segura a visibilidade ate o deslize terminar; na volta ela nao tem
+     transicao nenhuma, entao o painel ja aparece no primeiro quadro. */
+  visibility: hidden;
+  transition: margin-left var(--anim-moderate) var(--anim-ease),
+              visibility 0s linear var(--anim-moderate);
+}
 body.sidebar-hidden .sidebar-resizer { display: none; }
 body.sidebar-hidden .main { border-left: none; border-radius: var(--radius-m) var(--radius-m) 0 0; }
 
@@ -400,6 +422,9 @@ body.sidebar-hidden .main { border-left: none; border-radius: var(--radius-m) va
   display: flex;
   background: var(--background-secondary);
   flex-shrink: 0;
+  /* Margem e nao largura: animando a largura o conteudo de dentro reflui e
+     treme durante os 160ms; com a margem o painel inteiro escorrega. */
+  transition: margin-left var(--anim-moderate) var(--anim-ease);
 }
 
 .sidebar-tabs {
@@ -1417,12 +1442,12 @@ body.no-gutter .ed-row .ln { display: none; }
 
 /* ============================================= menus, paleta, avisos */
 
-.overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.35); z-index: 40; }
+.overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.35); z-index: var(--layer-overlay); }
 .overlay[hidden] { display: none; }
 
 .menu {
   position: fixed;
-  z-index: 50;
+  z-index: var(--layer-menu);
   min-width: 210px;
   max-height: 70vh;
   overflow-y: auto;
@@ -1459,7 +1484,7 @@ body.no-gutter .ed-row .ln { display: none; }
   top: 14vh; left: 50%;
   transform: translateX(-50%);
   width: min(620px, 92vw);
-  z-index: 50;
+  z-index: var(--layer-modal);
   background: var(--background-secondary);
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-l);
@@ -1500,7 +1525,7 @@ body.no-gutter .ed-row .ln { display: none; }
   position: fixed;
   top: 50%; left: 50%;
   transform: translate(-50%, -50%);
-  z-index: 60;
+  z-index: var(--layer-modal);
   width: min(460px, 90vw);
   padding: 22px 24px 18px;
   background: var(--background-secondary);
@@ -1547,7 +1572,7 @@ body.no-gutter .ed-row .ln { display: none; }
   /* Sobe quando o aviso de atualizacao esta no canto (ver alturaDoAviso). */
   right: 16px; bottom: calc(34px + var(--update-bar-h, 0px));
   transition: bottom var(--anim-moderate) var(--anim-ease-out);
-  z-index: 70;
+  z-index: var(--layer-toast);
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -1641,7 +1666,7 @@ body.no-gutter .ed-row .ln { display: none; }
   position: fixed;
   top: 50%; left: 50%;
   transform: translate(-50%, -50%);
-  z-index: 60;
+  z-index: var(--layer-modal);
   display: flex;
   width: min(860px, 92vw);
   height: min(620px, 86vh);
@@ -1767,6 +1792,23 @@ body.no-gutter .ed-row .ln { display: none; }
 }
 .switch.is-on .switch-knob { transform: translateX(17px); }
 
+/* Amassa ao apertar — era o unico controle do app sem resposta ao toque.
+   O atraso de 50ms e o que faz o squish parecer consequencia do dedo e
+   nao antecipacao dele. O knob base e 15x15 em top:3px; crescendo para
+   19x19, o top vai a 1px para o centro nao se mexer. */
+.switch:active .switch-knob {
+  width: 19px; height: 19px;
+  top: 1px;
+  opacity: 0.6;
+  transition: width var(--anim-fast) var(--anim-ease) 50ms,
+              height var(--anim-fast) var(--anim-ease) 50ms,
+              top var(--anim-fast) var(--anim-ease) 50ms,
+              opacity var(--anim-fast) var(--anim-ease) 50ms,
+              transform var(--anim-moderate) var(--anim-ease-out);
+}
+/* Repetido porque `.switch.is-on:active` precisa vencer a regra acima. */
+.switch.is-on:active .switch-knob { left: 1px; transform: translateX(17px); }
+
 .quick-editor { margin: 6px 0 4px; }
 .quick-editor-item {
   display: flex;
@@ -1813,12 +1855,20 @@ body.no-gutter .ed-row .ln { display: none; }
   to   { opacity: 1; transform: translate(-50%, -50%) scale(1); }
 }
 @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
-@keyframes slide-in-left  { from { opacity: 0; transform: translateX(-10px); } to { opacity: 1; transform: none; } }
 @keyframes slide-in-down  { from { opacity: 0; transform: translateY(-6px); }  to { opacity: 1; transform: none; } }
+
+/* A paleta ja nasce com translateX(-50%) para se centrar. Emprestar os
+   keyframes do dialogo — que terminam em translate(-50%,-50%) — fazia a
+   caixa despencar meia altura no instante em que a animacao acabava,
+   porque o fill-mode e none e o transform volta para o da regra base. */
+@keyframes palette-in {
+  from { opacity: 0; transform: translateX(-50%) scale(0.97); }
+  to   { opacity: 1; transform: translateX(-50%) scale(1); }
+}
 
 .overlay:not([hidden]) { animation: fade-in var(--anim-fast) var(--anim-ease); }
 .menu:not([hidden])    { animation: slide-in-down var(--anim-fast) var(--anim-ease-out); }
-.palette:not([hidden]) { animation: dialog-in var(--anim-moderate) var(--anim-ease-out); }
+.palette:not([hidden]) { animation: palette-in var(--anim-moderate) var(--anim-ease-out); }
 .dialog                { animation: dialog-in var(--anim-moderate) var(--anim-ease-out); }
 
 /*
@@ -1982,7 +2032,7 @@ body.no-anim *::after {
 .update-bar {
   position: fixed;
   right: 16px; bottom: 34px;
-  z-index: 71;
+  z-index: var(--layer-update);
   display: flex;
   align-items: flex-start;
   gap: 10px;

@@ -420,8 +420,8 @@ public partial class MainWindow : Window
                     Str(args, "path"), Str(args, "content"),
                     Str(args, "encoding", "utf-8"), Str(args, "eol", "\n"));
 
-            case "writeBytes":
-                return WriteRawFile(Str(args, "path"), Str(args, "content"));
+            case "writeHtml":
+                return WriteHtmlFile(Str(args, "path"), Str(args, "content"));
 
             case "listDir":
                 return ListDirectory(Str(args, "path"));
@@ -796,7 +796,10 @@ public partial class MainWindow : Window
         };
     }
 
-    private object WriteRawFile(string path, string content)
+    // Nao escreve bytes nem arquivo cru: escreve texto UTF-8 e so aceita
+    // .html/.htm. O nome antigo ('writeBytes'/'WriteRawFile') sugeria uma
+    // porta de gravacao generica que esta ponte nunca teve.
+    private object WriteHtmlFile(string path, string content)
     {
         var full = Path.GetFullPath(path);
         if (!_writablePaths.Contains(full))

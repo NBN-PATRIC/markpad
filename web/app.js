@@ -2441,7 +2441,12 @@
 
         var icon = document.createElement('span');
         icon.className = 'twist';
-        var ic = window.MarkPadIcons.build(entry.dir ? 'folder' : 'file-text', 13);
+        // Pasta aberta merece icone de pasta aberta: o triangulo da esquerda
+        // ja diz o estado, mas o icone dizia o contrario dele.
+        var glifo = entry.dir
+          ? (app.treeOpen[entry.path] ? 'folder-open' : 'folder')
+          : 'file-text';
+        var ic = window.MarkPadIcons.build(glifo, 13);
         if (ic) icon.appendChild(ic);
         row.appendChild(icon);
 
@@ -2465,10 +2470,12 @@
               twist.firstChild && twist.firstChild.classList && twist.firstChild.classList.remove('is-open');
               twist.classList.remove('is-open');
               delete app.treeOpen[entry.path];
+              trocaGlifo(icon, 'folder');
             } else {
               children.hidden = false;
               twist.classList.add('is-open');
               app.treeOpen[entry.path] = true;
+              trocaGlifo(icon, 'folder-open');
               if (!children.__loaded) { children.__loaded = true; buildTree(entry.path, children, depth + 1); }
             }
           };
@@ -2489,6 +2496,15 @@
       p.textContent = 'Nao consegui ler a pasta: ' + err.message;
       container.appendChild(p);
     });
+  }
+
+  /* O icone e um <svg> montado por createElementNS, nao um caractere: para
+     troca-lo e preciso jogar fora o no e construir o outro. */
+  function trocaGlifo(span, nome) {
+    var novo = window.MarkPadIcons.build(nome, 13);
+    if (!novo) return;
+    span.textContent = '';
+    span.appendChild(novo);
   }
 
   function markTreeActive() {
@@ -4282,7 +4298,7 @@
         '<body class="' + (dark ? 'theme-dark' : 'theme-light') + '">' +
         '<div class="markdown-preview">' + holder.innerHTML + '</div></body></html>';
 
-      return bridge.call('writeBytes', { path: path, content: html }).then(function () {
+      return bridge.call('writeHtml', { path: path, content: html }).then(function () {
         toast('Exportado para ' + path.split(/[\\/]/).pop(), 'ok');
       });
     }).catch(function (err) {
@@ -5158,6 +5174,11 @@
         live.insert('\n| %c | Coluna |\n|:--|:--|\n| | |\n');
       }),
       fmt('Bloco de código', 'code', function () { live.insert('\n```%c\n\n```\n'); }),
+      // O leitor ja renderiza $$...$$, [[...]] e #tag; faltava caminho de mouse
+      // para as tres — quem nao decorou a sintaxe nao chegava nelas.
+      fmt('Bloco matemático', 'sigma', function () { live.insert('\n$$\n%c\n$$\n'); }),
+      fmt('Link interno', 'link', function () { live.insert('[[%c]]'); }),
+      fmt('Tag', 'hash', function () { live.insert('#%c'); }),
       fmt('Destaque (callout)', 'info', function () { live.insert('\n> [!note] %c\n> \n'); }),
       fmt('Régua horizontal', 'minus', function () { live.insert('\n---\n%c'); }),
       fmt('Nota de rodapé', 'note', function () { live.insert('[^%c]'); })

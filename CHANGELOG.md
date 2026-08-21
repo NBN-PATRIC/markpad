@@ -39,6 +39,68 @@ Versionamento [SemVer](https://semver.org/lang/pt-BR/).
   de assinar; o último a rodar reescreve o arquivo já completo.
 - **`.wixpdb` não vai mais para a release.** Símbolo de depuração do instalador
   não é artefato de distribuição, e um deles vazou para a 1.2.0.
+- **`[[Nota]]` só abria o arquivo se ele estivesse na mesma pasta.** A busca por
+  nome era um esqueleto que sabia apenas dizer "não encontrado". Agora varre o
+  índice da pasta aberta como o Obsidian: primeiro o caminho relativo inteiro,
+  depois o nome com extensão, depois sem ela — nessa ordem, porque
+  `notas/api.md` e `arquivo/api.md` são arquivos diferentes e o caminho é a
+  única coisa no link que distingue os dois. Havendo homônimos, abre o mais
+  raso e avisa que houve escolha.
+- **`[[#Seção]]` e `[[#^bloco]]` eram links mortos.** Sem arquivo antes do `#`
+  não há o que abrir — há aonde rolar. Passam a saltar dentro do próprio
+  documento, com o mesmo destaque temporário do sumário.
+- **Rótulo do wikilink escondia o destino.** `[[Nota#Seção]]` aparecia como
+  "Nota"; agora mostra `Nota > Seção`, como no Obsidian.
+- **O painel de tags contava tag que o texto não pintava.** A regra do `#`
+  existe em três cópias (leitor, índice e host) e a do leitor tinha ficado só
+  no espaço, ignorando `(` e `[`. As três voltaram a dizer a mesma coisa.
+- **Ctrl+G e "recolher/expandir tudo" não faziam nada na edição ao vivo.** Os
+  dois olhavam só para a trava, então no modo vivo mexiam num `textarea`
+  escondido, com valor velho. Leitura e edição ao vivo desenham no mesmo lugar.
+- **"Liberar edição" no menu de contexto travava quando já estava destravado.**
+  O rótulo era fixo e mentia sobre o que o clique ia fazer.
+- **Criar, renomear, mover, duplicar e apagar deixavam o índice para trás.** A
+  árvore era redesenhada, mas Ctrl+P, o filtro por nome e o painel de tags
+  continuavam oferecendo o nome antigo — e abrir esse item dava erro.
+- **Fechar o filtro no meio da digitação prendia a lista.** O *debounce* de
+  160 ms acordava depois, com a caixa já escondida, e filtrava assim mesmo.
+  Valia para o filtro da árvore e para o de tags.
+- **"Atualizar" recolhia a árvore inteira de brinde.** Quem clica ali quer ver
+  o arquivo novo, não perder quatro níveis de pasta abertos — recolher já tem
+  botão próprio.
+- **A busca rápida descartava arquivo com pontuação legítima.** O `-1` que
+  significava "não casou" colidia com nota negativa válida; virou sentinela
+  própria.
+- **Sublista de tarefa era desenhada à direita do pai, na mesma linha**, e o
+  risco de uma tarefa concluída riscava junto as subtarefas ainda abertas.
+- **"Restaurar o padrão" devolvia a barra de acesso rápido já estragada.** As
+  configurações eram uma cópia rasa do padrão, e editar a barra mutava o
+  próprio padrão.
+- **A barra de acesso rápido saía na impressão**, junto com a paleta, os avisos
+  e o véu dos diálogos.
+
+### Alterado
+- **A paleta de comandos dava um pulo ao terminar de abrir.** Ela emprestava a
+  animação dos diálogos, que termina centrada nos dois eixos, enquanto a paleta
+  só se centra na horizontal — no último quadro ela despencava meia altura.
+- **O realce ao passar o mouse quase não aparecia no tema escuro** (6,7% de
+  branco). Vale para a árvore, os menus, a paleta e mais 19 lugares que leem o
+  mesmo token.
+- **O painel lateral desliza em vez de sumir de uma vez**, e sai de verdade:
+  fechado, o Tab não entra mais na caixa de busca dele.
+- **Os interruptores respondem ao toque.** Eram o único controle do app sem
+  resposta ao clique.
+- **A pasta aberta na árvore ganhou ícone de pasta aberta** — o triângulo já
+  dizia o estado e o ícone dizia o contrário dele.
+- **Menu de formatação alcança bloco matemático, link interno e tag.** O leitor
+  já entendia `$$…$$`, `[[…]]` e `#tag`; faltava caminho de mouse para quem não
+  decorou a sintaxe.
+- Empilhamento das camadas agora tem nomes (`--layer-*`) em vez de sete números
+  soltos: um "salvo" no canto não tapa mais o menu que você acabou de abrir.
+- A ponte deixou de chamar de `writeBytes` uma operação que escreve texto e só
+  aceita `.html`; passou a `writeHtml`.
+- Removidos tokens e um *keyframe* que nunca saíram da definição
+  (`--anim-instant`, `--anim-slow`, `--anim-ease-in`, `slide-in-left`).
 
 ## [1.2.0] — 2026-08-21
 
@@ -221,9 +283,6 @@ criada e deixou o `UserChoice` como estava.
   filhos quando o `-Path` termina em curinga), o que derrubava o upload do
   asset e, junto, a release inteira.
 
-[Não lançado]: https://github.com/NBN-PATRIC/markpad/compare/v1.1.0...HEAD
-[1.1.0]: https://github.com/NBN-PATRIC/markpad/releases/tag/v1.1.0
-
 ## [1.0.0] — 2026-07-27
 
 Primeira versão. Leitor/editor de Markdown para Windows, sem cofre e sem
@@ -281,4 +340,7 @@ dependência de outros aplicativos.
 - Gravação restrita a caminhos abertos na sessão e a extensões de texto.
 - Nenhuma navegação sai do aplicativo.
 
+[Não lançado]: https://github.com/NBN-PATRIC/markpad/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/NBN-PATRIC/markpad/releases/tag/v1.2.0
+[1.1.0]: https://github.com/NBN-PATRIC/markpad/releases/tag/v1.1.0
 [1.0.0]: https://github.com/NBN-PATRIC/markpad/releases/tag/v1.0.0
