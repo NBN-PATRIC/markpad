@@ -24,10 +24,28 @@ A edição só aparece quando você aciona o giz de propósito:
 
 | Estado | Como fica | O que dá pra fazer |
 |:--|:--|:--|
-| 🔒 **Travado** (padrão) | pílula cinza, giz apagado, rodapé "Somente leitura" | ler, rolar, buscar, copiar, recolher seções |
-| 🖍️ **Editando** | pílula roxa, giz colorido, faixa roxa no topo, aba sublinhada, título da janela avisa | tudo acima + digitar e salvar |
+| 🔒 **Travado** (padrão) | giz apagado, **Leitura** aceso no seletor do rodapé, livro na bandeira do cabeçalho | ler, rolar, buscar, copiar, recolher seções |
+| 🖍️ **Editando** | giz colorido, faixa roxa no topo, aba sublinhada, título da janela avisa | tudo acima + digitar e salvar |
 
-Acionar: clique no giz, clique no indicador do rodapé, ou <kbd>Ctrl</kbd>+<kbd>E</kbd>.
+Acionar: clique no giz, escolha **Leitura** ou **Ao vivo** no seletor do rodapé,
+ou <kbd>Ctrl</kbd>+<kbd>E</kbd>.
+
+## Os três modos
+
+O documento está sempre em **um** modo, nunca em dois. Troca no seletor do
+rodapé; a bandeira no cabeçalho diz em qual você está (e clicar nela abre o
+mesmo cardápio).
+
+| | Modo | O que é |
+|:--|:--|:--|
+| 📖 | **Leitura** | o giz está travado; não existe campo de texto na página |
+| ✏️ | **Edição ao vivo** | edita dentro do próprio leitor, sem ver markdown — só o bloco onde o cursor está vira texto cru |
+| `<>` | **Código-fonte** | markdown cru, com numeração de linha e realce de sintaxe |
+
+A **leitura ao lado do código** (tela dividida) é opcional e vive dentro do modo
+código-fonte: <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>L</kbd>, ou o botão de colunas
+no rodapé. Ela vem desligada — abrir um arquivo dá uma coluna de texto
+centralizada, e não três painelões.
 
 Reforços contra edição acidental:
 
@@ -51,18 +69,37 @@ Reforços contra edição acidental:
   `Ctrl+Shift+-` recolhe tudo, `Ctrl+Shift++` expande.
 - Tabelas com borda arredondada, cabeçalho fixo ao rolar e alinhamento por
   coluna (`:---`, `:---:`, `---:`).
-- Sumário lateral navegável.
+- Sumário lateral navegável, que acompanha a rolagem e recolhe por nível.
+- **Painel de tags**: junta as tags de todos os arquivos da pasta aberta,
+  `#a/b` vira árvore com contagem por nível, e clicar busca a tag na pasta.
 
 **Edição** (quando destravada)
-- Editor com numeração de linha e realce da sintaxe do próprio markdown.
-- Modo **código** ou **dividido** (fonte + prévia lado a lado).
+- **Edição ao vivo**: escreve dentro do próprio leitor. Só o bloco onde o cursor
+  está mostra o markdown cru; o resto da página continua renderizado.
+- **Código-fonte** com numeração de linha e realce da sintaxe do markdown,
+  opcionalmente com a leitura ao lado.
+- Formatação pelo botão direito — negrito, itálico, riscado, destaque, código,
+  link, título, lista, tarefa, citação, tabela, linha, callout.
 - Continuação automática de listas e citações no Enter, `Tab`/`Shift+Tab` para
   indentar bloco, `Ctrl+B`/`Ctrl+I`/`Ctrl+K`, `Ctrl+D` duplica linha,
   `Alt+↑/↓` move linha, `Ctrl+/` comenta.
 - `Ctrl+Z` nativo preservado (as edições passam por `execCommand`).
+- **Histórico na margem, estilo Notepad++**: a linha alterada e ainda não salva
+  fica marcada de laranja; depois de salvar, verde. Fechar o app com alteração
+  pendente guarda o texto editado num arquivo à parte, sem tocar no original.
 
 **Arquivos**
 - Abas, arrastar-e-soltar na janela, painel de pastas, recentes, sessão restaurada.
+- Renomear (`F2`), mover, duplicar, excluir **para a Lixeira** e abrir no
+  aplicativo padrão do Windows — tudo pelo menu ⋮ do documento ou pelo botão
+  direito na árvore.
+- Abre **qualquer tipo de arquivo**; se não for markdown, pergunta antes (com
+  "não avisar de novo").
+- Painel de pastas com **filtro `.md` / todos**, busca por nome, seis ordens e
+  recolher tudo.
+- **Abrir pelo nome** (`Ctrl+P`) e **paleta de comandos** (`Ctrl+Shift+P`).
+- **Barra de acesso rápido** configurável e uma tela de **configurações** com
+  abas.
 - Busca dentro do arquivo (com regex) e **busca em toda a pasta**.
 - Detecta e preserva codificação (UTF-8/BOM, UTF-16, Latin-1) e fim de linha
   (CRLF/LF) — ambos trocáveis pelo rodapé.
@@ -176,10 +213,10 @@ dotnet tool install --global wix --version 5.* --add-source https://api.nuget.or
 O WiX é fixado na 5 de propósito: a 7 passou a exigir aceitação do EULA da
 *Open Source Maintenance Fee*. A 5 é MS-RL e faz tudo o que precisamos.
 
-Testes do parser (incluem as verificações de sanitização):
+Testes (o do parser inclui as verificações de sanitização):
 
 ```bash
-node dev/test-markdown.js
+node dev/test-markdown.js && node dev/test-liveedit.js && node dev/test-changes.js
 ```
 
 No build de desenvolvimento a pasta `web\` fica ao lado do `.exe` e é servida
@@ -191,15 +228,21 @@ distribuição é um arquivo só.
 | | |
 |:--|:--|
 | `Ctrl+E` | travar / liberar edição |
+| `Ctrl+Shift+C` · `Ctrl+Shift+L` | código-fonte · leitura ao lado do código |
 | `Ctrl+O` / `Ctrl+Shift+O` | abrir arquivo / pasta |
+| `Ctrl+P` · `Ctrl+Shift+P` | abrir arquivo pelo nome · paleta de comandos |
 | `Ctrl+N` · `Ctrl+S` · `Ctrl+Shift+S` | nova nota · salvar · salvar como |
 | `Ctrl+W` · `Ctrl+Tab` · `Ctrl+1..9` | fechar aba · próxima aba · ir para aba |
+| `F2` | renomear o documento aberto |
 | `Ctrl+F` / `Ctrl+Shift+F` | localizar no arquivo / na pasta |
 | `Ctrl+G` | ir para a linha |
 | `Ctrl+Shift+-` / `Ctrl+Shift++` | recolher / expandir todas as seções |
-| `Ctrl+Shift+P` | paleta de comandos |
-| `Ctrl+\` · `Alt+Z` | painel lateral · quebra de linha |
-| `Ctrl+P` · `Ctrl+ +/-/0` | imprimir · zoom |
+| `Ctrl+\` · `Alt+Z` · `Ctrl+,` | painel lateral · quebra de linha · configurações |
+| `Ctrl+Alt+P` · `Ctrl+ +/-/0` | imprimir · zoom |
+
+A lista completa, sempre em dia com o código, está em
+**Configurações › Atalhos** — ela é gerada do mesmo registro de comandos que
+alimenta a paleta, o menu ⋮ e a barra de acesso rápido.
 
 ## Estrutura
 
@@ -211,11 +254,15 @@ App.xaml.cs           instância única (named pipe) + argumentos de linha
 FileAssociation.cs    registro de .md em HKCU (menu, --register-md, instalador)
 NativeMethods.cs      barra de título escura, "mostrar no Explorer"
 web/                  a interface inteira (embutida no exe publicado)
+  index.html          a página, com a CSP
   markdown.js         parser + sanitizador (sem dependências)
   highlight.js        realce de ~20 linguagens + do markdown-fonte
-  app.js              abas, trava, editor, painéis, busca, comandos
+  liveedit.js         edição dentro do leitor, bloco a bloco
+  changes.js          diff por linha para a margem de alterações
+  icons.js            os ícones, montados em SVG
+  app.js              abas, trava, modos, painéis, busca, comandos
   style.css           tokens de cor e layout
-dev/                  preview no navegador + testes do parser
+dev/                  preview no navegador + testes
 tools/                ícone, artefatos de release e instaladores
 installer/            markpad.iss (Inno Setup) e markpad.wxs (WiX)
 ```
@@ -264,8 +311,13 @@ node dev/test-markdown.js
 node dev/test-liveedit.js
 ```
 
+```bash
+node dev/test-changes.js
+```
+
 O segundo cobre o que pode corromper arquivo na edição bloco a bloco. Não
-mexa nele sem entender o porquê de cada caso.
+mexa nele sem entender o porquê de cada caso. O terceiro cobre o diff que
+pinta a margem de alterações.
 
 ## Licença
 
