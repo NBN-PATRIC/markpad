@@ -442,6 +442,10 @@ public partial class MainWindow : Window
                     Bool(args, "caseSensitive"), Bool(args, "regex"),
                     Int(args, "maxResults", 500)));
 
+            case "listTags":
+                return await Task.Run(() => CollectTags(
+                    Str(args, "root"), Int(args, "maxFiles", 4000)));
+
             case "watchFile":
                 WatchFile(Str(args, "path"));
                 return true;
@@ -998,6 +1002,144 @@ public partial class MainWindow : Window
 
         return new { results, truncated };
     }
+
+    /// <summary>
+    /// Varre a pasta e conta as tags dos arquivos markdown. Sai daqui e nao do
+    /// JS porque ler o disco inteiro no fio da ponte travaria a janela.
+    /// </summary>
+    private object CollectTags(string root, int maxFiles)
+    {
+        var full = Path.GetFullPath(root);
+        if (!Directory.Exists(full)) throw new DirectoryNotFoundException(full);
+
+        var contagem = new Dictionary<string, int>(StringComparer.Ordinal);
+        var arquivos = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+        var lidos = 0;
+        var truncated = false;
+
+        foreach (var file in EnumerateTextFiles(full))
+        {
+            if (!MarkdownExtensions.Contains(Path.GetExtension(file))) continue;
+            if (lidos >= maxFiles) { truncated = true; break; }
+
+            string[] lines;
+            try
+            {
+                if (new FileInfo(file).Length > 2 * 1024 * 1024) continue;
+                var (texto, _) = DecodeText(File.ReadAllBytes(file));
+                lines = texto.Replace("\r\n", "\n").Split('\n');
+            }
+            catch { continue; }
+
+            lidos++;
+            foreach (var tag in TagsOf(lines))
+            {
+                contagem.TryGetValue(tag, out var n);
+                contagem[tag] = n + 1;
+                if (!arquivos.TryGetValue(tag, out var set))
+                {
+                    set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    arquivos[tag] = set;
+                }
+                set.Add(file);
+            }
+        }
+
+        var tags = contagem
+            .Select(kv => new { tag = kv.Key, count = kv.Value, files = arquivos[kv.Key].Count })
+            .OrderByDescending(t => t.count)
+            .ThenBy(t => t.tag, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        return new { tags, scanned = lidos, truncated };
+    }
+
+    /// <summary>
+    /// As tags de um arquivo, na ordem em que aparecem e com repeticao: as do
+    /// frontmatter e as escritas no corpo. Cerca fechada e trecho entre crases
+    /// ficam de fora - "#include" dentro de um bloco de codigo nao e tag.
+    /// </summary>
+    private static IEnumerable<string> TagsOf(string[] lines)
+    {
+        var dentroDeCerca = false;
+        var noFrontmatter = lines.Length > 0 && lines[0].TrimEnd() == "---";
+        var chaveDeLista = false;
+
+        for (var i = 0; i < lines.Length; i++)
+        {
+            var line = lines[i];
+
+            if (noFrontmatter && i > 0)
+            {
+                var corte = line.TrimEnd();
+                if (corte == "---" || corte == "...") { noFrontmatter = false; continue; }
+
+                var lista = RE_YAML_ITEM.Match(line);
+                if (chaveDeLista && lista.Success)
+                {
+                    foreach (var t in SplitTagValue(lista.Groups[1].Value)) yield return t;
+                    continue;
+                }
+
+                var campo = RE_YAML_TAGS.Match(line);
+                if (campo.Success)
+                {
+                    var valor = campo.Groups[1].Value.Trim();
+                    chaveDeLista = valor.Length == 0;
+                    foreach (var t in SplitTagValue(valor)) yield return t;
+                    continue;
+                }
+
+                // qualquer outra chave encerra a lista da chave anterior
+                if (RE_YAML_KEY.IsMatch(line)) chaveDeLista = false;
+                continue;
+            }
+
+            if (RE_FENCE.IsMatch(line)) { dentroDeCerca = !dentroDeCerca; continue; }
+            if (dentroDeCerca) continue;
+
+            var limpa = RE_INLINE_CODE.Replace(line, " ");
+            foreach (System.Text.RegularExpressions.Match m in RE_TAG.Matches(limpa))
+                yield return m.Groups[1].Value.TrimEnd('/');
+        }
+    }
+
+    /// <summary>"a, b" / "[a, b]" / "a" - o jeito solto de escrever tags em YAML.</summary>
+    private static IEnumerable<string> SplitTagValue(string valor)
+    {
+        valor = valor.Trim().Trim('[', ']').Trim();
+        if (valor.Length == 0) yield break;
+
+        foreach (var parte in valor.Split(',', ' '))
+        {
+            var t = parte.Trim().Trim('"', '\'').TrimStart('#').TrimEnd('/');
+            if (t.Length > 0 && RE_TAG_NAME.IsMatch(t)) yield return t;
+        }
+    }
+
+    private static readonly System.Text.RegularExpressions.Regex RE_TAG =
+        new(@"(?:^|[\s(\[])#([A-Za-z\u00C0-\u024F][\w\u00C0-\u024F/-]*)",
+            System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    private static readonly System.Text.RegularExpressions.Regex RE_TAG_NAME =
+        new(@"^[A-Za-z\u00C0-\u024F][\w\u00C0-\u024F/-]*$",
+            System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    private static readonly System.Text.RegularExpressions.Regex RE_FENCE =
+        new(@"^\s{0,3}(?:```|~~~)", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    private static readonly System.Text.RegularExpressions.Regex RE_INLINE_CODE =
+        new(@"`[^`]*`", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    private static readonly System.Text.RegularExpressions.Regex RE_YAML_TAGS =
+        new(@"^tags?:(.*)$", System.Text.RegularExpressions.RegexOptions.Compiled
+            | System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+    private static readonly System.Text.RegularExpressions.Regex RE_YAML_ITEM =
+        new(@"^\s+-\s*(.+)$", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    private static readonly System.Text.RegularExpressions.Regex RE_YAML_KEY =
+        new(@"^[A-Za-z_][\w\u00C0-\u024F -]*:", System.Text.RegularExpressions.RegexOptions.Compiled);
 
     private static IEnumerable<string> EnumerateTextFiles(string root)
     {

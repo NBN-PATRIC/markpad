@@ -80,6 +80,7 @@
     restoreSession: true,
     treeOnlyMarkdown: true,
     treeSort: 'nome-asc',
+    tagSort: 'contagem',
     treeFoldersFirst: true,
     warnNonMarkdown: true,
     animations: true,
@@ -103,6 +104,10 @@
     treeFilter: '',
     indice: null,
     indiceDe: null,
+    tags: null,
+    tagsDe: null,
+    tagFilter: '',
+    tagOpen: Object.create(null),
     exePath: '',
     associated: false,
     find: { open: false, query: '', caseSensitive: false, regex: false, index: 0, total: 0 },
@@ -1735,6 +1740,7 @@
     $('folderName').textContent = path ? path.split(/[\\/]/).pop() : 'nenhuma pasta aberta';
     $('folderName').title = path || '';
     refreshTree();
+    if (settings.sidebarPane === 'tags') renderTags();
     if (!quiet) persist();
   }
 
@@ -1839,6 +1845,8 @@
   function invalidateFileIndex() {
     app.indice = null;
     app.indiceDe = null;
+    app.tags = null;
+    app.tagsDe = null;
   }
 
   /*
@@ -2274,11 +2282,342 @@
     for (var j = 0; j < panes.length; j++) {
       panes[j].hidden = panes[j].getAttribute('data-pane') !== name;
     }
+    if (name === 'tags') renderTags();
     persist();
+  }
+
+  // ================================================================= tags
+
+  /*
+   * Painel de tags. No Obsidian ele e uma das visoes do cofre; aqui sai da
+   * pasta aberta (o C# varre e conta) ou, se nao houver pasta, dos proprios
+   * documentos abertos. Lista de tags nao e motivo para inventar cofre.
+   */
+
+  var RE_TAG_TEXTO = /(?:^|[\s(\[])#([A-Za-zÀ-ɏ][\wÀ-ɏ/-]*)/g;
+  var RE_TAG_NOME = /^[A-Za-zÀ-ɏ][\wÀ-ɏ/-]*$/;
+
+  /** As tags de um texto, com repeticao. Cerca fechada e crase ficam de fora. */
+  function tagsDoTexto(texto) {
+    var achadas = [];
+    var linhas = String(texto || '').split('\n');
+    var cerca = false;
+    var frontmatter = linhas.length > 0 && linhas[0].replace(/\s+$/, '') === '---';
+    var chaveDeLista = false;
+
+    for (var i = 0; i < linhas.length; i++) {
+      var linha = linhas[i];
+
+      if (frontmatter && i > 0) {
+        var corte = linha.replace(/\s+$/, '');
+        if (corte === '---' || corte === '...') { frontmatter = false; continue; }
+
+        var item = /^\s+-\s*(.+)$/.exec(linha);
+        if (chaveDeLista && item) { empurraTag(achadas, item[1]); continue; }
+
+        var campo = /^tags?:(.*)$/i.exec(linha);
+        if (campo) {
+          var valor = campo[1].trim();
+          chaveDeLista = valor === '';
+          empurraTag(achadas, valor);
+          continue;
+        }
+
+        if (/^[A-Za-z_][\wÀ-ɏ -]*:/.test(linha)) chaveDeLista = false;
+        continue;
+      }
+
+      if (/^\s{0,3}(?:```|~~~)/.test(linha)) { cerca = !cerca; continue; }
+      if (cerca) continue;
+
+      var limpa = linha.replace(/`[^`]*`/g, ' ');
+      var m;
+      RE_TAG_TEXTO.lastIndex = 0;
+      while ((m = RE_TAG_TEXTO.exec(limpa))) achadas.push(m[1].replace(/\/+$/, ''));
+    }
+
+    return achadas;
+  }
+
+  /** "a, b" / "[a, b]" / "a" — o jeito solto de escrever tags no frontmatter. */
+  function empurraTag(lista, valor) {
+    valor = String(valor || '').trim().replace(/^\[|\]$/g, '').trim();
+    if (!valor) return;
+
+    valor.split(/[,\s]+/).forEach(function (parte) {
+      var t = parte.replace(/^["']|["']$/g, '').replace(/^#/, '').replace(/\/+$/, '');
+      if (t && RE_TAG_NOME.test(t)) lista.push(t);
+    });
+  }
+
+  function tagIndex() {
+    if (!app.folder) return Promise.resolve(tagsDosAbertos());
+    if (app.tagsDe === app.folder && app.tags) return app.tags;
+
+    app.tagsDe = app.folder;
+    app.tags = bridge.call('listTags', { root: app.folder })
+      .then(function (d) { return (d && d.tags) || []; })
+      .catch(function () { return tagsDosAbertos(); });
+    return app.tags;
+  }
+
+  function tagsDosAbertos() {
+    var conta = Object.create(null);
+    var arqs = Object.create(null);
+
+    app.tabs.forEach(function (tab) {
+      var vistas = Object.create(null);
+      tagsDoTexto(tab.content).forEach(function (t) {
+        conta[t] = (conta[t] || 0) + 1;
+        vistas[t] = true;
+      });
+      Object.keys(vistas).forEach(function (t) { arqs[t] = (arqs[t] || 0) + 1; });
+    });
+
+    return Object.keys(conta).map(function (t) {
+      return { tag: t, count: conta[t], files: arqs[t] };
+    });
+  }
+
+  function renderTags() {
+    var box = $('tagList');
+    if (!box) return;
+
+    var pedido = ++renderTags.seq;
+    box.textContent = '';
+
+    Promise.resolve(tagIndex()).then(function (tags) {
+      if (pedido !== renderTags.seq) return;   // chegou tarde: ja tem outra lista
+      desenhaPainelTags(box, tags || []);
+    });
+  }
+  renderTags.seq = 0;
+
+  function desenhaPainelTags(box, tags) {
+    box.textContent = '';
+
+    var filtro = (app.tagFilter || '').toLowerCase();
+    var lista = tags.filter(function (t) {
+      return !filtro || String(t.tag).toLowerCase().indexOf(filtro) >= 0;
+    });
+
+    if (!lista.length) {
+      var p = document.createElement('p');
+      p.className = 'pane-empty';
+      p.textContent = tags.length
+        ? 'Nenhuma tag com esse nome.'
+        : (app.folder
+          ? 'Nenhuma tag nos arquivos desta pasta.'
+          : 'Nenhuma tag nos documentos abertos. Abra uma pasta para varrer o disco.');
+      box.appendChild(p);
+      renderTagResumo(0, 0);
+      return;
+    }
+
+    // #projeto/api entra debaixo de #projeto, como no Obsidian. O pai soma o
+    // que os filhos tem, mesmo que ninguem escreva "#projeto" sozinho.
+    var raiz = { filhos: [], indice: Object.create(null) };
+    var total = 0;
+
+    lista.forEach(function (t) {
+      var partes = String(t.tag).split('/');
+      var no = raiz;
+      var caminho = '';
+      total += t.count;
+
+      partes.forEach(function (parte, i) {
+        caminho = caminho ? caminho + '/' + parte : parte;
+        if (!no.indice[parte]) {
+          var novo = {
+            nome: parte, caminho: caminho, count: 0, proprio: 0,
+            filhos: [], indice: Object.create(null)
+          };
+          no.indice[parte] = novo;
+          no.filhos.push(novo);
+        }
+        no = no.indice[parte];
+        no.count += t.count;
+        if (i === partes.length - 1) no.proprio = t.count;
+      });
+    });
+
+    ordenaTags(raiz);
+    box.appendChild(desenhaNosTag(raiz.filhos, 0));
+    renderTagResumo(lista.length, total);
+  }
+
+  function ordenaTags(no) {
+    var ordem = settings.tagSort || 'contagem';
+
+    no.filhos.sort(function (a, b) {
+      if (ordem === 'nome-desc') return b.nome.localeCompare(a.nome, 'pt', { numeric: true });
+      if (ordem === 'nome-asc') return a.nome.localeCompare(b.nome, 'pt', { numeric: true });
+      if (b.count !== a.count) return b.count - a.count;
+      return a.nome.localeCompare(b.nome, 'pt', { numeric: true });
+    });
+
+    no.filhos.forEach(ordenaTags);
+  }
+
+  function desenhaNosTag(nos, profundidade) {
+    var frag = document.createDocumentFragment();
+
+    nos.forEach(function (no) {
+      var wrapper = document.createElement('div');
+      wrapper.className = 'tag-node';
+      if (app.tagOpen[no.caminho] === false) wrapper.classList.add('is-collapsed');
+
+      var linha = document.createElement('div');
+      linha.className = 'tag-row';
+      linha.title = '#' + no.caminho + ' — ' + no.count
+        + (no.count === 1 ? ' ocorrencia' : ' ocorrencias');
+
+      var twist = document.createElement('span');
+      twist.className = 'tag-twist';
+      if (no.filhos.length) {
+        var chev = window.MarkPadIcons.build('chevron-down', 12);
+        if (chev) twist.appendChild(chev);
+        twist.onclick = function (e) {
+          e.stopPropagation();
+          app.tagOpen[no.caminho] = !wrapper.classList.toggle('is-collapsed');
+        };
+      }
+      linha.appendChild(twist);
+
+      var nome = document.createElement('span');
+      nome.className = 'tag-name';
+      // so a raiz leva "#": nos filhos ele so repetiria o caminho do pai
+      nome.textContent = (profundidade ? '' : '#') + no.nome;
+      linha.appendChild(nome);
+
+      var conta = document.createElement('span');
+      conta.className = 'tag-count';
+      conta.textContent = String(no.count);
+      linha.appendChild(conta);
+
+      linha.onclick = function () { buscaTag(no.caminho); };
+      linha.oncontextmenu = function (e) {
+        e.preventDefault();
+        tagContextMenu(no, e.clientX, e.clientY);
+      };
+
+      wrapper.appendChild(linha);
+
+      if (no.filhos.length) {
+        var filhos = document.createElement('div');
+        filhos.className = 'tag-children';
+        filhos.appendChild(desenhaNosTag(no.filhos, profundidade + 1));
+        wrapper.appendChild(filhos);
+      }
+
+      frag.appendChild(wrapper);
+    });
+
+    return frag;
+  }
+
+  function renderTagResumo(quantas, total) {
+    var pe = $('tagSummary');
+    if (!pe) return;
+
+    pe.hidden = !quantas;
+    if (!quantas) return;
+
+    pe.textContent = quantas + (quantas === 1 ? ' tag' : ' tags')
+      + ' · ' + total + (total === 1 ? ' uso' : ' usos')
+      + (app.folder ? '' : ' (nos documentos abertos)');
+  }
+
+  /** Clicar numa tag procura por ela: na pasta se houver, senao no documento. */
+  function buscaTag(caminho) {
+    if (app.folder) { openFolderSearch('#' + caminho); return; }
+
+    openFind();
+    var campo = $('findInput');
+    if (campo) {
+      campo.value = '#' + caminho;
+      runFind(0);
+    }
+  }
+
+  function tagContextMenu(no, x, y) {
+    var tab = activeTab();
+
+    showMenu([
+      { label: '#' + no.caminho, header: true },
+      {
+        label: app.folder ? 'Buscar na pasta' : 'Buscar no documento',
+        icon: 'search',
+        action: function () { buscaTag(no.caminho); }
+      },
+      {
+        label: 'Copiar #' + no.caminho,
+        icon: 'copy',
+        action: function () {
+          navigator.clipboard.writeText('#' + no.caminho);
+          toast('Tag copiada.', 'ok', 1200);
+        }
+      },
+      '-',
+      {
+        label: 'Inserir no documento',
+        icon: 'plus',
+        disabled: !tab || tab.locked,
+        action: function () { insereTag(no.caminho); }
+      }
+    ], x, y);
+  }
+
+  function insereTag(caminho) {
+    var tab = activeTab();
+    if (!tab || tab.locked) return;
+
+    if (live.isActive()) { live.insert('#' + caminho + ' '); return; }
+
+    // Sem bloco em edicao: a tag vai para o fim do documento, numa linha so
+    // dela — e o unico lugar onde da para escrever sem chutar o cursor.
+    tab.content = tab.content.replace(/\s*$/, '') + '\n\n#' + caminho + '\n';
+    invalidateLineStatus(tab);
+    renderViews();
+    renderTabs();
+    renderHeader();
+    renderStatus();
+    scheduleBackup(tab);
+    toast('#' + caminho + ' inserida no fim do documento.', 'ok', 1600);
+  }
+
+  function toggleTagFilter(forcar) {
+    var linha = $('tagFilterRow');
+    var campo = $('tagFilterInput');
+    var mostrar = forcar === undefined ? linha.hidden : forcar;
+
+    linha.hidden = !mostrar;
+    if (mostrar) { campo.focus(); campo.select(); return; }
+
+    campo.value = '';
+    app.tagFilter = '';
+    renderTags();
+  }
+
+  var ORDENS_TAG = [
+    { id: 'contagem', label: 'Mais usadas primeiro' },
+    { id: 'nome-asc', label: 'Nome (A → Z)' },
+    { id: 'nome-desc', label: 'Nome (Z → A)' }
+  ];
+
+  function tagSortMenu(x, y) {
+    showMenu(ORDENS_TAG.map(function (o) {
+      return {
+        label: o.label,
+        checked: (settings.tagSort || 'contagem') === o.id,
+        action: function () { settings.tagSort = o.id; renderTags(); persist(); }
+      };
+    }), x, y);
   }
 
   // --------------------------------------------------- busca na pasta
 
+  var tagFilterTimer = null;
   var folderSearchTimer = null;
   function runFolderSearch() {
     var query = $('folderSearchInput').value;
@@ -2660,6 +2999,8 @@
         icon: 'link', checked: app.isDefault, action: toggleAssociation },
       { id: 'switcher', label: 'Abrir arquivo pelo nome...', key: 'Ctrl+P', icon: 'search', action: function () { openSwitcher(); } },
       { id: 'treeSearch', label: 'Filtrar arquivos por nome', icon: 'filter', action: function () { setPane('files'); toggleTreeFilter(true); } },
+      { id: 'tags', label: 'Painel: tags', icon: 'hash', action: function () { if (!settings.sidebarVisible) toggleSidebar(true); setPane('tags'); } },
+      { id: 'tagSort', label: 'Ordenar tags por...', icon: 'sort', action: function () { if (!settings.sidebarVisible) toggleSidebar(true); setPane('tags'); var r = $('btnTagSort').getBoundingClientRect(); tagSortMenu(r.right - 250, r.bottom + 4); } },
       { id: 'treeSort', label: 'Ordenar arquivos por...', icon: 'sort', action: function () { setPane('files'); var r = $('btnTreeSort').getBoundingClientRect(); treeSortMenu(r.right - 250, r.bottom + 4); } },
       { id: 'treeCollapse', label: 'Recolher todas as pastas', icon: 'chevrons-up', enabled: !!app.folder, action: collapseTree },
       { id: 'quickBar', label: 'Barra de acesso rapido', icon: 'command', checked: settings.quickBarVisible, action: function () { settings.quickBarVisible = !settings.quickBarVisible; renderQuickBar(); persist(); } },
@@ -2679,7 +3020,7 @@
     'open', 'openFolder', 'new', 'save', 'saveAs', 'close', 'reload',
     'lock', 'modeSource', 'modeSplit',
     'find', 'findFolder', 'switcher', 'goto', 'foldAll', 'unfoldAll',
-    'treeSearch', 'treeSort', 'treeCollapse',
+    'treeSearch', 'treeSort', 'treeCollapse', 'tags',
     'wrap', 'gutter', 'properties', 'wide', 'theme', 'sidebar',
     'export', 'print', 'copyPath', 'reveal',
     'rename', 'duplicate', 'openWith'
@@ -3996,6 +4337,25 @@
       refreshTree();
     };
     $('btnTreeSearch').onclick = function () { toggleTreeFilter(); };
+
+    $('btnTagFilter').onclick = function () { toggleTagFilter(); };
+    $('btnTagSort').onclick = function (e) {
+      var r = e.currentTarget.getBoundingClientRect();
+      tagSortMenu(r.right - 250, r.bottom + 4);
+    };
+    $('btnTagRefresh').onclick = function () {
+      app.tags = null;
+      app.tagsDe = null;
+      renderTags();
+    };
+    $('tagFilterInput').addEventListener('input', function () {
+      app.tagFilter = this.value;
+      clearTimeout(tagFilterTimer);
+      tagFilterTimer = setTimeout(renderTags, 120);
+    });
+    $('tagFilterInput').addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') { e.preventDefault(); toggleTagFilter(false); }
+    });
     $('btnTreeSort').onclick = function (e) {
       var r = e.currentTarget.getBoundingClientRect();
       treeSortMenu(r.right - 250, r.bottom + 4);

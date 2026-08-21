@@ -6,6 +6,17 @@ Versionamento [SemVer](https://semver.org/lang/pt-BR/).
 ## [Não lançado]
 
 ### Adicionado
+- **Painel de tags**, a quarta aba da barra lateral. Junta as tags de todos
+  os arquivos da pasta aberta — `#a/b` vira árvore, com contagem por nível
+  — e sem pasta aberta ele conta as tags dos documentos abertos. Sem cofre:
+  a pasta é só uma pasta, e fechar a janela não deixa índice nenhum para trás.
+- Tags: filtro por nome dentro do próprio painel (`Esc` fecha e limpa), três
+  ordens (mais usadas, A→Z, Z→A), clique busca a tag na pasta e o clique
+  direito copia ou insere a tag no documento aberto.
+- Ponte: `listTags` — a varredura acontece no C#, fora do fio da interface,
+  com teto de arquivos e de tamanho; o painel só recebe a contagem pronta.
+  Reconhece tag no texto e no frontmatter (`tags: a, b` e lista com `-`),
+  ignorando bloco de código e código em linha.
 - **Menu ⋮ reorganizado como no Obsidian**: o que se faz *com* o documento
   primeiro — salvar, renomear, mover, duplicar, exportar, imprimir, abrir
   fora, excluir — e as preferências depois, em grupos com cabeçalho. Quem

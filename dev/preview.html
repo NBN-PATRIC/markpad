@@ -33,6 +33,7 @@
         <button class="sidebar-tab is-active" data-pane="files" data-icon="folder" title="Arquivos"></button>
         <button class="sidebar-tab" data-pane="search" data-icon="search" title="Buscar na pasta (Ctrl+Shift+F)"></button>
         <button class="sidebar-tab" data-pane="outline" data-icon="list" title="Sumario"></button>
+        <button class="sidebar-tab" data-pane="tags" data-icon="hash" title="Tags"></button>
         <button class="sidebar-tab" data-pane="recent" data-icon="clock" title="Recentes"></button>
       </div>
 
@@ -85,6 +86,24 @@
               <p class="pane-empty">Os titulos do documento aparecem aqui.</p>
             </div>
           </div>
+        </section>
+
+        <section class="pane" data-pane="tags" hidden>
+          <header class="pane-head">
+            <span class="pane-title">Tags</span>
+            <button class="icon-btn small" id="btnTagFilter" data-icon="search" title="Filtrar por nome"></button>
+            <button class="icon-btn small" id="btnTagSort" data-icon="sort" title="Ordenar"></button>
+            <button class="icon-btn small" id="btnTagRefresh" data-icon="refresh" title="Atualizar"></button>
+          </header>
+          <div class="pane-controls" id="tagFilterRow" hidden>
+            <input type="text" id="tagFilterInput" class="text-input" placeholder="filtrar tags" spellcheck="false">
+          </div>
+          <div class="pane-scroll">
+            <div class="tag-list" id="tagList">
+              <p class="pane-empty">As tags dos documentos aparecem aqui.</p>
+            </div>
+          </div>
+          <footer class="pane-foot" id="tagSummary" hidden></footer>
         </section>
 
         <section class="pane" data-pane="recent" hidden>

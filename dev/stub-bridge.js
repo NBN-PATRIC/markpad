@@ -78,7 +78,8 @@
     '## Extensoes do Obsidian',
     '',
     'Wikilink para [[Outra Nota]], com apelido [[Outra Nota|texto alternativo]],',
-    'e tags como #exemplo/basico.',
+    'e tags como #exemplo/basico, #exemplo/avancado, #exemplo/basico de novo,',
+    'alem de #projeto/api, #projeto/ui, #projeto e #ideia solta.',
     '',
     'Notas de rodape tambem funcionam[^1].',
     '',
@@ -87,7 +88,7 @@
 
   var FILES = {
     'C:\\notas\\guia.md': SAMPLE,
-    'C:\\notas\\leiame.md': '# Leiame\n\nArquivo curto de teste.\n\n- um\n- dois\n'
+    'C:\\notas\\leiame.md': '---\ntags:\n  - ideia\n  - projeto/api\n---\n\n# Leiame\n\nArquivo curto de teste com #ideia.\n\n- um\n- dois\n'
   };
 
   window.chrome = {
@@ -128,6 +129,28 @@
                 return { path: k, name: k.split('\\').pop(), dir: k.replace(/\\[^\\]*$/, ''),
                          markdown: /\.md$/i.test(k), size: FILES[k].length };
               }) };
+              break;
+            case 'listTags':
+              var conta = Object.create(null), quantos = Object.create(null);
+              Object.keys(FILES).forEach(function (k) {
+                if (!/\.md$/i.test(k)) return;
+                var vistas = Object.create(null);
+                var re = /(?:^|[\s(\[])#([A-Za-z\u00C0-\u024F][\w\u00C0-\u024F/-]*)/g;
+                var m;
+                while ((m = re.exec(FILES[k]))) {
+                  var t = m[1].replace(/\/+$/, '');
+                  conta[t] = (conta[t] || 0) + 1;
+                  vistas[t] = true;
+                }
+                Object.keys(vistas).forEach(function (t) { quantos[t] = (quantos[t] || 0) + 1; });
+              });
+              result = {
+                tags: Object.keys(conta).map(function (t) {
+                  return { tag: t, count: conta[t], files: quantos[t] };
+                }).sort(function (x, y) { return y.count - x.count; }),
+                scanned: Object.keys(FILES).length,
+                truncated: false
+              };
               break;
             case 'openFolderDialog': result = 'C:\\notas'; break;
             case 'renameFile':

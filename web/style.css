@@ -1781,3 +1781,75 @@ body.no-anim *::after {
   from { opacity: 0; transform: translateY(-4px); }
   to   { opacity: 1; transform: none; }
 }
+
+/* --------------------------------------------------------- painel de tags */
+
+.tag-node { position: relative; }
+
+.tag-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 6px 4px 0;
+  border-radius: var(--radius-s);
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  line-height: 1.45;
+  cursor: pointer;
+  transition: background var(--anim-fast) var(--anim-ease),
+              color var(--anim-fast) var(--anim-ease);
+}
+.tag-row:hover { background: var(--background-modifier-hover); color: var(--text-normal); }
+
+.tag-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tag-node > .tag-row > .tag-name { font-weight: 500; }
+
+.tag-count {
+  flex: none;
+  min-width: 20px;
+  padding: 0 6px;
+  border-radius: 9px;
+  background: var(--background-modifier-form-field);
+  color: var(--text-faint);
+  font-size: 10px;
+  line-height: 16px;
+  text-align: center;
+  transition: background var(--anim-fast) var(--anim-ease),
+              color var(--anim-fast) var(--anim-ease);
+}
+.tag-row:hover .tag-count {
+  background: hsla(var(--interactive-accent-hsl), 0.18);
+  color: var(--text-accent);
+}
+
+.tag-twist {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 17px;
+  flex-shrink: 0;
+  color: var(--text-faint);
+  transition: transform var(--anim-fast) var(--anim-ease);
+}
+.tag-twist:hover { color: var(--text-normal); }
+.tag-twist:empty { pointer-events: none; }
+
+.tag-children {
+  margin-left: 8px;
+  padding-left: 8px;
+  border-left: 1px solid var(--background-modifier-border);
+}
+.tag-children:hover { border-left-color: var(--background-modifier-border-hover); }
+
+.tag-node.is-collapsed > .tag-children { display: none; }
+.tag-node.is-collapsed > .tag-row .tag-twist { transform: rotate(-90deg); }
+
+.pane-foot {
+  flex: none;
+  padding: 5px 10px;
+  border-top: 1px solid var(--background-modifier-border);
+  color: var(--text-faint);
+  font-size: 10px;
+}
+.pane-foot[hidden] { display: none; }
