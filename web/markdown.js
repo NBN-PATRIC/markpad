@@ -175,7 +175,9 @@
     // 8. wikilinks: [[Nota]] / [[Nota|texto]] / [[Nota#secao]]
     text = text.replace(/\[\[([^\]|]+?)(?:\|([^\]]*))?\]\]/g, function (_, target, label) {
       var t = target.trim();
-      var shown = (label || t.split('#')[0] || t).trim();
+      // O Obsidian mostra o caminho inteiro do alvo, nao so o arquivo:
+      // [[Nota#Secao]] vira 'Nota > Secao' e [[#Secao]] perde o '#' solto.
+      var shown = (label || t.split('#').filter(Boolean).join(' > ') || t).trim();
       return self.stash(
         '<a class="internal-link" data-wikilink="' + escapeAttr(t) + '" href="#">' +
         escapeHtml(shown) + '</a>'
@@ -220,7 +222,10 @@
     text = text.replace(/==(?!\s)([\s\S]+?)(?<!\s)==/g, '<mark>$1</mark>');
 
     // 14. tags do Obsidian: #assunto/sub
-    text = text.replace(/(^|\s)#([A-Za-zÀ-ɏ][\wÀ-ɏ/-]*)/g, function (_, pre, tag) {
+    // Mesmo '#' que RE_TAG_TEXTO (app.js) e RE_TAG (MainWindow.xaml.cs)
+    // aceitam: espaco, '(' ou '['. Sao tres copias da mesma regra, e uma
+    // divergencia faz o painel contar uma tag que o documento nao pinta.
+    text = text.replace(/(^|[\s(\[])#([A-Za-zÀ-ɏ][\wÀ-ɏ/-]*)/g, function (_, pre, tag) {
       return pre + '<a class="tag" data-tag="' + escapeAttr(tag) + '" href="#">#' + escapeHtml(tag) + '</a>';
     });
 

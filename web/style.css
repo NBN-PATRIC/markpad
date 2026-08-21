@@ -763,6 +763,9 @@ body.wide-lines .markdown-preview { max-width: none; }
 .markdown-preview li.is-collapsed::marker { color: var(--text-accent); }
 
 .markdown-preview p { margin: 0 0 var(--p-spacing); }
+/* Cinto de seguranca: o parser ja poda o <p> de item de lista compacto,
+   mas markdown malformado ainda pode deixar um vazio abrindo um vao. */
+.markdown-preview li > p:empty { display: none; }
 .markdown-preview strong { font-weight: 600; }
 .markdown-preview mark { background: var(--text-highlight-bg); color: inherit; border-radius: 2px; padding: 0 1px; }
 .markdown-preview del { color: var(--text-muted); }
@@ -785,7 +788,12 @@ body.wide-lines .markdown-preview { max-width: none; }
 .markdown-preview li { margin: 0.15em 0; }
 .markdown-preview li > ul, .markdown-preview li > ol { margin-bottom: 0; }
 .markdown-preview .contains-task-list { list-style: none; padding-left: 0.6em; }
-.markdown-preview .task-item { display: flex; align-items: flex-start; gap: 8px; }
+/* A sublista de uma tarefa e filha do <li>, entao vira item de flex e sem
+   isso e desenhada A DIREITA do texto do pai, na mesma linha. O flex-basis
+   a empurra para baixo; o gap vertical vai a zero porque o espacamento de
+   lista ja e do <ul>. */
+.markdown-preview .task-item { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 0 8px; }
+.markdown-preview .task-item > ul, .markdown-preview .task-item > ol { flex-basis: 100%; }
 .markdown-preview .task-item input[type=checkbox] {
   margin: 0.35em 0 0;
   width: 15px; height: 15px;
@@ -793,6 +801,11 @@ body.wide-lines .markdown-preview { max-width: none; }
   flex-shrink: 0;
 }
 .markdown-preview .task-item.is-checked { color: var(--text-muted); text-decoration: line-through; }
+/* Riscar o pai nao risca as filhas: uma subtarefa aberta debaixo de uma
+   tarefa concluida continua sendo trabalho por fazer. */
+.markdown-preview .task-item.is-checked > ul, .markdown-preview .task-item.is-checked > ol {
+  color: var(--text-normal); text-decoration: none;
+}
 
 /* Destravado, a caixinha clica: o cursor precisa dizer isso antes do clique. */
 .markdown-preview.tasks-live .task-item input[type=checkbox] { cursor: pointer; }
@@ -1581,7 +1594,8 @@ body.no-gutter .ed-row .ln { display: none; }
 
 /* impressao: so o texto */
 @media print {
-  .tab-bar, .sidebar, .sidebar-resizer, .view-header, .status-bar, .find-bar, .editing-view { display: none !important; }
+  .tab-bar, .quick-bar, .sidebar, .sidebar-resizer, .view-header, .status-bar,
+  .find-bar, .editing-view, .overlay, .palette, .toasts, .update-bar { display: none !important; }
   .main { border: none; }
   .markdown-preview { max-width: none; padding: 0; color: #000; }
   body, .app, .reading-scroll { background: #fff; overflow: visible; height: auto; }

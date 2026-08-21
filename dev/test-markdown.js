@@ -188,7 +188,21 @@ const checks = [
   ['estado custom de tarefa vira caixa', /class="task-item" data-task="&gt;"/.test(r('- [>] adiada\n').html)],
   ['estado custom nao conta como feita', !/is-checked/.test(r('- [>] adiada\n').html)],
   ['tarefa aberta segue sem data-task', !/data-task=/.test(r('- [ ] aberta\n').html)],
-  ['link no comeco do item nao vira tarefa', /<a /.test(r('- [x](http://e.com) nao\n').html)]
+  ['link no comeco do item nao vira tarefa', /<a /.test(r('- [x](http://e.com) nao\n').html)],
+
+  // --- backlog de baixo risco
+  // O painel de tags conta '#' depois de espaco, '(' ou '['; o leitor tinha
+  // ficado so no espaco, entao a arvore mostrava tag que o texto nao pintava.
+  ['tag depois de parentese', /data-tag="outra"/.test(r('x (#outra) y\n').html)],
+  ['tag depois de colchete', /data-tag="terceira"/.test(r('x [#terceira] y\n').html)],
+  ['parentese sobrevive a tag', /\(<a class="tag"/.test(r('x (#outra) y\n').html)],
+
+  // O rotulo do wikilink mostra o caminho inteiro, como no Obsidian.
+  ['wikilink com secao mostra a secao', />Nota &gt; Secao</.test(r('[[Nota#Secao]]\n').html)],
+  ['wikilink so de secao perde o #', />Secao</.test(r('[[#Secao]]\n').html)],
+  ['wikilink so de secao mantem o alvo', /data-wikilink="#Secao"/.test(r('[[#Secao]]\n').html)],
+  ['wikilink de bloco mostra o ^id', />\^abc</.test(r('[[#^abc]]\n').html)],
+  ['apelido ainda ganha do caminho', />apelido</.test(r('[[Nota#Secao|apelido]]\n').html)]
 ];
 
 /** Render curto para os casos acima — sem mapa de linha, so o HTML. */

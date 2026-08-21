@@ -97,7 +97,10 @@
     session: []
   };
 
-  var settings = Object.assign({}, DEFAULTS);
+  // Copia funda: DEFAULTS tem arrays (quickBar, recent, session) e o editor
+  // da barra rapida muta no lugar — com copia rasa ele adultera o padrao e
+  // 'Restaurar o padrao' devolve a lista ja estragada.
+  var settings = JSON.parse(JSON.stringify(DEFAULTS));
   var app = {
     tabs: [],
     activeId: null,
@@ -655,7 +658,7 @@
         dropBackup(tab);
         bridge.call('watchFile', { path: res.path }).catch(function () {});
         addRecent(res.path);
-        if (renamed) refreshTree();
+        if (renamed) arvoreMudou();
         renderTabs();
         renderHeader();
         renderViews();   // redesenha para as marcas laranjas virarem verdes
@@ -1294,7 +1297,9 @@
       tab.folds = Object.create(null);
     } else {
       tab.folds = Object.create(null);
-      var container = tab.locked ? $('preview') : $('splitPreview');
+      // Mesmo criterio do renderViews (noLeitor): no modo vivo o que esta na
+      // tela e #preview, e #splitPreview esta vazio.
+      var container = (tab.locked || !tab.showSource) ? $('preview') : $('splitPreview');
       var heads = container.querySelectorAll('[data-fold-key]');
       for (var i = 0; i < heads.length; i++) tab.folds[heads[i].getAttribute('data-fold-key')] = true;
     }
@@ -1568,8 +1573,22 @@
       }
 
       if (el.hasAttribute('data-wikilink')) {
-        var wl = el.getAttribute('data-wikilink').split('#')[0];
-        if (!wl) return;
+        var partesWl = el.getAttribute('data-wikilink').split('#');
+        var wl = partesWl[0];
+        var secaoWl = partesWl.slice(1).filter(Boolean).pop() || '';
+
+        // [[#Secao]] e [[#^bloco]] apontam para dentro do proprio documento:
+        // sem arquivo antes do '#' nao ha o que abrir, ha aonde rolar.
+        if (!wl) {
+          var idWl = secaoWl.charAt(0) === '^'
+            ? secaoWl.slice(1)
+            : window.MarkPadMarkdown.slugify(secaoWl);
+          var destinoWl = idWl && container.querySelector('#' + CSS.escape(idWl));
+          if (destinoWl) { destinoWl.scrollIntoView({ behavior: 'smooth', block: 'start' }); piscaAlvo(destinoWl); }
+          else toast('Secao nao encontrada: ' + secaoWl, 'warn');
+          return;
+        }
+
         resolveAndOpen(/\.\w+$/.test(wl) ? wl : wl + '.md', tab);
       }
     };
@@ -1587,16 +1606,49 @@
       if (info.exists && info.kind === 'file') return openPath(info.path);
       if (app.folder) {
         // Nao achou ao lado: procura pelo nome na pasta aberta, como o Obsidian faz.
-        return findByName(relative.split(/[\\/]/).pop());
+        return findByName(relative);
       }
       toast('Arquivo nao encontrado: ' + relative, 'warn');
       return null;
     }).catch(function () { toast('Arquivo nao encontrado: ' + relative, 'warn'); });
   }
 
+  /*
+   * O ultimo recurso de [[Nota]] e de link relativo quebrado: varrer o indice
+   * da pasta aberta, como o Obsidian faz. A ordem de preferencia importa —
+   * caminho relativo inteiro, depois nome com extensao, depois nome sem ela —
+   * porque "notas/api.md" e "arquivo/api.md" sao arquivos diferentes e o
+   * caminho e a unica coisa no link que sabe distinguir os dois.
+   */
   function findByName(name) {
-    return bridge.call('grepFolder', { root: app.folder, query: '', maxResults: 1 })
-      .then(function () { toast('Arquivo nao encontrado: ' + name, 'warn'); });
+    if (!app.folder) { toast('Arquivo nao encontrado: ' + name, 'warn'); return Promise.resolve(null); }
+
+    var rel = String(name || '').replace(/\\/g, '/').toLowerCase();
+    var base = rel.split('/').pop();
+    var semExt = base.replace(/\.[^.]+$/, '');
+
+    return fileIndex().then(function (arquivos) {
+      var porCaminho = [], porNome = [], porBase = [];
+
+      arquivos.forEach(function (a) {
+        var r = String(a.rel || '').replace(/\\/g, '/').toLowerCase();
+        var n = String(a.name || '').toLowerCase();
+        if (r === rel) porCaminho.push(a);
+        else if (n === base) porNome.push(a);
+        else if (n.replace(/\.[^.]+$/, '') === semExt) porBase.push(a);
+      });
+
+      var achados = porCaminho.length ? porCaminho : (porNome.length ? porNome : porBase);
+      if (!achados.length) { toast('Arquivo nao encontrado: ' + name, 'warn'); return null; }
+
+      // Homonimos em subpastas diferentes: o mais raso ganha, e o usuario fica
+      // sabendo que houve escolha — abrir o errado calado seria pior.
+      achados.sort(function (a, b) {
+        return String(a.rel || '').split('/').length - String(b.rel || '').split('/').length;
+      });
+      if (achados.length > 1) toast(achados.length + ' arquivos com esse nome; abri o mais raso.', 'warn');
+      return openPath(achados[0].path);
+    });
   }
 
   // ------------------------------------------------------------- editor
@@ -1746,7 +1798,10 @@
     var tab = activeTab();
     if (!tab) return;
 
-    if (tab.locked) {
+    // Leitura E edicao ao vivo desenham em #preview; so o modo codigo tem
+    // textarea. Olhar so para tab.locked mandava o modo vivo mexer num
+    // textarea escondido, com valor velho — nada acontecia na tela.
+    if (tab.locked || !tab.showSource) {
       var target = $('preview').querySelector('[data-line="' + (line - 1) + '"]') ||
                    $('preview').querySelector('[data-line="' + line + '"]');
       if (target) { target.scrollIntoView({ block: 'center' }); piscaAlvo(target); }
@@ -2033,6 +2088,16 @@
   }
 
   /*
+   * Criou, renomeou, moveu, duplicou ou apagou: a arvore muda e o indice
+   * tambem. Redesenhar so a arvore deixava o Ctrl+P, o filtro por nome e o
+   * painel de tags oferecendo o nome velho — e abrir esse item dava erro.
+   */
+  function arvoreMudou() {
+    invalidateFileIndex();
+    refreshTree();
+  }
+
+  /*
    * Nota fuzzy: as letras da consulta precisam aparecer na ordem, mas nao
    * coladas. Letra emendada na anterior vale mais, letra que abre palavra
    * vale mais ainda — e assim "cmd" acha "casa/meu-doc.md" acima de um
@@ -2049,7 +2114,7 @@
       var c = q.charAt(j);
       if (c === ' ') continue;
       var achou = t.indexOf(c, cursor);
-      if (achou === -1) return -1;
+      if (achou === -1) return -Infinity;  // sentinela: nota valida pode ser negativa
 
       if (achou === ultimo + 1) { seguidos++; pontos += 6 + seguidos * 2; }
       else { seguidos = 0; pontos += 1; }
@@ -2090,16 +2155,18 @@
   /* Pontua nome e caminho, com o caminho valendo menos que o nome do arquivo. */
   function pontuaArquivo(consulta, f) {
     var nota = fuzzyScore(consulta, f.name);
-    if (nota >= 0) return nota;
+    if (nota !== -Infinity) return nota;
     nota = fuzzyScore(consulta, f.rel || f.path);
-    return nota < 0 ? -1 : nota - 20;
+    // A penalidade so precisa manter o casamento por caminho ABAIXO de
+    // qualquer casamento por nome; nao e um corte, e um desempate.
+    return nota === -Infinity ? -Infinity : nota - 1000;
   }
 
   function filtraArquivos(consulta, arquivos) {
     var achados = [];
     arquivos.forEach(function (f) {
       var nota = pontuaArquivo(consulta, f);
-      if (nota < 0) return;
+      if (nota === -Infinity) return;
       achados.push({ f: f, nota: nota });
     });
     achados.sort(function (a, b) { return b.nota - a.nota || comparaNome(a.f, b.f); });
@@ -2112,6 +2179,8 @@
 
   // ------------------------------------------------------ filtro do painel
 
+  var treeFilterTimer = null;
+
   function toggleTreeFilter(force) {
     var linha = $('treeFilterRow');
     var campo = $('treeFilterInput');
@@ -2123,9 +2192,15 @@
     if (abrir) {
       campo.focus();
       campo.select();
-    } else if (app.treeFilter) {
+      return;
+    }
+
+    // Fechar cancela o debounce pendente: sem isso, Esc antes dos 160ms deixa
+    // o timer acordar depois e filtrar a arvore com a caixa ja escondida.
+    clearTimeout(treeFilterTimer);
+    campo.value = '';
+    if (app.treeFilter) {
       app.treeFilter = '';
-      campo.value = '';
       refreshTree();
     }
   }
@@ -2777,6 +2852,7 @@
     linha.hidden = !mostrar;
     if (mostrar) { campo.focus(); campo.select(); return; }
 
+    clearTimeout(tagFilterTimer);   // mesmo motivo do filtro da arvore
     campo.value = '';
     app.tagFilter = '';
     renderTags();
@@ -4053,7 +4129,7 @@
     bridge.call('watchFile', { path: info.path }).catch(function () {});
     dropRecent(antigo);
     addRecent(info.path);
-    refreshTree();
+    arvoreMudou();
     renderAll();
     persist();
   }
@@ -4085,7 +4161,7 @@
       return bridge.call('renameFile', { path: path, name: novo }).then(function (info) {
         var tab = tabByPath(path);
         if (tab) adotarCaminho(tab, info, path);
-        else { dropRecent(path); refreshTree(); }
+        else { dropRecent(path); arvoreMudou(); }
         toast('Agora se chama ' + info.name, 'ok');
       });
     }).catch(falhaDoc('renomear'));
@@ -4099,7 +4175,7 @@
       return bridge.call('moveFile', { path: path, dir: dir }).then(function (info) {
         var tab = tabByPath(path);
         if (tab) adotarCaminho(tab, info, path);
-        else { dropRecent(path); refreshTree(); }
+        else { dropRecent(path); arvoreMudou(); }
         toast('Movido para ' + info.dir, 'ok', 3200);
       });
     }).catch(falhaDoc('mover'));
@@ -4109,7 +4185,7 @@
     if (!path) return Promise.resolve();
 
     return bridge.call('duplicateFile', { path: path }).then(function (info) {
-      refreshTree();
+      arvoreMudou();
       toast('Copia criada: ' + info.name, 'ok');
       return doOpenPath(info.path, {});
     }).catch(falhaDoc('duplicar'));
@@ -4134,7 +4210,7 @@
       return bridge.call('deleteFile', { path: path }).then(function () {
         if (tab) closeTab(tab.id, true);
         dropRecent(path);
-        refreshTree();
+        arvoreMudou();
         persist();
         toast('Foi para a Lixeira: ' + nome, 'ok', 3600);
       });
@@ -4790,8 +4866,9 @@
     $('btnCommandPalette').onclick = openPalette;
     $('btnOpenFolder').onclick = doOpenFolder;
     $('btnRefreshTree').onclick = function () {
+      // Sem zerar treeOpen: quem clica em Atualizar quer ver o arquivo novo,
+      // nao perder quatro niveis de pasta abertos. Recolher tem botao proprio.
       invalidateFileIndex();
-      app.treeOpen = Object.create(null);
       refreshTree();
     };
     $('btnTreeSearch').onclick = function () { toggleTreeFilter(); };
@@ -4822,7 +4899,6 @@
 
     // O filtro do painel espera o usuario parar de digitar: cada tecla
     // reordenaria a lista inteira, e a lista pisca mais do que ajuda.
-    var treeFilterTimer = null;
     $('treeFilterInput').addEventListener('input', function (ev) {
       var valor = ev.target.value.trim();
       clearTimeout(treeFilterTimer);
@@ -4919,7 +4995,10 @@
             s.addRange(r);
           } },
         '-',
-        { label: 'Liberar edicao', icon: 'unlock', action: toggleLock },
+        // Este menu tambem abre no modo vivo, onde a edicao ja esta liberada:
+        // rotulo fixo mentiria sobre o que o clique faz com a trava.
+        { label: tab && tab.locked ? 'Liberar edicao' : 'Travar edicao',
+          icon: tab && tab.locked ? 'unlock' : 'lock', key: 'Ctrl+E', action: toggleLock },
         { label: 'Localizar', icon: 'search', key: 'Ctrl+F', action: openFind }
       ], e.clientX, e.clientY);
     });
