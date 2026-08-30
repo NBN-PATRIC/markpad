@@ -78,6 +78,33 @@ Versionamento [SemVer](https://semver.org/lang/pt-BR/).
   próprio padrão.
 - **A barra de acesso rápido saía na impressão**, junto com a paleta, os avisos
   e o véu dos diálogos.
+- **Comentar duas seleções já comentadas devolvia lixo no lugar do texto.**
+  `<!--` e `-->` não aninham, mas a regra ia do primeiro abre ao último fecha:
+  com `<!-- a -->` e `<!-- b -->` selecionados ela via um comentário só e
+  gravava `a --> <!-- b`. Destruía texto do usuário calada. Agora só desfaz o
+  que realmente é comentário — o bloco inteiro numa marcação, ou linha a linha
+  — e na dúvida comenta em vez de mutilar.
+- **Marcar tarefa com um bloco aberto na edição ao vivo riscava outra tarefa.**
+  O documento já tinha crescido ou encolhido e os `data-task-line` da tela eram
+  de antes do render. Fecha o bloco primeiro e reencontra a tarefa pela posição
+  dela na lista; se foi a própria lista que mudou, não marca nada.
+- **Recolher item de lista escorregava para o vizinho.** A chave do estado era
+  a posição do item, então bastava inserir uma linha acima para o recolhido
+  virar outro. Agora a chave é o texto do próprio item.
+- **Ctrl+P dizia "nenhum arquivo" para arquivo que existe.** A busca rápida
+  herdava o filtro "painel: só arquivos markdown", que é da árvore. O `.png` ou
+  o `.txt` da pasta some da árvore por preferência, não do alcance da busca —
+  markdown continua na frente, o resto atrás.
+- **Arquivo criado por fora do MarkPad não aparecia na busca.** O índice da
+  pasta era eterno e o `watchFile` segue um arquivo por vez: salvar algo pelo
+  Explorer e voltar ao Ctrl+P ainda oferecia a lista velha, até reabrir a
+  pasta. O índice passa a expirar em um minuto.
+- **Link relativo com a pasta na raiz de um disco não abria.** Emendar `C:\`
+  com o caminho dava barra dobrada.
+- **"Colar" do menu de contexto ignorava a regra do link.** Colar URL sobre
+  texto selecionado vira `[texto](url)` no Ctrl+V; pelo menu era colagem crua,
+  porque o menu lê a área de transferência por conta própria e nunca dispara
+  `paste`. O mesmo gesto dava resultado diferente conforme o caminho.
 
 ### Alterado
 - **A paleta de comandos dava um pulo ao terminar de abrir.** Ela emprestava a

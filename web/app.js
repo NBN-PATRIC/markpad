@@ -1256,15 +1256,34 @@
     paint();
   }
 
+  /*
+   * A chave do recolhimento vinha da posicao do item na lista ('li:7:...'):
+   * bastava inserir uma linha acima para tudo escorregar e o item recolhido
+   * passar a ser o vizinho. O texto do proprio item identifica ele mesmo
+   * depois de andar — sem o texto das sublistas, que some quando a sublista
+   * recolhe. Homonimos ganham sufixo pela ordem em que aparecem.
+   */
+  function chaveDeItem(li, usadas) {
+    var partes = [];
+    for (var n = li.firstChild; n; n = n.nextSibling) {
+      if (n.nodeType === 1 && (n.tagName === 'UL' || n.tagName === 'OL')) continue;
+      partes.push(n.textContent || '');
+    }
+    var base = partes.join(' ').replace(/\s+/g, ' ').trim().slice(0, 60);
+    var vez = (usadas[base] = (usadas[base] || 0) + 1);
+    return 'li:' + base + (vez > 1 ? '#' + vez : '');
+  }
+
   function foldLists(container, tab) {
     var items = container.querySelectorAll('li');
+    var usadas = Object.create(null);
 
     for (var i = 0; i < items.length; i++) {
       var li = items[i];
       var child = li.querySelector(':scope > ul, :scope > ol');
       if (!child) continue;
 
-      var key = 'li:' + i + ':' + (li.textContent || '').slice(0, 40);
+      var key = chaveDeItem(li, usadas);
       var chevron = document.createElement('span');
       chevron.className = 'fold-chevron list-fold';
       var svg = window.MarkPadIcons.build('chevron-down', 13);
@@ -1523,6 +1542,31 @@
         var linha = li && li.getAttribute('data-task-line');
         if (linha == null) { e.preventDefault(); return; }
         if (tab.locked) { e.preventDefault(); toast('Edicao travada. Ctrl+E para liberar.', '', 1600); return; }
+
+        /*
+         * Com um bloco aberto na edicao ao vivo, o documento ja cresceu ou
+         * encolheu e os data-task-line desta tela sao de antes do render:
+         * marcar por eles riscaria OUTRA tarefa, calada. O mousedown do
+         * liveedit deixa passar clique em <input> de proposito, entao sair
+         * do bloco nao acontece sozinho — fecha na mao (isso redesenha com
+         * as linhas certas) e reencontra a tarefa pela posicao dela na
+         * lista, que sobrevive a edicao de qualquer bloco vizinho.
+         */
+        if (live && live.isActive()) {
+          e.preventDefault();
+          var antes = container.querySelectorAll('li[data-task-line]');
+          var ordem = Array.prototype.indexOf.call(antes, li);
+          live.commit();
+          var depois = container.querySelectorAll('li[data-task-line]');
+          // Foi a propria lista de tarefas que mudou: sem par confiavel,
+          // prefere nao marcar nada a marcar a errada.
+          if (ordem < 0 || depois.length !== antes.length) return;
+          li = depois[ordem];
+          caixa = li.querySelector('input[type="checkbox"]');
+          linha = li.getAttribute('data-task-line');
+          if (linha == null) return;
+        }
+
         toggleTask(tab, parseInt(linha, 10), caixa);
         return;
       }
@@ -1594,13 +1638,25 @@
     };
   }
 
+  /*
+   * O link vem escrito como o autor quis — '/' de markdown, '\' de Explorer,
+   * as vezes absoluto — e o destino e sempre um caminho do Windows. Emendar
+   * com '\' cru dava barra dobrada quando a base ja terminava em barra, que
+   * e o caso de qualquer pasta aberta na raiz de um disco ('C:\').
+   */
+  function isAbsolutePath(p) {
+    return /^[a-zA-Z]:[\\/]/.test(p) || p.charAt(0) === '\\';
+  }
+
+  function joinPath(base, rel) {
+    return base.replace(/[\\/]+$/, '') + '\\' + rel.replace(/\//g, '\\').replace(/^\\+/, '');
+  }
+
   function resolveAndOpen(relative, tab) {
     var base = tab.dir || app.folder;
     if (!base) { toast('Sem pasta de referencia para resolver o link.', 'warn'); return; }
 
-    var candidate = /^[a-zA-Z]:[\\/]/.test(relative) || relative.charAt(0) === '\\'
-      ? relative
-      : base + '\\' + relative.replace(/\//g, '\\');
+    var candidate = isAbsolutePath(relative) ? relative : joinPath(base, relative);
 
     bridge.call('pathInfo', { path: candidate }).then(function (info) {
       if (info.exists && info.kind === 'file') return openPath(info.path);
@@ -2070,10 +2126,21 @@
    * nao so os galhos que o usuario ja expandiu. Este indice e um passeio
    * unico pela pasta guardando caminho, nome e datas — nunca conteudo.
    */
+  /*
+   * O indice guarda a pasta inteira, mas o watchFile segue um arquivo por
+   * vez: arquivo criado, renomeado ou apagado por fora do MarkPad nunca
+   * chegava aqui, e o Ctrl+P seguia oferecendo o nome antigo ate reabrir a
+   * pasta. Um minuto e o meio-termo — barato para quem so digita, curto
+   * para quem salvou algo no Explorer e ja volta a procurar por nome.
+   */
+  var INDICE_VALIDADE_MS = 60000;
+
   function fileIndex() {
     if (!app.folder) return Promise.resolve([]);
-    if (app.indiceDe === app.folder && app.indice) return app.indice;
+    var fresco = (Date.now() - (app.indiceEm || 0)) < INDICE_VALIDADE_MS;
+    if (app.indiceDe === app.folder && app.indice && fresco) return app.indice;
     app.indiceDe = app.folder;
+    app.indiceEm = Date.now();
     app.indice = bridge.call('listFiles', { root: app.folder })
       .then(function (d) { return (d && d.files) || []; })
       .catch(function () { return []; });
@@ -2083,6 +2150,7 @@
   function invalidateFileIndex() {
     app.indice = null;
     app.indiceDe = null;
+    app.indiceEm = 0;
     app.tags = null;
     app.tagsDe = null;
   }
@@ -2383,7 +2451,15 @@
 
     var pronto = app.folder
       ? fileIndex().then(function (arquivos) {
-          return arquivos.filter(function (f) { return !settings.treeOnlyMarkdown || f.markdown; });
+          // "Painel: so arquivos markdown" vem ligado de fabrica e manda na
+          // arvore — nao na busca. Filtrando aqui tambem, o Ctrl+P respondia
+          // "Nenhum arquivo com esse nome" para arquivo que existe, esta na
+          // pasta e abre normalmente pela arvore com o filtro desligado.
+          // Markdown na frente, o resto atras: a preferencia continua dita,
+          // o alcance deixa de ser recortado.
+          var md = [], resto = [];
+          arquivos.forEach(function (f) { (f.markdown ? md : resto).push(f); });
+          return md.concat(resto);
         })
       : Promise.resolve((settings.recent || []).map(function (caminho) {
           return { name: caminho.split(BARRA).pop(), path: caminho, rel: caminho, markdown: true };
@@ -4390,22 +4466,35 @@
    */
   var SO_URL = /^(?:https?|ftp|mailto):\S+$/i;
 
+  /*
+   * Devolve o que deve entrar no lugar da selecao, ou o texto cru se nao ha
+   * link a montar. Mora aqui fora porque o "Colar" do menu de contexto le a
+   * area de transferencia por conta propria e nunca dispara 'paste': a regra
+   * valia so para o Ctrl+V, e o mesmo gesto dava resultado diferente
+   * conforme o caminho escolhido para pedi-lo.
+   */
+  function textoColado(ta, bruto) {
+    var url = String(bruto == null ? '' : bruto).trim();
+    var sel = ta.value.slice(ta.selectionStart, ta.selectionEnd);
+    if (!sel || !SO_URL.test(url)) return bruto;
+    // Selecao com quebra de linha, ou que ja e um link, fica de fora:
+    // [http://a](http://b) nunca e o que se queria.
+    if (/[\n\r]/.test(sel) || SO_URL.test(sel.trim())) return bruto;
+    return '[' + sel + '](' + url + ')';
+  }
+
   document.addEventListener('paste', function (e) {
     var ta = e.target;
     if (!ta || ta.tagName !== 'TEXTAREA') return;
     if (ta.id !== 'editorInput' && !ta.classList.contains('block-source')) return;
     if (ta.selectionStart === ta.selectionEnd) return;
 
-    var url = ((e.clipboardData && e.clipboardData.getData('text/plain')) || '').trim();
-    if (!SO_URL.test(url)) return;
-
-    var sel = ta.value.slice(ta.selectionStart, ta.selectionEnd);
-    // Selecao com quebra de linha, ou que ja e um link, fica de fora:
-    // [http://a](http://b) nunca e o que se queria.
-    if (/[\n\r]/.test(sel) || SO_URL.test(sel.trim())) return;
+    var bruto = (e.clipboardData && e.clipboardData.getData('text/plain')) || '';
+    var texto = textoColado(ta, bruto);
+    if (texto === bruto) return;
 
     e.preventDefault();
-    document.execCommand('insertText', false, '[' + sel + '](' + url + ')');
+    document.execCommand('insertText', false, texto);
   }, true);
 
   document.addEventListener('keydown', function (e) {
@@ -4648,19 +4737,42 @@
     }
   }
 
+  /*
+   * '<!--' e '-->' nao aninham, e a regra antiga — do primeiro abre ao ultimo
+   * fecha — nao sabia disso: com '<!-- a -->' e '<!-- b -->' selecionados ela
+   * via UM comentario so e devolvia 'a -->' seguido de '<!-- b'. Texto do
+   * usuario destruido, sem aviso e sem jeito de perceber ate reler o arquivo.
+   *
+   * So ha dois jeitos de um trecho estar comentado, entao so estes dois
+   * voltam: o bloco inteiro numa marcacao so, ou cada linha na sua.
+   */
+  var SO_COMENTARIO = /^(\s*)<!--\s?([\s\S]*?)\s?-->(\s*)$/;
+
+  function descomenta(txt) {
+    var m = SO_COMENTARIO.exec(txt);
+    // Sobrou um '-->' no miolo: o que casou nao era um comentario, eram dois.
+    return m && m[2].indexOf('-->') === -1 ? m[1] + m[2] + m[3] : null;
+  }
+
+  function comentaBloco(block) {
+    var inteiro = descomenta(block);
+    if (inteiro !== null) return inteiro;
+
+    // Linha a linha e o que sai de comentar duas linhas soltas com o cursor
+    // em cada uma, entao tem de ser tambem o que volta.
+    var linhas = block.split('\n').map(function (l) {
+      return l.trim() ? descomenta(l) : l;
+    });
+    var todas = block.trim() && linhas.every(function (l) { return l !== null; });
+    return todas ? linhas.join('\n') : '<!-- ' + block + ' -->';
+  }
+
   function toggleComment() {
     var ta = $('editorInput');
     var text = ta.value;
     var first = lineBounds(text, ta.selectionStart).start;
     var last = lineBounds(text, ta.selectionEnd).end;
-    var block = text.slice(first, last);
-
-    var commented = /^\s*<!--[\s\S]*-->\s*$/.test(block);
-    var next = commented
-      ? block.replace(/^(\s*)<!--\s?/, '$1').replace(/\s?-->(\s*)$/, '$1')
-      : '<!-- ' + block + ' -->';
-
-    replaceRange(first, last, next);
+    replaceRange(first, last, comentaBloco(text.slice(first, last)));
   }
 
   // ========================================================== atualizacao
@@ -4982,7 +5094,11 @@
       showMenu([
         { label: 'Recortar', icon: 'copy', disabled: !sel, action: function () { document.execCommand('cut'); } },
         { label: 'Copiar', icon: 'copy', disabled: !sel, action: function () { document.execCommand('copy'); } },
-        { label: 'Colar', icon: 'copy', action: function () { navigator.clipboard.readText().then(function (t) { replaceRange(ta.selectionStart, ta.selectionEnd, t); }); } },
+        { label: 'Colar', icon: 'copy', action: function () {
+            navigator.clipboard.readText().then(function (t) {
+              replaceRange(ta.selectionStart, ta.selectionEnd, textoColado(ta, t));
+            });
+          } },
         '-',
         { label: 'Selecionar tudo', action: function () { ta.select(); } },
         { label: 'Travar edicao', icon: 'lock', action: toggleLock }

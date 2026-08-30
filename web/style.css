@@ -31,6 +31,7 @@
   --font-mono: "Cascadia Mono", "Cascadia Code", "JetBrains Mono", "Fira Code", Consolas, "Courier New", monospace;
 
   --font-text-size: 16px;
+  --font-ui-medium: 14px;
   --font-ui-small: 13px;
   --font-ui-smaller: 12px;
   --editor-font-size: 14px;
@@ -602,7 +603,7 @@ body.sidebar-hidden .main { border-left: none; border-radius: var(--radius-m) va
 
 .view-title { display: flex; align-items: center; gap: 7px; min-width: 0; flex: 1; }
 .view-icon { display: flex; color: var(--text-faint); flex-shrink: 0; }
-.view-name { font-size: var(--font-ui-medium, 14px); color: var(--text-normal); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.view-name { font-size: var(--font-ui-medium); color: var(--text-normal); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dirty-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--color-orange); flex-shrink: 0; }
 .disk-badge {
   font-size: 10px;
