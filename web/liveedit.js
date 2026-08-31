@@ -24,9 +24,22 @@
   // ------------------------------------------------------------ utilidades
 
   /** Sobe do alvo do clique até o filho direto do container. */
+  /*
+   * O bloco editável é o ancestral MAIS EXTERNO com data-line abaixo da
+   * raiz. "Filho direto da raiz" não serve: o recolhimento embrulha tudo
+   * que vem depois de um título numa .heading-section sem data-line, e com
+   * a regra antiga clicar em qualquer parágrafo dentro de uma seção — ou
+   * seja, em quase todo o documento — não abria editor nenhum. O mais
+   * externo também garante que a sublista não se edita sozinha: quem tem a
+   * linha de origem é a lista inteira.
+   */
   LiveEdit.prototype.topBlock = function (el) {
-    while (el && el.parentNode !== this.root) el = el.parentNode;
-    return el && el.nodeType === 1 && el.hasAttribute('data-line') ? el : null;
+    var achado = null;
+    while (el && el !== this.root) {
+      if (el.nodeType === 1 && el.hasAttribute && el.hasAttribute('data-line')) achado = el;
+      el = el.parentNode;
+    }
+    return el === this.root ? achado : null;
   };
 
   /**
@@ -210,16 +223,30 @@
 
   // ------------------------------------------------------------- navegação
 
+  /*
+   * Todos os blocos editáveis, em ordem de documento. O querySelectorAll
+   * desce em sublistas e citações (data-line próprio, mas dentro de outro
+   * bloco) e acharia também o textarea ativo, que carrega data-line para o
+   * commit — os dois ficam de fora: navegar até si mesmo não é navegar.
+   */
+  LiveEdit.prototype._topBlocks = function () {
+    var todos = this.root.querySelectorAll('[data-line]');
+    var blocks = [];
+    for (var i = 0; i < todos.length; i++) {
+      if (todos[i].tagName === 'TEXTAREA') continue;
+      // Bloco dentro de seção recolhida está display:none — entrar nele
+      // abriria um textarea invisível que nunca recebe foco.
+      if (todos[i].closest('[hidden]')) continue;
+      if (this.topBlock(todos[i]) === todos[i]) blocks.push(todos[i]);
+    }
+    return blocks;
+  };
+
   LiveEdit.prototype._siblingBlock = function (direction) {
     var a = this.active;
     if (!a) return null;
 
-    var blocks = [];
-    for (var i = 0; i < this.root.children.length; i++) {
-      var c = this.root.children[i];
-      if (c.hasAttribute && c.hasAttribute('data-line')) blocks.push(c);
-    }
-
+    var blocks = this._topBlocks();
     var idx = blocks.indexOf(a.block);
     if (idx === -1) return null;
     return blocks[idx + direction] || null;
@@ -344,8 +371,9 @@
       if (e.button !== 0) return;
       if (e.target.closest('.block-source')) return;
 
-      // Links, caixas de tarefa e botões continuam clicáveis.
-      if (e.target.closest('a, input, button, .callout-title, summary')) return;
+      // Links, caixas de tarefa, botões e a setinha de recolher continuam
+      // clicáveis — recolher uma seção não é pedir para editá-la.
+      if (e.target.closest('a, input, button, .callout-title, summary, .fold-chevron')) return;
 
       var block = self.topBlock(e.target);
       if (!block) { if (self.active) self.commit(); return; }

@@ -297,8 +297,16 @@
       var style = estiloDeTamanho(size);
       return '<img class="local-image" data-src="' + escapeAttr(target) + '" alt="' + escapeAttr(target) + '"' + style + '>';
     }
-    return '<a class="internal-link embed-link" data-wikilink="' + escapeAttr(target) + '" href="#">' +
-      escapeHtml(target) + '</a>';
+    // Nota embutida (transclusao). O parser nao le disco, entao deixa um
+    // casulo com um link dentro: no app, resolveNoteEmbeds troca o miolo pelo
+    // conteudo da nota; fora dele (exportacao, teste) o embed degrada para um
+    // link que abre a nota — que era o comportamento antigo. Em nota, o que
+    // vem depois da barra e apelido (vira o titulo do cartao), nao medida.
+    var alias = size && !/^\d+(?:x\d+)?$/.test(size) ? size : '';
+    return '<span class="note-embed" data-embed="' + escapeAttr(target) + '"' +
+      (alias ? ' data-alias="' + escapeAttr(alias) + '"' : '') + '>' +
+      '<a class="internal-link embed-link" data-wikilink="' + escapeAttr(target) + '" href="#">' +
+      escapeHtml(alias || target) + '</a></span>';
   };
 
   // ------------------------------------------------------------------ blocos
@@ -400,6 +408,9 @@
       var heading = RE_HEADING.exec(line);
       if (heading) {
         var level = heading[2].length;
+        // '# Titulo ^abc': o marcador e endereco, nao titulo — fora do texto
+        // e fora do slug (senao [[Nota#Titulo]] deixava de casar).
+        heading[3] = heading[3].replace(RE_ID_BLOCO, '');
         var inline = new Inline(ctx);
         var html = inline.render(heading[3]);
         var slug = uniqueSlug(ctx, slugify(heading[3]));
@@ -491,11 +502,25 @@
         i++;
       }
       if (para && para.length) {
-        var pInline = new Inline(ctx);
-        var pHtml = pInline.render(para.join('\n'));
-        // Paragrafo que era so comentario %% sai vazio; um <p></p> so serviria
-        // para abrir um vao no texto.
-        if (pHtml.trim()) out.push('<p' + lineAttr(pStart, i - 1) + '>' + pHtml + '</p>');
+        // Linha sozinha '^id' e o unico jeito, no Obsidian, de dar endereco
+        // a tabela e bloco de codigo: o id vai para o BLOCO ANTERIOR (se ele
+        // ainda nao tem id proprio) e a linha some da tela.
+        var soId = para.length === 1 ? /^\^([A-Za-z0-9_-]+)$/.exec(para[0].trim()) : null;
+        if (soId && out.length) {
+          out[out.length - 1] = out[out.length - 1].replace(
+            /^<([a-zA-Z][\w-]*)((?:(?!\sid=")[^>])*)>/,
+            '<$1 id="' + escapeAttr(soId[1]) + '"$2>');
+        } else {
+          var pid = tiraIdDeBloco(para);
+          var pInline = new Inline(ctx);
+          var pHtml = pInline.render(para.join('\n'));
+          // Paragrafo que era so comentario %% sai vazio; um <p></p> so serviria
+          // para abrir um vao no texto.
+          if (pHtml.trim()) {
+            out.push('<p' + (pid ? ' id="' + escapeAttr(pid) + '"' : '') +
+              lineAttr(pStart, i - 1) + '>' + pHtml + '</p>');
+          }
+        }
       }
       if (para === null) continue;
       if (!para || !para.length) i++;
@@ -508,6 +533,25 @@
     if (!ctx.slugs[slug]) { ctx.slugs[slug] = 1; return slug; }
     ctx.slugs[slug]++;
     return slug + '-' + ctx.slugs[slug];
+  }
+
+  /*
+   * Marcador de bloco do Obsidian: 'um paragrafo ^abc' faz [[#^abc]] e
+   * ![[Nota#^abc]] apontarem para ele. O marcador vive na ultima linha com
+   * texto do bloco, sai da tela (e endereco, nao conteudo) e vira o id do
+   * elemento. Muda a lista no lugar porque quem chama ainda vai juntar as
+   * linhas para renderizar.
+   */
+  var RE_ID_BLOCO = /[ \t]+\^([A-Za-z0-9_-]+)[ \t]*$/;
+
+  function tiraIdDeBloco(linhas) {
+    for (var k = linhas.length - 1; k >= 0; k--) {
+      if (!String(linhas[k]).trim()) continue;
+      var m = RE_ID_BLOCO.exec(linhas[k]);
+      if (m) { linhas[k] = linhas[k].slice(0, m.index); return m[1]; }
+      break;
+    }
+    return '';
   }
 
   // --- citacoes e callouts
@@ -679,6 +723,19 @@
     var hasTasks = false;
 
     var body = items.map(function (item) {
+      // O marcador ^id pertence ao paragrafo do PROPRIO item — nunca a
+      // sublista ou bloco aninhado, que tem dono proprio e se resolve na
+      // recursao. Olhar o item inteiro dava o id do filho ao pai (ou comia
+      // o marcador sem dar id a ninguem, quando a ultima linha era sublista).
+      var proprias = 1;
+      while (proprias < item.lines.length) {
+        var propria = item.lines[proprias];
+        if (!propria.trim() || RE_UL.test(propria) || RE_OL.test(propria) || isBlockStart(propria)) break;
+        proprias++;
+      }
+      var cabeca = item.lines.slice(0, proprias);
+      var idBloco = tiraIdDeBloco(cabeca);
+      if (idBloco) for (var pc = 0; pc < proprias; pc++) item.lines[pc] = cabeca[pc];
       var text = item.lines.join('\n');
       // Qualquer caractere entre colchetes e uma tarefa, como no Obsidian:
       // [x] feita, [ ] aberta, e [>] [?] [!] [/] [-] ... estados que o tema
@@ -717,7 +774,7 @@
         inner = inline.render(text);
       }
 
-      return '<li' + cls + '>' + prefix + inner + '</li>';
+      return '<li' + (idBloco ? ' id="' + escapeAttr(idBloco) + '"' : '') + cls + '>' + prefix + inner + '</li>';
     }).join('\n');
 
     var listCls = hasTasks ? ' class="contains-task-list"' : '';
@@ -789,7 +846,7 @@
   var ALLOWED_ATTRS = {};
   ('class id href src alt title colspan rowspan start type checked disabled style ' +
    'data-line data-line-end data-task data-task-line data-icon data-callout data-wikilink data-file data-anchor data-external ' +
-   'data-tag data-src data-remote data-copy data-lang open rel loading'
+   'data-tag data-src data-remote data-copy data-lang data-embed data-alias open rel loading'
   ).split(' ').forEach(function (a) { ALLOWED_ATTRS[a] = true; });
 
   /**

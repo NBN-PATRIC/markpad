@@ -202,7 +202,39 @@ const checks = [
   ['wikilink so de secao perde o #', />Secao</.test(r('[[#Secao]]\n').html)],
   ['wikilink so de secao mantem o alvo', /data-wikilink="#Secao"/.test(r('[[#Secao]]\n').html)],
   ['wikilink de bloco mostra o ^id', />\^abc</.test(r('[[#^abc]]\n').html)],
-  ['apelido ainda ganha do caminho', />apelido</.test(r('[[Nota#Secao|apelido]]\n').html)]
+  ['apelido ainda ganha do caminho', />apelido</.test(r('[[Nota#Secao|apelido]]\n').html)],
+
+  // Marcador de bloco do Obsidian: 'texto ^id' vira o id do elemento e some
+  // da tela — e endereco, nao conteudo. No meio da linha continua literal.
+  ['marcador ^id vira id do paragrafo', /<p id="abc"[^>]*>um paragrafo<\/p>/.test(r('um paragrafo ^abc\n').html)],
+  ['marcador ^id some do texto', !/\^abc/.test(r('um paragrafo ^abc\n').html)],
+  ['marcador ^id vira id do item de lista', /<li id="meta"[^>]*>item<\/li>/.test(r('- item ^meta\n').html)],
+  ['^id no meio da linha continua literal', /\^abc/.test(r('um ^abc no meio\n').html)],
+  ['paragrafo de varias linhas leva o id', /<p id="fim"[^>]*>/.test(r('linha um\nlinha dois ^fim\n').html)],
+  // O marcador e do paragrafo do PROPRIO item: com sublista embaixo ele nao
+  // pode sumir nem escorregar para o pai/filho errado.
+  ['item com sublista mantem o proprio ^id', /<li id="alvo"[^>]*>/.test(r('- primeiro ^alvo\n    - filho\n').html)],
+  ['item com sublista nao mostra o marcador', !/\^alvo/.test(r('- primeiro ^alvo\n    - filho\n').html)],
+  ['^id no filho pertence ao filho', /<li id="ref"[^>]*>filho<\/li>/.test(r('- pai\n    - filho ^ref\n').html)],
+  ['^id em titulo some do texto e do slug', (function () {
+    var h = r('# Titulo ^abc\n').html;
+    return /<h1 id="titulo"[^>]*>Titulo<\/h1>/.test(h) && !/\^abc/.test(h);
+  })()],
+  // Linha sozinha '^id' enderece o bloco ANTERIOR — e o unico jeito de dar
+  // ancora a tabela e bloco de codigo, como no Obsidian.
+  ['linha isolada ^id marca o bloco anterior', /<p id="tab"[^>]*>um paragrafo<\/p>/.test(r('um paragrafo\n\n^tab\n').html)],
+  ['linha isolada ^id some da tela', !/\^tab/.test(r('um paragrafo\n\n^tab\n').html)],
+  ['linha isolada ^id marca tabela', /<div id="dados" class="table-wrap"/.test(r('| a | b |\n|---|---|\n| 1 | 2 |\n\n^dados\n').html)],
+  ['linha isolada ^id nao rouba id de titulo', /<h1 id="titulo"/.test(r('# Titulo\n\n^outro\n').html)],
+
+  // ![[Nota]] deixa um casulo de transclusao: o app troca o miolo pelo
+  // conteudo; fora dele o link de dentro segue abrindo a nota.
+  ['embed de nota vira casulo', /<span class="note-embed" data-embed="Nota">/.test(r('![[Nota]]\n').html)],
+  ['casulo guarda a secao junto', /data-embed="Nota#Secao"/.test(r('![[Nota#Secao]]\n').html)],
+  ['casulo ainda tem o link de dentro', /note-embed[^>]*><a class="internal-link embed-link" data-wikilink="Nota"/.test(r('![[Nota]]\n').html)],
+  ['embed de imagem continua imagem', /<img class="local-image" data-src="foto.png"/.test(r('![[foto.png|300]]\n').html)],
+  ['apelido de embed vai no data-alias', /data-alias="Meu titulo"/.test(r('![[Nota|Meu titulo]]\n').html)],
+  ['apelido de embed vira o rotulo do link', />Meu titulo</.test(r('![[Nota|Meu titulo]]\n').html)]
 ];
 
 /** Render curto para os casos acima — sem mapa de linha, so o HTML. */

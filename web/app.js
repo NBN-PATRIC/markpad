@@ -85,6 +85,8 @@
     warnNonMarkdown: true,
     animations: true,
     showProperties: true,
+    showBacklinks: true,
+    hoverPreview: true,
     quickBarVisible: true,
     quickBarLabels: false,
     quickBar: ['open', 'openFolder', 'new', 'save', 'close', 'lock', 'find'],
@@ -585,10 +587,12 @@
     return bridge.call('readFile', { path: path }).then(function (data) {
       var tab = makeTab(data);
       app.tabs.push(tab);
+      // A pasta entra ANTES da primeira pintura: quem desenha a leitura
+      // (mencoes ligadas, wikilinks por indice) ja precisa saber onde esta.
+      if (!app.folder && data.dir) setFolder(data.dir, true);
       selectTab(tab.id);
       bridge.call('watchFile', { path: data.path }).catch(function () {});
       addRecent(data.path);
-      if (!app.folder && data.dir) setFolder(data.dir, true);
       if (opts.line) goToLine(opts.line);
       return tab;
     }).catch(function (err) {
@@ -1152,13 +1156,7 @@
     window.MarkPadMarkdown.sanitizeDom(container);
     container.__toc = result.toc;
 
-    // Icones dos callouts: criados por nos, depois da peneira.
-    var icons = container.querySelectorAll('.callout-icon[data-icon]');
-    for (var i = 0; i < icons.length; i++) {
-      var svg = window.MarkPadIcons.build(icons[i].getAttribute('data-icon'), 16);
-      icons[i].textContent = '';
-      if (svg) icons[i].appendChild(svg);
-    }
+    montaIconesCallout(container);
 
     if (settings.showProperties !== false) renderProperties(container, result.frontmatter);
     liberaTarefas(container, tab);
@@ -1166,9 +1164,21 @@
     applyFolding(container, tab);
     marcaBlocosAlterados(container, tab);
     resolveLocalImages(container, tab);
+    resolveNoteEmbeds(container, tab, [String(tab.path || '').toLowerCase()]);
     wirePreviewClicks(container, tab);
+    if (container.id === 'preview') renderBacklinks(container, tab);
 
     if (container.id === 'preview' && app.find.open && app.find.query) applyFindHighlights();
+  }
+
+  // Icones dos callouts: criados por nos, depois da peneira.
+  function montaIconesCallout(container) {
+    var icons = container.querySelectorAll('.callout-icon[data-icon]');
+    for (var i = 0; i < icons.length; i++) {
+      var svg = window.MarkPadIcons.build(icons[i].getAttribute('data-icon'), 16);
+      icons[i].textContent = '';
+      if (svg) icons[i].appendChild(svg);
+    }
   }
 
   // --------------------------------------------------------- recolhimento
@@ -1376,6 +1386,524 @@
     span.className = 'remote-image';
     span.textContent = 'imagem nao encontrada: ' + (img.getAttribute('data-src') || '');
     if (img.parentNode) img.parentNode.replaceChild(span, img);
+  }
+
+  // -------------------------------------------------------- transclusao
+
+  /*
+   * ![[Nota]] no Obsidian nao e um link: e a nota inteira, incrustada no
+   * documento. O parser nao le disco, entao deixa um casulo (span.note-embed)
+   * com um link dentro — aqui o casulo vira conteudo de verdade: o arquivo se
+   * resolve como qualquer wikilink, renderiza com a mesma peneira do leitor e
+   * perde o que nao faz sentido dentro de outro documento (ids repetidos,
+   * tarefas clicaveis). A cadeia de caminhos e o que impede ![[A]] dentro de
+   * A de descer para sempre; um embed que falha degrada para o link que ja
+   * estava la, com o motivo no title.
+   */
+  var EMBED_PROFUNDIDADE_MAX = 4;
+  var EMBED_BYTES_MAX = 1024 * 1024;
+
+  /*
+   * Embed e previa disparam SOZINHOS, sem clique — um arquivo hostil nao pode
+   * usar isso para fazer o app ler caminho arbitrario: alvo absoluto (C:\...),
+   * UNC (\\host — que ainda vazaria credencial NTLM ao tocar SMB) e '..' ficam
+   * de fora. O clique explicito num wikilink continua podendo o que ja podia.
+   */
+  function alvoAutoSeguro(alvo) {
+    if (isAbsolutePath(alvo) || /^[\\/]/.test(alvo)) return false;
+    if (/(^|[\\/])\.\.([\\/]|$)/.test(alvo)) return false;
+    return true;
+  }
+
+  /*
+   * Na edicao ao vivo, cada commit de bloco redesenha a leitura inteira e
+   * re-resolveria cada embed com um readFile na ponte. Cinco segundos de
+   * cache seguram a rajada; quem edita o arquivo EMBUTIDO espera no maximo
+   * isso para ver a mudanca refletida no hospedeiro.
+   */
+  var LEITURA_EMBED_TTL_MS = 5000;
+  var leituraEmbedCache = Object.create(null);
+
+  function leNotaComCache(path) {
+    var k = path.toLowerCase();
+    var c = leituraEmbedCache[k];
+    if (c && Date.now() - c.em < LEITURA_EMBED_TTL_MS) return c.promessa;
+    var promessa = bridge.call('readFile', { path: path });
+    leituraEmbedCache[k] = { em: Date.now(), promessa: promessa };
+    return promessa;
+  }
+
+  function resolveNoteEmbeds(container, tab, cadeia) {
+    var casulos = container.querySelectorAll('span.note-embed[data-embed]');
+    for (var i = 0; i < casulos.length; i++) montaEmbed(casulos[i], tab, cadeia);
+  }
+
+  function embedFalhou(casulo, motivo) {
+    casulo.classList.add('embed-broken');
+    casulo.title = motivo;
+  }
+
+  function montaEmbed(casulo, tab, cadeia) {
+    var bruto = casulo.getAttribute('data-embed') || '';
+    casulo.removeAttribute('data-embed');
+
+    var partes = bruto.split('#');
+    var arquivo = partes[0].trim();
+    var secao = partes.slice(1).filter(Boolean).pop() || '';
+    if (!arquivo) return; // ![[#Secao]]: o link de ancora que ja esta la resolve
+
+    if (cadeia.length >= EMBED_PROFUNDIDADE_MAX) {
+      return embedFalhou(casulo, 'Embeds fundos demais; este ficou como link.');
+    }
+
+    var nomeArq = /\.\w+$/.test(arquivo) ? arquivo : arquivo + '.md';
+    if (!alvoAutoSeguro(nomeArq)) {
+      return embedFalhou(casulo, 'Caminho absoluto nao se embute sozinho — clique no link para abrir.');
+    }
+    if (!/\.(md|markdown|txt)$/i.test(nomeArq)) {
+      return embedFalhou(casulo, 'So notas de texto se embutem: ' + nomeArq);
+    }
+
+    resolveNota(nomeArq, tab).then(function (path) {
+      if (!path) return embedFalhou(casulo, 'Arquivo nao encontrado: ' + nomeArq);
+      if (cadeia.indexOf(path.toLowerCase()) !== -1) {
+        return embedFalhou(casulo, 'Embed circular: ' + nomeArq + ' ja esta na corrente.');
+      }
+      return leNotaComCache(path).then(function (data) {
+        if ((data.content || '').length > EMBED_BYTES_MAX) {
+          return embedFalhou(casulo, 'Arquivo grande demais para embutir.');
+        }
+
+        var conteudo = renderConteudoDeNota(data.content, { dir: data.dir, path: path },
+          cadeia.concat([path.toLowerCase()]));
+        if (secao) {
+          var fatia = extraiSecao(conteudo, secao);
+          if (!fatia) return embedFalhou(casulo, 'Secao nao encontrada: ' + secao);
+          conteudo = fatia;
+        }
+        podaParaEmbed(conteudo);
+        // Cliques dentro do embed resolvem na pasta da NOTA EMBUTIDA (via
+        // tabDeClique) — 'detalhe.md' citado por ela e o vizinho DELA.
+        conteudo.__dir = data.dir;
+
+        var bloco = document.createElement('span');
+        bloco.className = 'markdown-embed';
+
+        var titulo = document.createElement('span');
+        titulo.className = 'embed-title';
+        titulo.textContent = casulo.getAttribute('data-alias') ||
+          (arquivo.split(/[\\/]/).pop().replace(/\.md$/i, '') + (secao ? ' > ' + secao : ''));
+        bloco.appendChild(titulo);
+
+        var abrir = document.createElement('a');
+        abrir.className = 'embed-open';
+        abrir.href = '#';
+        abrir.setAttribute('data-wikilink', bruto);
+        abrir.title = 'Abrir a nota';
+        var svg = window.MarkPadIcons.build('link', 14);
+        if (svg) abrir.appendChild(svg);
+        bloco.appendChild(abrir);
+
+        conteudo.className = 'embed-content';
+        bloco.appendChild(conteudo);
+
+        casulo.textContent = '';
+        casulo.appendChild(bloco);
+        casulo.classList.add('is-resolved');
+      });
+    }).catch(function () { embedFalhou(casulo, 'Nao consegui ler: ' + nomeArq); });
+  }
+
+  /*
+   * Renderiza o markdown de OUTRA nota num <div> solto, com a mesma peneira
+   * do leitor: imagens resolvidas a partir da pasta dela, embeds de dentro
+   * dela tambem resolvidos (a cadeia segue junto). Serve a transclusao e a
+   * previa ao pairar.
+   */
+  function renderConteudoDeNota(src, fonte, cadeia) {
+    var caixa = document.createElement('div');
+    var result;
+    try {
+      result = window.MarkPadMarkdown.render(src, { loadRemoteImages: settings.loadRemoteImages });
+    } catch (err) {
+      caixa.textContent = 'Falha ao renderizar: ' + err.message;
+      return caixa;
+    }
+    caixa.innerHTML = result.html;
+    window.MarkPadMarkdown.sanitizeDom(caixa);
+    montaIconesCallout(caixa);
+    resolveLocalImages(caixa, { dir: fonte.dir });
+    resolveNoteEmbeds(caixa, { dir: fonte.dir, path: fonte.path }, cadeia);
+    return caixa;
+  }
+
+  /*
+   * ![[Nota#Secao]] e o pedaco, nao o todo: o titulo com aquele slug e tudo
+   * ate o proximo titulo de nivel igual ou mais raso. ![[Nota#^bloco]] e um
+   * bloco so. Trabalha no DOM ja renderizado para reusar as regras de id
+   * (slug, unicidade) do leitor; a fatia e movida, nao copiada, porque a
+   * arvore de origem e descartavel.
+   */
+  function extraiSecao(root, secao) {
+    var caixa = document.createElement('div');
+
+    if (secao.charAt(0) === '^') {
+      var alvo = root.querySelector('#' + CSS.escape(secao.slice(1)));
+      if (!alvo) return null;
+      if (alvo.tagName === 'LI') {
+        // Um <li> nu no meio do texto e HTML invalido; ganha a lista de volta.
+        var lista = document.createElement(
+          alvo.parentElement && alvo.parentElement.tagName === 'OL' ? 'ol' : 'ul');
+        lista.appendChild(alvo);
+        caixa.appendChild(lista);
+      } else {
+        caixa.appendChild(alvo);
+      }
+      return caixa;
+    }
+
+    var el = root.querySelector('#' + CSS.escape(window.MarkPadMarkdown.slugify(secao)));
+    if (!el) return null;
+    var nivel = headingLevel(el);
+    if (!nivel) { caixa.appendChild(el); return caixa; }
+
+    var n = el;
+    while (n) {
+      var prox = n.nextSibling;
+      caixa.appendChild(n);
+      n = prox;
+      if (n && n.nodeType === 1) {
+        var outro = headingLevel(n);
+        if (outro && outro <= nivel) break;
+      }
+    }
+    return caixa;
+  }
+
+  /*
+   * Clique dentro de conteudo transcluido resolve na pasta da nota embutida,
+   * nao na do documento hospedeiro: quando ha homonimo, 'detalhe.md' do
+   * embed e o que mora ao lado DELE. O closest acha o embed mais fundo, que
+   * e exatamente o dono do trecho clicado.
+   */
+  function tabDeClique(el, tab) {
+    var cont = el.closest && el.closest('.embed-content');
+    return cont && cont.__dir ? { dir: cont.__dir } : tab;
+  }
+
+  function podaParaEmbed(caixa) {
+    // Ids repetidos entre o documento e o embed confundiriam os saltos de
+    // ancora: o querySelector acharia o do embed primeiro.
+    var comId = caixa.querySelectorAll('[id]');
+    for (var i = 0; i < comId.length; i++) comId[i].removeAttribute('id');
+    // Tarefa de embed nao tem linha no documento aberto; marcar aqui gravaria
+    // no arquivo errado. Fica visivel, mas quieta.
+    var comLinha = caixa.querySelectorAll('[data-task-line]');
+    for (var j = 0; j < comLinha.length; j++) comLinha[j].removeAttribute('data-task-line');
+  }
+
+  // ---------------------------------------------------- mencoes ligadas
+
+  /*
+   * O verso dos wikilinks, como no Obsidian: quem, na pasta aberta, aponta
+   * para o documento em foco — um bloco discreto no fim da leitura. A
+   * varredura e o mesmo grep da busca na pasta; barato, mas nao gratis,
+   * entao o resultado vive um minuto na aba (o prazo do indice de arquivos).
+   * O grep acha o nome ate em prosa solta — quem decide se ha mencao de
+   * verdade e mencionaNota, olhando o texto da linha.
+   */
+  var BACKLINKS_VALIDADE_MS = 60000;
+
+  function renderBacklinks(container, tab) {
+    if (settings.showBacklinks === false || !app.folder || !tab.path) return;
+
+    var bloco = document.createElement('div');
+    bloco.className = 'backlinks-block';
+
+    var cab = document.createElement('button');
+    cab.className = 'backlinks-head';
+    var chev = window.MarkPadIcons.build('chevron-down', 13);
+    if (chev) cab.appendChild(chev);
+    cab.appendChild(document.createTextNode('Mencoes ligadas'));
+    var conta = document.createElement('span');
+    conta.className = 'backlinks-count';
+    conta.textContent = '…';
+    cab.appendChild(conta);
+    bloco.appendChild(cab);
+
+    var corpo = document.createElement('div');
+    corpo.className = 'backlinks-body';
+    corpo.hidden = !tab.backlinksOpen;
+    bloco.appendChild(corpo);
+    cab.classList.toggle('is-collapsed', !tab.backlinksOpen);
+
+    cab.onclick = function () {
+      tab.backlinksOpen = !tab.backlinksOpen;
+      corpo.hidden = !tab.backlinksOpen;
+      cab.classList.toggle('is-collapsed', !tab.backlinksOpen);
+    };
+
+    container.appendChild(bloco);
+
+    buscaBacklinks(tab).then(function (itens) {
+      if (!bloco.isConnected) return; // a leitura ja foi redesenhada
+
+      var total = itens.reduce(function (n, f) { return n + f.hits.length; }, 0);
+      conta.textContent = total
+        ? total + (itens.truncado ? '+' : '') + ' em ' + itens.length + ' arquivo' + (itens.length > 1 ? 's' : '')
+        : (itens.truncado ? '?' : 'nenhuma');
+
+      corpo.textContent = '';
+      if (!itens.length) {
+        var vazio = document.createElement('p');
+        vazio.className = 'pane-empty';
+        vazio.textContent = 'Nenhum arquivo da pasta aponta para este.';
+        corpo.appendChild(vazio);
+        return;
+      }
+
+      // O mesmo desenho dos resultados da busca na pasta.
+      itens.forEach(function (f) {
+        var grupo = document.createElement('div');
+        grupo.className = 'search-file';
+
+        var h = document.createElement('div');
+        h.className = 'search-file-head';
+        h.title = f.path;
+        var nm = document.createElement('span');
+        nm.textContent = f.relative;
+        var ct = document.createElement('span');
+        ct.className = 'search-file-count';
+        ct.textContent = f.hits.length;
+        h.appendChild(nm); h.appendChild(ct);
+        h.onclick = function () { openPath(f.path); };
+        grupo.appendChild(h);
+
+        f.hits.forEach(function (hit) {
+          var row = document.createElement('div');
+          row.className = 'search-hit';
+          row.title = hit.text;
+          var ln = document.createElement('span');
+          ln.className = 'hit-line';
+          ln.textContent = hit.line;
+          row.appendChild(ln);
+          row.appendChild(document.createTextNode(hit.text.trim()));
+          row.onclick = function () { openPath(f.path, { line: hit.line }); };
+          grupo.appendChild(row);
+        });
+
+        corpo.appendChild(grupo);
+      });
+    }).catch(function () { conta.textContent = '?'; });
+  }
+
+  function buscaBacklinks(tab) {
+    var cache = tab.backlinksCache;
+    if (cache && cache.para === tab.path && cache.pasta === app.folder &&
+        Date.now() - cache.em < BACKLINKS_VALIDADE_MS) {
+      return Promise.resolve(cache.itens);
+    }
+
+    var nome = String(tab.path).split(/[\\/]/).pop().replace(/\.[^.]+$/, '');
+    if (!nome) return Promise.resolve([]);
+
+    return bridge.call('grepFolder', {
+      root: app.folder, query: nome, caseSensitive: false, regex: false, maxResults: 400
+    }).then(function (res) {
+      var meu = String(tab.path).toLowerCase();
+      var itens = [];
+      ((res && res.results) || []).forEach(function (f) {
+        if (String(f.path).toLowerCase() === meu) return;
+        var hits = f.hits.filter(function (h) { return mencionaNota(h.text, nome); });
+        if (hits.length) itens.push({ path: f.path, relative: f.relative, hits: hits });
+      });
+      // Pasta grande demais para o teto do grep: a contagem e um piso, e o
+      // titulo do bloco avisa em vez de fingir que cobriu tudo.
+      itens.truncado = !!(res && res.truncated);
+      tab.backlinksCache = { para: tab.path, pasta: app.folder, em: Date.now(), itens: itens };
+      return itens;
+    });
+  }
+
+  /*
+   * Mencao mesmo e so link: wikilink cujo alvo (sem pasta, sem .md, sem
+   * #secao ou |apelido) e o nome do documento, ou link markdown apontando
+   * para nome.md.
+   */
+  function mencionaNota(texto, nome) {
+    // '[[nota]]' dentro de crases e exemplo de sintaxe, nao link.
+    texto = texto.replace(/`[^`]*`/g, '');
+    nome = nome.toLowerCase();
+    var m;
+
+    var wl = /\[\[([^\]#|]+)/g;
+    while ((m = wl.exec(texto))) {
+      var alvo = m[1].trim().replace(/\\/g, '/').split('/').pop().replace(/\.md$/i, '').toLowerCase();
+      if (alvo === nome) return true;
+    }
+
+    var md = /\]\(([^)#\s]+)/g;
+    while ((m = md.exec(texto))) {
+      var p = m[1];
+      try { p = decodeURIComponent(p); } catch (e) { /* %-solto: fica como esta */ }
+      p = p.replace(/\\/g, '/').split('/').pop().toLowerCase();
+      if (p === nome + '.md' || p === nome + '.markdown') return true;
+    }
+
+    return false;
+  }
+
+  // --------------------------------------------------- previa ao pairar
+
+  /*
+   * A previa de pagina do Obsidian: pare o mouse num link interno e a nota
+   * aparece num cartao, sem abrir aba. So leitura — o cartao nasce, rola e
+   * morre sem tocar no documento em foco. A ancora que o gerou e quem manda:
+   * sair dela sem entrar no cartao desmancha tudo; entrar no cartao segura.
+   */
+  var previa = { timerAbre: null, timerFecha: null, el: null, ancora: null };
+
+  function fechaPrevia() {
+    clearTimeout(previa.timerAbre);
+    clearTimeout(previa.timerFecha);
+    if (previa.el && previa.el.parentNode) previa.el.parentNode.removeChild(previa.el);
+    previa.el = null;
+    previa.ancora = null;
+  }
+
+  function agendaFechaPrevia() {
+    clearTimeout(previa.timerFecha);
+    previa.timerFecha = setTimeout(fechaPrevia, 300);
+  }
+
+  document.addEventListener('mouseover', function (e) {
+    if (settings.hoverPreview === false) return;
+    var t = e.target;
+    if (!t || !t.closest) return;
+    if (previa.el && previa.el.contains(t)) { clearTimeout(previa.timerFecha); return; }
+
+    var a = t.closest('[data-wikilink],[data-file]');
+    var serve = a && a.closest('.markdown-preview') && !a.closest('.hover-popup') &&
+      // O botao do embed abriria a previa do que ja esta na tela.
+      !a.classList.contains('embed-open');
+
+    if (!serve) {
+      clearTimeout(previa.timerAbre);
+      if (previa.el) agendaFechaPrevia();
+      return;
+    }
+    if (a === previa.ancora && previa.el) { clearTimeout(previa.timerFecha); return; }
+
+    clearTimeout(previa.timerAbre);
+    previa.timerAbre = setTimeout(function () { abrePrevia(a); }, 450);
+  });
+
+  document.addEventListener('mousedown', function (e) {
+    if (previa.el && !previa.el.contains(e.target)) fechaPrevia();
+  }, true);
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && previa.el) {
+      // Consome o Esc: era para fechar o cartao, nao para chegar ao editor
+      // ao vivo la embaixo e cancelar (revertendo) o bloco que se digitava.
+      e.preventDefault();
+      e.stopPropagation();
+      fechaPrevia();
+    }
+  }, true);
+
+  function abrePrevia(ancora) {
+    var tab = activeTab();
+    if (!tab || !ancora.isConnected) return;
+
+    var bruto = ancora.getAttribute('data-wikilink') || ancora.getAttribute('data-file') || '';
+    var partes = bruto.split('#');
+    var arquivo = partes[0].trim();
+    var secao = partes.slice(1).filter(Boolean).pop() || '';
+
+    var pronto;
+    if (!arquivo) {
+      // [[#Secao]]: a previa e do proprio documento.
+      pronto = Promise.resolve({ content: tab.content, dir: tab.dir, path: tab.path });
+    } else {
+      var nomeArq = /\.\w+$/.test(arquivo) ? arquivo : arquivo + '.md';
+      if (!/\.(md|markdown|txt)$/i.test(nomeArq)) return; // imagem e afins ja se mostram
+      if (!alvoAutoSeguro(nomeArq)) return; // pairar nao e clicar
+      pronto = resolveNota(nomeArq, tabDeClique(ancora, tab)).then(function (path) {
+        return path ? leNotaComCache(path) : null;
+      });
+    }
+
+    pronto.then(function (data) {
+      if (!data || (data.content || '').length > EMBED_BYTES_MAX) return;
+      // A leitura mudou, ou o mouse ja foi embora: cartao orfao nao nasce.
+      if (!ancora.isConnected || !ancora.matches(':hover')) return;
+
+      var pop = document.createElement('div');
+      pop.className = 'hover-popup';
+      var conteudo = renderConteudoDeNota(data.content, { dir: data.dir, path: data.path },
+        [String(data.path || '').toLowerCase()]);
+      conteudo.className += ' markdown-preview hover-popup-content';
+      // Tarefa de previa e vitrine, nao formulario.
+      var comLinha = conteudo.querySelectorAll('[data-task-line]');
+      for (var i = 0; i < comLinha.length; i++) comLinha[i].removeAttribute('data-task-line');
+      pop.appendChild(conteudo);
+
+      fechaPrevia();
+      previa.ancora = ancora;
+      previa.el = pop;
+      document.body.appendChild(pop);
+      posicionaPrevia(pop, ancora);
+
+      if (secao) {
+        var id = secao.charAt(0) === '^' ? secao.slice(1) : window.MarkPadMarkdown.slugify(secao);
+        var alvoSec = id && conteudo.querySelector('#' + CSS.escape(id));
+        if (alvoSec) pop.scrollTop = Math.max(0, alvoSec.offsetTop - 8);
+      }
+
+      pop.addEventListener('mouseleave', agendaFechaPrevia);
+      pop.addEventListener('click', function (ev) {
+        var el = ev.target.closest && ev.target.closest('[data-wikilink],[data-file],[data-external],[data-anchor]');
+        if (!el) return;
+        ev.preventDefault();
+        if (el.hasAttribute('data-external')) {
+          bridge.call('openExternal', { url: el.getAttribute('data-external') });
+          return;
+        }
+        if (el.hasAttribute('data-anchor')) {
+          var d = pop.querySelector('#' + CSS.escape(el.getAttribute('data-anchor')));
+          if (d) d.scrollIntoView({ block: 'start' });
+          return;
+        }
+        var raw = el.getAttribute('data-wikilink') || el.getAttribute('data-file') || '';
+        var arq = raw.split('#')[0].trim();
+        if (!arq) {
+          // [[#Secao]] clicado no cartao rola o proprio cartao ate la.
+          var secClique = raw.split('#').filter(Boolean).pop() || '';
+          var idClique = secClique.charAt(0) === '^'
+            ? secClique.slice(1)
+            : window.MarkPadMarkdown.slugify(secClique);
+          var dSec = idClique && conteudo.querySelector('#' + CSS.escape(idClique));
+          if (dSec) dSec.scrollIntoView({ block: 'start' });
+          return;
+        }
+        fechaPrevia();
+        // Link do cartao mora na pasta da nota MOSTRADA, nao na da aba ativa.
+        resolveAndOpen(/\.\w+$/.test(arq) ? arq : arq + '.md', { dir: data.dir });
+      });
+    }).catch(function () { /* leitura falhou: sem cartao, sem drama */ });
+  }
+
+  function posicionaPrevia(pop, ancora) {
+    var r = ancora.getBoundingClientRect();
+    var margem = 8;
+    var x = Math.min(Math.max(margem, r.left), window.innerWidth - pop.offsetWidth - margem);
+    var y = r.bottom + 6;
+    if (y + pop.offsetHeight > window.innerHeight - margem) {
+      y = Math.max(margem, r.top - pop.offsetHeight - 6);
+    }
+    pop.style.left = x + 'px';
+    pop.style.top = y + 'px';
   }
 
   /*
@@ -1601,7 +2129,11 @@
       }
 
       if (el.hasAttribute('data-anchor')) {
-        var target = container.querySelector('#' + CSS.escape(el.getAttribute('data-anchor')));
+        // Ancora clicada dentro de um embed procura dentro DELE (os ids de la
+        // foram podados, entao nao acha nada — melhor que saltar para a nota
+        // de rodape homonima do documento hospedeiro).
+        var escopoAncora = (el.closest && el.closest('.embed-content')) || container;
+        var target = escopoAncora.querySelector('#' + CSS.escape(el.getAttribute('data-anchor')));
         if (target) { target.scrollIntoView({ behavior: 'smooth', block: 'start' }); piscaAlvo(target); }
         return;
       }
@@ -1612,7 +2144,7 @@
       }
 
       if (el.hasAttribute('data-file')) {
-        resolveAndOpen(el.getAttribute('data-file'), tab);
+        resolveAndOpen(el.getAttribute('data-file'), tabDeClique(el, tab));
         return;
       }
 
@@ -1633,7 +2165,7 @@
           return;
         }
 
-        resolveAndOpen(/\.\w+$/.test(wl) ? wl : wl + '.md', tab);
+        resolveAndOpen(/\.\w+$/.test(wl) ? wl : wl + '.md', tabDeClique(el, tab));
       }
     };
   }
@@ -1676,8 +2208,8 @@
    * porque "notas/api.md" e "arquivo/api.md" sao arquivos diferentes e o
    * caminho e a unica coisa no link que sabe distinguir os dois.
    */
-  function findByName(name) {
-    if (!app.folder) { toast('Arquivo nao encontrado: ' + name, 'warn'); return Promise.resolve(null); }
+  function buscaPorNome(name) {
+    if (!app.folder) return Promise.resolve([]);
 
     var rel = String(name || '').replace(/\\/g, '/').toLowerCase();
     var base = rel.split('/').pop();
@@ -1695,16 +2227,42 @@
       });
 
       var achados = porCaminho.length ? porCaminho : (porNome.length ? porNome : porBase);
-      if (!achados.length) { toast('Arquivo nao encontrado: ' + name, 'warn'); return null; }
 
       // Homonimos em subpastas diferentes: o mais raso ganha, e o usuario fica
       // sabendo que houve escolha — abrir o errado calado seria pior.
       achados.sort(function (a, b) {
         return String(a.rel || '').split('/').length - String(b.rel || '').split('/').length;
       });
+      return achados;
+    });
+  }
+
+  function findByName(name) {
+    return buscaPorNome(name).then(function (achados) {
+      if (!achados.length) { toast('Arquivo nao encontrado: ' + name, 'warn'); return null; }
       if (achados.length > 1) toast(achados.length + ' arquivos com esse nome; abri o mais raso.', 'warn');
       return openPath(achados[0].path);
     });
+  }
+
+  /*
+   * O mesmo funil de resolveAndOpen — caminho relativo, depois o indice da
+   * pasta — mas devolvendo o caminho em vez de abrir aba: e o que a
+   * transclusao e a previa precisam para ler a nota sem trazer ela para
+   * frente.
+   */
+  function resolveNota(relative, tab) {
+    var base = (tab && tab.dir) || app.folder;
+    var noIndice = function () {
+      return buscaPorNome(relative).then(function (a) { return a.length ? a[0].path : null; });
+    };
+    if (!base) return noIndice();
+
+    var candidate = isAbsolutePath(relative) ? relative : joinPath(base, relative);
+    return bridge.call('pathInfo', { path: candidate }).then(function (info) {
+      if (info.exists && info.kind === 'file') return info.path;
+      return noIndice();
+    }).catch(noIndice);
   }
 
   // ------------------------------------------------------------- editor
@@ -2014,6 +2572,8 @@
 
     var titulos = container.querySelectorAll('h1,h2,h3,h4,h5,h6');
     for (var i = 0; i < titulos.length; i++) {
+      // Titulo vindo de embed nao tem data-line e nao existe no sumario.
+      if (!titulos[i].hasAttribute('data-line')) continue;
       if (titulos[i].getBoundingClientRect().top - topo <= 40) atual = titulos[i];
       else break;
     }
@@ -3208,6 +3768,11 @@
         var p = node.parentElement;
         while (p && p !== root) {
           if (p.tagName === 'SCRIPT' || p.tagName === 'STYLE') return NodeFilter.FILTER_REJECT;
+          // Texto de embed e das mencoes ligadas nao e texto DESTE documento:
+          // pintar la desalinharia a contagem, que vem do tab.content.
+          if (p.classList && (p.classList.contains('note-embed') || p.classList.contains('backlinks-block'))) {
+            return NodeFilter.FILTER_REJECT;
+          }
           p = p.parentElement;
         }
         return NodeFilter.FILTER_ACCEPT;
@@ -3692,6 +4257,14 @@
     setToggle(setLinha(pai, 'Mostrar propriedades', 'A ficha com o bloco --- do topo do documento, no modo leitura.'),
       function () { return settings.showProperties !== false; },
       function (v) { settings.showProperties = v; renderViews(); persist(); });
+
+    setToggle(setLinha(pai, 'Mencoes ligadas', 'No fim da leitura: quem, na pasta aberta, aponta para este documento.'),
+      function () { return settings.showBacklinks !== false; },
+      function (v) { settings.showBacklinks = v; renderViews(); persist(); });
+
+    setToggle(setLinha(pai, 'Previa ao pairar o mouse', 'Pare o mouse sobre um link interno e a nota aparece num cartao.'),
+      function () { return settings.hoverPreview !== false; },
+      function (v) { settings.hoverPreview = v; if (!v) fechaPrevia(); persist(); });
 
     setToggle(setLinha(pai, 'Animacoes', 'Desligue para uma interface instantanea, sem transicoes.'),
       function () { return settings.animations !== false; },

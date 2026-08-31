@@ -77,9 +77,21 @@
     '',
     '## Extensoes do Obsidian',
     '',
-    'Wikilink para [[Outra Nota]], com apelido [[Outra Nota|texto alternativo]],',
+    'Wikilink para [[leiame]], com apelido [[leiame|texto alternativo]],',
     'e tags como #exemplo/basico, #exemplo/avancado, #exemplo/basico de novo,',
     'alem de #projeto/api, #projeto/ui, #projeto e #ideia solta.',
+    'Pare o mouse sobre um wikilink para ver a previa em cartao.',
+    '',
+    'Este paragrafo tem um marcador de bloco e da para saltar ate ele',
+    'com [[#^marco]] ou embuti-lo de outra nota. ^marco',
+    '',
+    '### Transclusao',
+    '',
+    'A nota inteira, incrustada:',
+    '',
+    '![[leiame]]',
+    '',
+    'So uma secao: ![[leiame#Historico]] — e um bloco so: ![[leiame#^dois]].',
     '',
     'Notas de rodape tambem funcionam[^1].',
     '',
@@ -88,7 +100,7 @@
 
   var FILES = {
     'C:\\notas\\guia.md': SAMPLE,
-    'C:\\notas\\leiame.md': '---\ntags:\n  - ideia\n  - projeto/api\n---\n\n# Leiame\n\nArquivo curto de teste com #ideia.\n\n- um\n- dois\n'
+    'C:\\notas\\leiame.md': '---\ntags:\n  - ideia\n  - projeto/api\n---\n\n# Leiame\n\nArquivo curto de teste com #ideia, que aponta de volta para o [[guia]].\n\n- um\n- dois ^dois\n\n## Historico\n\nSo esta secao aparece em `![[leiame#Historico]]`.\n'
   };
 
   /* Fora do WebView nao ha rede nem instalador. Abra o preview com
@@ -192,9 +204,29 @@
               if (/\\.(exe|bat|cmd|ps1)$/i.test(msg.args.path)) throw new Error('e executavel: abrir seria executar.');
               result = true;
               break;
-            case 'pathInfo': result = { path: msg.args.path, kind: 'file', exists: true }; break;
+            case 'pathInfo':
+              // O de verdade olha o disco; aqui o disco e o mapa FILES.
+              var pedidoPI = String(msg.args.path || '').toLowerCase();
+              var achadoPI = Object.keys(FILES).filter(function (k) { return k.toLowerCase() === pedidoPI; })[0];
+              result = achadoPI
+                ? { path: achadoPI, kind: 'file', exists: true }
+                : { path: msg.args.path, kind: 'none', exists: false };
+              break;
             case 'resolveAsset': result = null; break;
-            case 'grepFolder': result = { results: [], truncated: false }; break;
+            case 'grepFolder':
+              var agulha = String(msg.args.query || '');
+              if (!msg.args.caseSensitive) agulha = agulha.toLowerCase();
+              var grupos = [];
+              Object.keys(FILES).forEach(function (k) {
+                var hits = [];
+                FILES[k].split('\n').forEach(function (linha, idx) {
+                  var palheiro = msg.args.caseSensitive ? linha : linha.toLowerCase();
+                  if (agulha && palheiro.indexOf(agulha) !== -1) hits.push({ line: idx + 1, text: linha });
+                });
+                if (hits.length) grupos.push({ path: k, relative: k.split('\\').pop(), hits: hits });
+              });
+              result = { results: grupos, truncated: false };
+              break;
 
             // ------------------------------------------------ atualizacao
             case 'updateCheck':

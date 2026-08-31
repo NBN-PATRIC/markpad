@@ -6,6 +6,39 @@ Versionamento [SemVer](https://semver.org/lang/pt-BR/).
 ## [Não lançado]
 
 ### Adicionado
+- **Transclusão: `![[Nota]]` embute a nota, não um link.** Como no Obsidian:
+  o conteúdo aparece incrustado num cartão com o nome da nota e um atalho para
+  abri-la. `![[Nota#Seção]]` embute só a seção (com as subseções),
+  `![[Nota#^bloco]]` embute um bloco só. Embed dentro de embed funciona;
+  ciclo (`![[A]]` dentro de A) e profundidade demais degradam para link, com o
+  motivo no tooltip. `![[Nota|apelido]]` mostra o apelido no cartão. Tarefas
+  embutidas ficam visíveis mas quietas — marcá-las gravaria no arquivo errado
+  — e os links de dentro do cartão resolvem na pasta da nota embutida, não na
+  do documento hospedeiro. Na edição ao vivo, clicar no cartão abre o
+  `![[...]]` cru, como lá.
+  - **Embed e prévia disparam sozinhos, então não obedecem caminho hostil**:
+    alvo absoluto (`C:\...`), UNC (`\\host`, que ainda vazaria credencial
+    NTLM ao tocar SMB) e `..` degradam para link — só um clique deliberado
+    abre o que quiser. E só nota de texto (`.md`, `.txt`) se embute.
+- **Marcadores de bloco: `um parágrafo ^id` agora existe.** O `^id` no fim de
+  um parágrafo ou item de lista vira a âncora do bloco e some do texto — é
+  endereço, não conteúdo. Com isso `[[#^id]]` salta de verdade (era um link
+  morto: o alvo nunca ganhava id) e `![[Nota#^id]]` tem o que embutir. Numa
+  lista, o marcador pertence ao item onde foi escrito, não ao pai. Em título,
+  sai do texto e do slug. E a linha isolada `^id` depois de um bloco — o único
+  jeito, no Obsidian, de endereçar tabela e bloco de código — marca o bloco
+  anterior.
+- **Menções ligadas**, no fim do modo leitura: quem, na pasta aberta, aponta
+  para o documento em foco — wikilink ou link markdown, não prosa que por
+  acaso repete o nome. Recolhida por padrão, com contagem no título; cada
+  menção abre o arquivo na linha certa. A varredura reusa o grep da busca na
+  pasta e o resultado vive um minuto por aba; quando a varredura bate no teto,
+  a contagem diz `N+` em vez de fingir que cobriu tudo. Desligável nas
+  configurações.
+- **Prévia ao pairar o mouse**, como a "page preview" do Obsidian: pare o
+  cursor sobre um link interno e a nota aparece num cartão flutuante — rolável,
+  com a seção do link já em foco, sem abrir aba. Sair do link (sem entrar no
+  cartão) desfaz; Esc também. Desligável nas configurações.
 - **Atualização automática.** Uma consulta por dia ao GitHub, na abertura, e
   uma faixa no canto quando sai versão nova — nunca um modal, porque quem abriu
   o MarkPad queria ler um arquivo. Baixar é um clique; a troca acontece na hora
@@ -30,6 +63,14 @@ Versionamento [SemVer](https://semver.org/lang/pt-BR/).
   - Projeto e travas em [docs/ATUALIZACAO.md](docs/ATUALIZACAO.md).
 
 ### Corrigido
+- **Edição ao vivo só funcionava fora das seções — ou seja, quase nunca.**
+  O clique procurava o bloco entre os filhos diretos do painel, mas o
+  recolhimento embrulha tudo que segue um título numa `heading-section`:
+  clicar em qualquer parágrafo abaixo de qualquer título não abria editor
+  nenhum. O bloco agora é o ancestral mais externo com linha de origem, esteja
+  embrulhado no que estiver. De quebra: `ArrowUp` no começo de um bloco
+  navegava para o próprio textarea (e dava em nada) em vez do bloco anterior,
+  e clicar na setinha de recolher também abria o editor do título.
 - **`SHA256SUMS.txt` cobria só metade dos artefatos.** As somas eram gravadas
   no fim do `build-release.ps1`, que roda *antes* do `build-installer.ps1` — o
   instalador e o `.msi` chegavam à release sem hash nenhum. Como o atualizador

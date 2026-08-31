@@ -915,6 +915,106 @@ body.wide-lines .markdown-preview { max-width: none; }
 .properties.is-collapsed .properties-body { display: none; }
 .properties:not(.is-collapsed) .properties-body { animation: slide-in-down var(--anim-fast) var(--anim-ease-out); }
 
+/* ------------------------------------------------------- transclusao */
+/* ![[Nota]] resolvida: a nota dentro da nota, como no Obsidian. O casulo
+   nasce inline (o parser nao sabe ler disco); resolvido, vira bloco. */
+.note-embed.is-resolved { display: block; }
+.note-embed.embed-broken .embed-link {
+  color: var(--text-muted);
+  text-decoration: underline dashed;
+  cursor: help;
+}
+.markdown-embed {
+  display: block;
+  position: relative;
+  margin: 10px 0;
+  padding: 10px 18px 12px;
+  border: 1px solid var(--background-modifier-border);
+  border-left: 3px solid hsl(var(--interactive-accent-hsl));
+  border-radius: var(--radius-s);
+  background: var(--background-secondary);
+}
+.embed-title {
+  display: block;
+  margin-bottom: 4px;
+  padding-right: 24px;
+  color: var(--text-faint);
+  font-size: var(--font-ui-smaller);
+  font-family: var(--font-ui, inherit);
+}
+.embed-open {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  display: flex;
+  color: var(--text-faint);
+}
+.embed-open:hover { color: var(--text-normal); }
+.embed-content { display: block; }
+.embed-content > *:first-child { margin-top: 0; }
+.embed-content > *:last-child { margin-bottom: 0; }
+/* Dentro do embed a coluna e a do embed, nao a do documento. */
+.embed-content .markdown-embed { margin-left: 0; margin-right: 0; }
+
+/* --------------------------------------------------- mencoes ligadas */
+.backlinks-block {
+  margin-top: 48px;
+  border-top: 1px solid var(--background-modifier-border);
+  padding-top: 6px;
+}
+.backlinks-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: var(--radius-s);
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--font-ui-smaller);
+  text-align: left;
+  cursor: pointer;
+}
+.backlinks-head:hover { background: var(--background-modifier-hover); color: var(--text-normal); }
+.backlinks-head svg { transition: transform var(--anim-fast) var(--anim-ease); flex-shrink: 0; }
+.backlinks-head.is-collapsed svg { transform: rotate(-90deg); }
+.backlinks-count {
+  margin-left: auto;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--background-modifier-border);
+  font-size: 11px;
+}
+.backlinks-body { padding: 4px 2px 9px; font-size: var(--font-ui-small); }
+.backlinks-body .pane-empty { padding: 6px 8px; }
+
+/* ------------------------------------------------- previa ao pairar */
+.hover-popup {
+  position: fixed;
+  z-index: var(--layer-menu);
+  width: min(460px, 80vw);
+  max-height: 380px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 14px 18px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  background: var(--background-primary);
+  box-shadow: var(--shadow-s);
+  animation: fade-in var(--anim-fast) var(--anim-ease-out);
+}
+/* O conteudo herda o vestido do leitor, mas nao a coluna nem o respiro dele. */
+.hover-popup .markdown-preview {
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  font-size: calc(var(--font-text-size) - 2px);
+}
+.hover-popup .markdown-preview > *:first-child { margin-top: 0; }
+.hover-popup .backlinks-block { display: none; }
+
 .property {
   display: flex;
   align-items: baseline;
@@ -1621,7 +1721,8 @@ body.no-gutter .ed-row .ln { display: none; }
 /* impressao: so o texto */
 @media print {
   .tab-bar, .quick-bar, .sidebar, .sidebar-resizer, .view-header, .status-bar,
-  .find-bar, .editing-view, .overlay, .palette, .toasts, .update-bar { display: none !important; }
+  .find-bar, .editing-view, .overlay, .palette, .toasts, .update-bar,
+  .backlinks-block, .hover-popup { display: none !important; }
   .main { border: none; }
   .markdown-preview { max-width: none; padding: 0; color: #000; }
   body, .app, .reading-scroll { background: #fff; overflow: visible; height: auto; }
