@@ -54,8 +54,19 @@ criaram — hoje estão como `project-slug: markpad` e
 **3. Publicar**
 
 ```bash
-git tag -a v1.2.0 -m "MarkPad 1.2.0" && git push origin v1.2.0
+git tag -a vX.Y.Z -m "MarkPad X.Y.Z" && git push origin vX.Y.Z
+gh release create vX.Y.Z --title "..." --notes-file notas.md
 ```
+
+**Nesta ordem, e a release precisa existir.** O workflow termina com
+`gh release upload --clobber`, que anexa a uma release existente — ele *não*
+cria nenhuma. Sem a release, esse passo falha e a tag fica sem artefato.
+
+E como é `--clobber`, **não adianta subir binário compilado na sua máquina**:
+o que o CI produzir substitui tudo alguns minutos depois, inclusive o
+`SHA256SUMS.txt`. É de propósito — o artefato oficial é o do CI, com
+procedência verificável, que é o que o SignPath exige. Crie a release com as
+notas e deixe os arquivos por conta do workflow.
 
 O workflow compila, envia para assinatura, espera terminar, recalcula as somas
 SHA-256 (assinar muda o binário, logo muda o hash) e anexa tudo à release.

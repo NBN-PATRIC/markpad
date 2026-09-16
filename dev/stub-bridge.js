@@ -107,6 +107,15 @@
      ?update=1 para o atualizador encenar o fluxo inteiro: aviso, download
      com barra de progresso e "pronta para instalar". */
   var ENCENA_UPDATE = /[?&]update=1\b/.test(location.search);
+
+  // A encenacao do atualizador dizia, na unha, "voce esta na 1.2.0 e saiu a
+  // 1.3.0" — e no dia em que a 1.3.0 saiu de verdade a tela de teste passou a
+  // anunciar como novidade uma versao ja lancada. Agora a versao nova e
+  // derivada da atual (sobe a minor), entao a encenacao nao envelhece.
+  var VERSAO_FINGIDA = '1.3.0';
+  var VERSAO_NOVA = VERSAO_FINGIDA.replace(/^(\d+)\.(\d+)/, function (tudo, maior, menor) {
+    return maior + '.' + (Number(menor) + 1);
+  });
   var pendenteFalso = null;
 
   window.chrome = {
@@ -120,7 +129,7 @@
         try {
           switch (msg.op) {
             case 'ready':
-              result = { version: '1.0.0', openPaths: ['C:\\notas\\guia.md'], associated: false, exePath: 'C:\\MarkPad.exe' };
+              result = { version: VERSAO_FINGIDA, openPaths: ['C:\\notas\\guia.md'], associated: false, exePath: 'C:\\MarkPad.exe' };
               break;
             case 'loadSettings': result = null; break;
             case 'saveSettings': case 'setTitleBarTheme': case 'setTitle':
@@ -231,14 +240,14 @@
             // ------------------------------------------------ atualizacao
             case 'updateCheck':
               result = ENCENA_UPDATE
-                ? { ok: true, available: true, current: '1.2.0', latest: '1.3.0',
-                    name: 'MarkPad 1.3.0', notes: 'Atualizador automatico.',
+                ? { ok: true, available: true, current: VERSAO_FINGIDA, latest: VERSAO_NOVA,
+                    name: 'MarkPad ' + VERSAO_NOVA, notes: 'Atualizador automatico.',
                     page: 'https://github.com/NBN-PATRIC/markpad/releases',
-                    asset: 'MarkPad-1.3.0-setup-win-x64.exe',
+                    asset: 'MarkPad-' + VERSAO_NOVA + '-setup-win-x64.exe',
                     url: 'https://example.invalid/setup.exe',
                     sha256: new Array(65).join('0'), size: 57 * 1024 * 1024,
                     canInstall: true, portable: false }
-                : { ok: true, available: false, current: '1.2.0', latest: '1.2.0' };
+                : { ok: true, available: false, current: VERSAO_FINGIDA, latest: VERSAO_FINGIDA };
               break;
 
             case 'updatePending': result = pendenteFalso; break;

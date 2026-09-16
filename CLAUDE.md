@@ -25,14 +25,23 @@ propósito. Interface web embutida no assembly (exe de arquivo único).
 - NUNCA versionar chaves de assinatura (`*.pfx`, `*.p12`, `.certs/`) nem
   binários (`dist/`, `publish/`, `bin/`, `obj/`) — o `.gitignore` já cobre;
   não relaxar essas entradas.
-- Repositório **público** da NBN: `github.com/NBN-PATRIC/markpad` (conferido
-  em 16/09/2026; este arquivo dizia "privado", que estava errado). Não trocar o
-  remote nem publicar em outro lugar sem o Patric pedir — e, sendo público,
-  vale dobrado a regra de não commitar segredo nenhum.
+- Repositório **público** da NBN: `github.com/NBN-PATRIC/markpad`. Público de
+  propósito, e não por descuido: o atualizador automático consulta
+  `api.github.com/.../releases/latest` sem token nenhum, e num repo privado essa
+  chamada voltaria 404 — o auto-update simplesmente não existiria. Não trocar o
+  remote nem publicar em outro lugar sem o Patric pedir, e **nada de segredo em
+  commit**, que aqui é leitura pública.
 - O Updater só aceita pacote com SHA-256 conferido — não enfraquecer essa
   checagem nem editar `SHA256SUMS.txt` à mão.
 - Release: usar `tools/build-release.ps1` (não `dotnet publish` avulso), e
   atualizar `CHANGELOG.md` + `<Version>` no `.csproj` juntos.
+- **Publicar é: empurrar a tag, criar a release (notas), e deixar os binários
+  com o CI.** O workflow termina em `gh release upload --clobber`, que exige
+  uma release já existente e substitui tudo que estiver lá — inclusive o
+  `SHA256SUMS.txt`. Subir artefato compilado localmente é trabalho perdido, e
+  pior: você confere as somas de binários que o CI vai trocar. O oficial é o
+  do CI, que tem procedência (exigência do SignPath). Confira a cadeia
+  **depois** que o workflow terminar.
 - **Texto de interface passa por `t()`** (`web/i18n.js`). A chave é o próprio
   português, não um identificador. Ao mexer numa frase já traduzida, ajuste o
   dicionário junto — `node dev/test-i18n.js` reprova chave órfã e frase pedida

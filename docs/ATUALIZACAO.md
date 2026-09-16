@@ -160,7 +160,12 @@ O preview do navegador encena o fluxo inteiro:
 node dev/make-preview.js
 ```
 
-e abra `dev/preview.html?update=1`. O stub finge uma 1.3.0 disponível, um
-download com barra de progresso que enche em uns três segundos e o estado
+e abra `dev/preview.html?update=1`. O stub finge que existe uma versão nova,
+um download com barra de progresso que enche em uns três segundos e o estado
 "pronta para instalar", incluindo o descarte. Sem `?update=1`, o stub responde
 que já está na versão mais nova — que é o caminho normal.
+
+A versão da encenação sai de `VERSAO_FINGIDA`, no topo do `stub-bridge.js`, e a
+"nova" é derivada dela subindo a minor. Antes os dois números eram escritos na
+unha, e no dia em que aquela versão saiu de verdade a tela de teste passou a
+anunciar como novidade uma versão já lançada.

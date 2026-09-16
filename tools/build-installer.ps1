@@ -6,7 +6,9 @@
 #
 # Ferramentas:
 #   Inno Setup 6   winget install --id JRSoftware.InnoSetup -e
-#   WiX 7          dotnet tool install --global wix --add-source https://api.nuget.org/v3/index.json
+#   WiX 5          dotnet tool install --global wix --version 5.* --add-source https://api.nuget.org/v3/index.json
+#                  (fixada na 5 de proposito: a 7 exige aceitar o EULA da Open
+#                  Source Maintenance Fee. Ver README, secao Compilar.)
 
 [CmdletBinding()]
 param(
@@ -72,7 +74,7 @@ if (-not $OnlyMsi) {
 if (-not $OnlyInno) {
     $env:PATH = "$env:PATH;$env:USERPROFILE\.dotnet\tools"
     if (-not (Get-Command wix -ErrorAction SilentlyContinue)) {
-        throw "wix nao encontrado. Instale com: dotnet tool install --global wix --add-source https://api.nuget.org/v3/index.json"
+        throw "wix nao encontrado. Instale com: dotnet tool install --global wix --version 5.* --add-source https://api.nuget.org/v3/index.json"
     }
 
     Write-Host "compilando o .msi (WiX)..." -ForegroundColor Cyan

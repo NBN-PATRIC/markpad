@@ -48,6 +48,9 @@ jobs:
         run: |
           node dev/test-markdown.js
           node dev/test-liveedit.js
+          node dev/test-changes.js
+          node dev/test-themes.js
+          node dev/test-i18n.js
 
       - name: Ferramentas de instalador
         shell: pwsh

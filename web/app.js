@@ -3893,7 +3893,7 @@
    * casa, nao uma janela em branco.
    */
   function importarTemaVSCode() {
-    bridge.call('openFileDialog', { multi: false, filter: 'json' }).then(function (paths) {
+    return bridge.call('openFileDialog', { multi: false, filter: 'json' }).then(function (paths) {
       if (!paths || !paths.length) return null;
       var caminho = paths[0];
       return bridge.call('readFile', { path: caminho }).then(function (res) {
@@ -4190,6 +4190,7 @@
   // mesma paleta tem duas caras. Trocar o modo no proprio painel tem que
   // repintar as amostras, senao o cartao continua mostrando o tema de ontem.
   var atualizarAmostras = function () {};
+  var atualizarBotoesTema = function () {};
 
   /**
    * A grade de paletas. Cartao em vez de <select> porque cor se escolhe
@@ -4259,17 +4260,33 @@
         aviso.textContent = t('O tema importado "{nome}" e {modo} e esta fora do ar no modo atual.',
           { nome: tema.nome, modo: tema.escuro ? t('escuro') : t('claro') });
       }
+
+      atualizarBotoesTema();
     }
 
     pintar();
     atualizarAmostras = pintar;
 
+    // Os botoes vivem dentro do pintar() porque "Remover" so existe quando ha
+    // tema importado — e isso muda no meio do painel, quando o import termina.
+    // Montados uma vez so, o botao nunca aparecia sem fechar e reabrir tudo.
     var linha = setLinha(pai, t('Tema do VS Code'),
       t('Um arquivo .json de tema do VS Code vira paleta aqui. So as cores entram — o resto do arquivo e ignorado.'));
-    setBotao(linha, t('Importar...'), function () { importarTemaVSCode(); setTimeout(pintar, 0); });
-    if (settings.vscodeTheme) {
-      setBotao(linha, t('Remover'), function () { removerTemaVSCode(); pintar(); }, 'danger');
+
+    function botoes() {
+      linha.textContent = '';
+      // O dialogo de arquivo e assincrono: sem esperar a promessa, o repintar
+      // acontecia antes de o usuario sequer escolher o arquivo.
+      setBotao(linha, t('Importar...'), function () {
+        importarTemaVSCode().then(pintar);
+      });
+      if (settings.vscodeTheme) {
+        setBotao(linha, t('Remover'), function () { removerTemaVSCode(); pintar(); }, 'danger');
+      }
     }
+
+    atualizarBotoesTema = botoes;
+    botoes();
   }
 
   /** Cor de destaque: seis presets, um seletor livre e a volta para a paleta. */
@@ -6192,9 +6209,14 @@
     if (!raiz) return;
 
     ['title', 'placeholder', 'aria-label'].forEach(function (attr) {
-      var alvos = raiz.querySelectorAll('[' + attr + '], [data-pt-' + attr + ']');
-      Array.prototype.forEach.call(alvos, function (el) {
-        var guardado = 'data-pt-' + attr;
+      var guardado = 'data-pt-' + attr;
+      // Depois da primeira passada so os atributos ja marcados continuam
+      // elegiveis — pelo mesmo motivo dos nos de texto, e com um alvo pior:
+      // `title` dinamico carrega caminho de arquivo e linha de resultado de
+      // busca, ou seja conteudo do usuario. Uma nota cuja linha fosse
+      // exatamente "Abrir" teria a dica traduzida para "Open".
+      var seletor = estaticoMapeado ? '[' + guardado + ']' : '[' + attr + '], [' + guardado + ']';
+      Array.prototype.forEach.call(raiz.querySelectorAll(seletor), function (el) {
         if (!el.hasAttribute(guardado)) el.setAttribute(guardado, el.getAttribute(attr) || '');
         el.setAttribute(attr, t(el.getAttribute(guardado)));
       });

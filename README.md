@@ -252,10 +252,11 @@ dotnet tool install --global wix --version 5.* --add-source https://api.nuget.or
 O WiX é fixado na 5 de propósito: a 7 passou a exigir aceitação do EULA da
 *Open Source Maintenance Fee*. A 5 é MS-RL e faz tudo o que precisamos.
 
-Testes (o do parser inclui as verificações de sanitização):
+Testes (o do parser inclui as verificações de sanitização; o de temas mede o
+contraste de cada paleta e o de idiomas cobra as traduções nos dois sentidos):
 
 ```bash
-node dev/test-markdown.js && node dev/test-liveedit.js && node dev/test-changes.js
+node dev/test-markdown.js && node dev/test-liveedit.js && node dev/test-changes.js && node dev/test-themes.js && node dev/test-i18n.js
 ```
 
 No build de desenvolvimento a pasta `web\` fica ao lado do `.exe` e é servida
@@ -310,6 +311,7 @@ web/                  a interface inteira (embutida no exe publicado)
 dev/                  preview no navegador + testes
 tools/                ícone, artefatos de release, somas e instaladores
 installer/            markpad.iss (Inno Setup) e markpad.wxs (WiX)
+docs/                 atualização automática, assinatura, SignPath
 ```
 
 Zero dependências de runtime além do WebView2: sem npm, sem CDN, sem Electron,
