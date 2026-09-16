@@ -12,6 +12,10 @@
   var $ = function (id) { return document.getElementById(id); };
   var MAX_HIGHLIGHT_LINES = 20000;
 
+  // Texto de interface. A chave e o proprio portugues (ver web/i18n.js), entao
+  // um idioma sem a frase cadastrada mostra portugues, nunca um identificador.
+  var t = window.MarkPadI18n.t;
+
   // ============================================================== ponte
 
   var bridge = (function () {
@@ -21,7 +25,7 @@
 
     if (!window.chrome || !window.chrome.webview) {
       return {
-        call: function () { return Promise.reject(new Error('ponte indisponivel')); },
+        call: function () { return Promise.reject(new Error(t('ponte indisponivel'))); },
         on: function () {}
       };
     }
@@ -41,7 +45,7 @@
       if (!slot) return;
       pending.delete(msg.id);
       if (msg.ok) slot.resolve(msg.result);
-      else slot.reject(new Error(msg.error || 'falha desconhecida'));
+      else slot.reject(new Error(msg.error || t('falha desconhecida')));
     });
 
     return {
@@ -62,6 +66,17 @@
 
   var DEFAULTS = {
     theme: 'dark',
+    // Idioma da interface. 'auto' segue o Windows; o resto e o codigo da lista
+    // de web/i18n.js. O idioma do documento nao entra nisso.
+    language: 'auto',
+    // Paleta de cores por cima do modo (claro/escuro): 'markpad' e a folha
+    // embutida, o resto reescreve as raizes em themes.js.
+    palette: 'markpad',
+    // Acento escolhido a mao (hex). Vazio = o acento da paleta.
+    accent: '',
+    // Tema importado do VS Code: { nome, escuro, vars, acento }. Vale sobre a
+    // paleta enquanto o modo da janela bater com o modo do tema.
+    vscodeTheme: null,
     lockOnOpen: true,
     confirmUnlock: false,
     showSource: false,
@@ -101,7 +116,7 @@
 
   // Copia funda: DEFAULTS tem arrays (quickBar, recent, session) e o editor
   // da barra rapida muta no lugar — com copia rasa ele adultera o padrao e
-  // 'Restaurar o padrao' devolve a lista ja estragada.
+  // t('Restaurar o padrao') devolve a lista ja estragada.
   var settings = JSON.parse(JSON.stringify(DEFAULTS));
   var app = {
     tabs: [],
@@ -181,13 +196,13 @@
       var extra = lista.length > 6 ? ' e mais ' + (lista.length - 6) : '';
 
       return dialog(
-        'Alterações não salvas da sessão anterior',
-        'O MarkPad guardou o texto de <strong>' + nomes + extra + '</strong> ' +
-        'que não chegou a ser gravado.<br><br>' +
-        'O arquivo em disco continua intacto. Se restaurar, o texto volta como estava ' +
-        'e você decide se salva por cima.',
-        [{ label: 'Descartar', value: false, cls: 'danger' },
-         { label: 'Restaurar', value: true, cls: 'primary' }]
+        t('Alterações não salvas da sessão anterior'),
+        t('O MarkPad guardou o texto de <strong>{nomes}</strong> que não chegou a ser gravado.',
+          { nomes: nomes + extra }) + '<br><br>' +
+        t('O arquivo em disco continua intacto. Se restaurar, o texto volta como estava ') +
+        t('e você decide se salva por cima.'),
+        [{ label: t('Descartar'), value: false, cls: 'danger' },
+         { label: t('Restaurar'), value: true, cls: 'primary' }]
       ).then(function (sim) {
         if (!sim) {
           lista.forEach(function (b) { bridge.call('dropBackup', { path: b.path }).catch(function () {}); });
@@ -222,7 +237,7 @@
 
     return cadeia.then(function () {
       renderAll();
-      toast('Texto restaurado. Salve com Ctrl+S para gravar no arquivo.', 'warn', 6000);
+      toast(t('Texto restaurado. Salve com Ctrl+S para gravar no arquivo.'), 'warn', 6000);
     });
   }
 
@@ -371,7 +386,7 @@
 
       function confirmar() {
         var texto = input.value.trim();
-        var problema = opts.validate ? opts.validate(texto) : (texto ? null : 'Digite alguma coisa.');
+        var problema = opts.validate ? opts.validate(texto) : (texto ? null : t('Digite alguma coisa.'));
         if (problema) {
           erro.textContent = problema;
           erro.hidden = false;
@@ -388,7 +403,7 @@
 
       var cancelar = document.createElement('button');
       cancelar.className = 'btn';
-      cancelar.textContent = 'Cancelar';
+      cancelar.textContent = t('Cancelar');
       cancelar.onclick = function () { finish(null); };
 
       var ok = document.createElement('button');
@@ -516,7 +531,7 @@
     return {
       id: app.nextId++,
       path: data.path || null,
-      name: data.name || 'sem titulo',
+      name: data.name || t('sem titulo'),
       dir: data.dir || null,
       content: data.content || '',
       savedContent: data.content || '',
@@ -555,13 +570,14 @@
     var ext = (/\.([^.\\/]+)$/.exec(nome) || [])[1];
 
     return dialog(
-      'Arquivo não identificado como markdown',
-      '<strong>' + escapeText(nome) + '</strong>' +
-      (ext ? ' tem extensão <code>.' + escapeText(ext) + '</code>, que não é markdown.'
-           : ' não tem extensão.') +
-      '<br><br>Ele será aberto como texto puro. Deseja mesmo abrir?',
-      [{ label: 'Não', value: false }, { label: 'Sim', value: true, cls: 'primary' }],
-      'Não exibir esta mensagem novamente'
+      t('Arquivo não identificado como markdown'),
+      (ext
+        ? t('<strong>{nome}</strong> tem extensão <code>.{ext}</code>, que não é markdown.',
+            { nome: escapeText(nome), ext: escapeText(ext) })
+        : t('<strong>{nome}</strong> não tem extensão.', { nome: escapeText(nome) })) +
+      '<br><br>' + t('Ele será aberto como texto puro. Deseja mesmo abrir?'),
+      [{ label: t('Não'), value: false }, { label: t('Sim'), value: true, cls: 'primary' }],
+      t('Não exibir esta mensagem novamente')
     ).then(function (r) {
       if (r.checked) { settings.warnNonMarkdown = false; persist(); }
       return r.value;
@@ -596,7 +612,7 @@
       if (opts.line) goToLine(opts.line);
       return tab;
     }).catch(function (err) {
-      toast('Nao consegui abrir: ' + err.message, 'error', 5000);
+      toast(t('Nao consegui abrir: ') + err.message, 'error', 5000);
       throw err;
     });
   }
@@ -617,7 +633,7 @@
   }
 
   function newTab() {
-    var tab = makeTab({ name: 'sem titulo.md', content: '' });
+    var tab = makeTab({ name: t('sem titulo.md'), content: '' });
     tab.locked = false; // nota nova ja nasce editavel: e o unico caso obvio
     app.tabs.push(tab);
     selectTab(tab.id);
@@ -631,7 +647,7 @@
     if (!tab) return Promise.resolve(false);
 
     if (tab.locked && !saveAs) {
-      toast('Documento travado — nada foi alterado.', 'warn');
+      toast(t('Documento travado — nada foi alterado.'), 'warn');
       return Promise.resolve(false);
     }
 
@@ -667,11 +683,11 @@
         renderHeader();
         renderViews();   // redesenha para as marcas laranjas virarem verdes
         renderStatus();
-        toast('Salvo: ' + tab.name, 'ok', 1600);
+        toast(t('Salvo: ') + tab.name, 'ok', 1600);
         return true;
       });
     }).catch(function (err) {
-      toast('Nao consegui salvar: ' + err.message, 'error', 6000);
+      toast(t('Nao consegui salvar: ') + err.message, 'error', 6000);
       return false;
     });
   }
@@ -685,11 +701,12 @@
     var dirty = tab.content !== tab.savedContent;
 
     var decide = (dirty && !force)
-      ? dialog('Alteracoes nao salvas',
-          'O arquivo <strong>' + escapeText(tab.name) + '</strong> tem mudancas que ainda nao foram gravadas.',
-          [{ label: 'Descartar', value: 'discard', cls: 'danger' },
-           { label: 'Cancelar', value: null },
-           { label: 'Salvar', value: 'save', cls: 'primary' }])
+      ? dialog(t('Alteracoes nao salvas'),
+          t('O arquivo <strong>{nome}</strong> tem mudancas que ainda nao foram gravadas.',
+            { nome: escapeText(tab.name) }),
+          [{ label: t('Descartar'), value: 'discard', cls: 'danger' },
+           { label: t('Cancelar'), value: null },
+           { label: t('Salvar'), value: 'save', cls: 'primary' }])
       : Promise.resolve('discard');
 
     return decide.then(function (choice) {
@@ -735,7 +752,7 @@
    */
   function reabrirAba() {
     var snap = app.fechadas.pop();
-    if (!snap) { toast('Nenhuma aba fechada para reabrir.', 'warn'); return; }
+    if (!snap) { toast(t('Nenhuma aba fechada para reabrir.'), 'warn'); return; }
 
     if (snap.path) {
       var jaAberta = tabByPath(snap.path);
@@ -805,9 +822,9 @@
       tab.mtime = data.mtime;
       tab.staleOnDisk = false;
       renderAll();
-      toast('Recarregado do disco.', 'ok', 1500);
+      toast(t('Recarregado do disco.'), 'ok', 1500);
     }).catch(function (err) {
-      toast('Falha ao recarregar: ' + err.message, 'error');
+      toast(t('Falha ao recarregar: ') + err.message, 'error');
     });
   }
 
@@ -823,7 +840,7 @@
 
     if (locked && tab.content !== tab.savedContent) {
       // Travar com mudanca pendente e legitimo: so avisa que continua pendente.
-      toast('Travado. As alteracoes continuam por salvar (Ctrl+S).', 'warn', 3200);
+      toast(t('Travado. As alteracoes continuam por salvar (Ctrl+S).'), 'warn', 3200);
     }
 
     if (!locked) stashReadingScroll(tab);
@@ -837,7 +854,7 @@
       ta.focus();
       restoreScroll(tab);
       if (tab.readOnlyOnDisk) {
-        toast('Atencao: o arquivo esta marcado como somente leitura no disco.', 'warn', 5000);
+        toast(t('Atencao: o arquivo esta marcado como somente leitura no disco.'), 'warn', 5000);
       }
     }
 
@@ -858,9 +875,10 @@
     if (!tab) return;
 
     if (tab.locked && settings.confirmUnlock) {
-      dialog('Liberar edicao?',
-        'O documento <strong>' + escapeText(tab.name) + '</strong> passara a aceitar digitacao.',
-        [{ label: 'Cancelar', value: false }, { label: 'Liberar', value: true, cls: 'primary' }]
+      dialog(t('Liberar edicao?'),
+        t('O documento <strong>{nome}</strong> passara a aceitar digitacao.',
+          { nome: escapeText(tab.name) }),
+        [{ label: t('Cancelar'), value: false }, { label: t('Liberar'), value: true, cls: 'primary' }]
       ).then(function (yes) { if (yes) setLocked(tab, false); });
       return;
     }
@@ -943,13 +961,13 @@
     if (tab && tab.staleOnDisk) {
       badge.hidden = false;
       badge.className = 'disk-badge warn';
-      badge.textContent = 'mudou no disco';
+      badge.textContent = t('mudou no disco');
       badge.style.cursor = 'pointer';
       badge.onclick = function () { reloadFromDisk(tab); };
     } else if (tab && tab.readOnlyOnDisk) {
       badge.hidden = false;
       badge.className = 'disk-badge';
-      badge.textContent = 'somente leitura no disco';
+      badge.textContent = t('somente leitura no disco');
       badge.onclick = null;
     } else {
       badge.hidden = true;
@@ -963,8 +981,8 @@
     lock.classList.toggle('is-unlocked', !!unlocked);
     lock.disabled = !tab;
     lock.title = unlocked
-      ? 'Edicao liberada — clique ou Ctrl+E para travar'
-      : 'Edicao travada — clique ou Ctrl+E para liberar';
+      ? t('Edicao liberada — clique ou Ctrl+E para travar')
+      : t('Edicao travada — clique ou Ctrl+E para liberar');
     $('lockText').textContent = unlocked ? 'Editando' : 'Travado';
 
     document.body.classList.toggle('is-editing', !!unlocked);
@@ -980,12 +998,12 @@
   // 'modo' e a leitura dele em voz alta, sem estado duplicado para dessincronizar.
 
   var MODOS = [
-    { id: 'leitura', label: 'Leitura', icon: 'book-open', key: 'Ctrl+E',
-      dica: 'o giz esta travado, a tecla nao escreve' },
-    { id: 'vivo', label: 'Edicao ao vivo', icon: 'pencil', key: '',
-      dica: 'edita no proprio leitor, sem ver o codigo' },
-    { id: 'fonte', label: 'Codigo-fonte', icon: 'code', key: 'Ctrl+Shift+C',
-      dica: 'markdown cru, com numeros de linha' }
+    { id: 'leitura', label: t('Leitura'), icon: 'book-open', key: 'Ctrl+E',
+      dica: t('o giz esta travado, a tecla nao escreve') },
+    { id: 'vivo', label: t('Edicao ao vivo'), icon: 'pencil', key: '',
+      dica: t('edita no proprio leitor, sem ver o codigo') },
+    { id: 'fonte', label: t('Codigo-fonte'), icon: 'code', key: 'Ctrl+Shift+C',
+      dica: t('markdown cru, com numeros de linha') }
   ];
 
   function modoDe(tab) {
@@ -1006,8 +1024,8 @@
     if (flag) {
       flag.disabled = !tab;
       flag.title = tab
-        ? 'Modo: ' + info.label + ' — ' + info.dica
-        : 'Modo de exibicao';
+        ? t('Modo: ') + info.label + ' — ' + info.dica
+        : t('Modo de exibicao');
       flag.classList.toggle('is-live', !!(tab && !tab.locked));
       var fi = flag.querySelector('.mode-flag-icon');
       fi.setAttribute('data-icon', info.icon);
@@ -1052,9 +1070,10 @@
         persist();
       };
       if (settings.confirmUnlock) {
-        dialog('Liberar edicao?',
-          'O documento <strong>' + escapeText(tab.name) + '</strong> passara a aceitar digitacao.',
-          [{ label: 'Cancelar', value: false }, { label: 'Liberar', value: true, cls: 'primary' }]
+        dialog(t('Liberar edicao?'),
+          t('O documento <strong>{nome}</strong> passara a aceitar digitacao.',
+            { nome: escapeText(tab.name) }),
+          [{ label: t('Cancelar'), value: false }, { label: t('Liberar'), value: true, cls: 'primary' }]
         ).then(function (yes) { if (yes) libera(); });
         return;
       }
@@ -1087,7 +1106,7 @@
 
     itens.push('-');
     itens.push({
-      label: 'Leitura ao lado do codigo', icon: 'columns', key: 'Ctrl+Shift+L',
+      label: t('Leitura ao lado do codigo'), icon: 'columns', key: 'Ctrl+Shift+L',
       checked: !!(tab && modo === 'fonte' && tab.showPreview),
       disabled: !(tab && modo === 'fonte'),
       action: togglePreviewPane
@@ -1148,7 +1167,7 @@
         lineMap: true
       });
     } catch (err) {
-      container.textContent = 'Falha ao renderizar: ' + err.message;
+      container.textContent = t('Falha ao renderizar: ') + err.message;
       return;
     }
 
@@ -1234,7 +1253,7 @@
   function addFoldToggle(heading, section, tab, key) {
     var chevron = document.createElement('span');
     chevron.className = 'fold-chevron';
-    chevron.title = 'Recolher / expandir secao';
+    chevron.title = t('Recolher / expandir secao');
     var svg = window.MarkPadIcons.build('chevron-down', 15);
     if (svg) chevron.appendChild(svg);
     heading.insertBefore(chevron, heading.firstChild);
@@ -1384,7 +1403,7 @@
   function showBrokenImage(img) {
     var span = document.createElement('span');
     span.className = 'remote-image';
-    span.textContent = 'imagem nao encontrada: ' + (img.getAttribute('data-src') || '');
+    span.textContent = t('imagem nao encontrada: ') + (img.getAttribute('data-src') || '');
     if (img.parentNode) img.parentNode.replaceChild(span, img);
   }
 
@@ -1453,32 +1472,32 @@
     if (!arquivo) return; // ![[#Secao]]: o link de ancora que ja esta la resolve
 
     if (cadeia.length >= EMBED_PROFUNDIDADE_MAX) {
-      return embedFalhou(casulo, 'Embeds fundos demais; este ficou como link.');
+      return embedFalhou(casulo, t('Embeds fundos demais; este ficou como link.'));
     }
 
     var nomeArq = /\.\w+$/.test(arquivo) ? arquivo : arquivo + '.md';
     if (!alvoAutoSeguro(nomeArq)) {
-      return embedFalhou(casulo, 'Caminho absoluto nao se embute sozinho — clique no link para abrir.');
+      return embedFalhou(casulo, t('Caminho absoluto nao se embute sozinho — clique no link para abrir.'));
     }
     if (!/\.(md|markdown|txt)$/i.test(nomeArq)) {
-      return embedFalhou(casulo, 'So notas de texto se embutem: ' + nomeArq);
+      return embedFalhou(casulo, t('So notas de texto se embutem: ') + nomeArq);
     }
 
     resolveNota(nomeArq, tab).then(function (path) {
-      if (!path) return embedFalhou(casulo, 'Arquivo nao encontrado: ' + nomeArq);
+      if (!path) return embedFalhou(casulo, t('Arquivo nao encontrado: ') + nomeArq);
       if (cadeia.indexOf(path.toLowerCase()) !== -1) {
-        return embedFalhou(casulo, 'Embed circular: ' + nomeArq + ' ja esta na corrente.');
+        return embedFalhou(casulo, t('Embed circular: ') + nomeArq + ' ja esta na corrente.');
       }
       return leNotaComCache(path).then(function (data) {
         if ((data.content || '').length > EMBED_BYTES_MAX) {
-          return embedFalhou(casulo, 'Arquivo grande demais para embutir.');
+          return embedFalhou(casulo, t('Arquivo grande demais para embutir.'));
         }
 
         var conteudo = renderConteudoDeNota(data.content, { dir: data.dir, path: path },
           cadeia.concat([path.toLowerCase()]));
         if (secao) {
           var fatia = extraiSecao(conteudo, secao);
-          if (!fatia) return embedFalhou(casulo, 'Secao nao encontrada: ' + secao);
+          if (!fatia) return embedFalhou(casulo, t('Secao nao encontrada: ') + secao);
           conteudo = fatia;
         }
         podaParaEmbed(conteudo);
@@ -1499,7 +1518,7 @@
         abrir.className = 'embed-open';
         abrir.href = '#';
         abrir.setAttribute('data-wikilink', bruto);
-        abrir.title = 'Abrir a nota';
+        abrir.title = t('Abrir a nota');
         var svg = window.MarkPadIcons.build('link', 14);
         if (svg) abrir.appendChild(svg);
         bloco.appendChild(abrir);
@@ -1511,7 +1530,7 @@
         casulo.appendChild(bloco);
         casulo.classList.add('is-resolved');
       });
-    }).catch(function () { embedFalhou(casulo, 'Nao consegui ler: ' + nomeArq); });
+    }).catch(function () { embedFalhou(casulo, t('Nao consegui ler: ') + nomeArq); });
   }
 
   /*
@@ -1526,7 +1545,7 @@
     try {
       result = window.MarkPadMarkdown.render(src, { loadRemoteImages: settings.loadRemoteImages });
     } catch (err) {
-      caixa.textContent = 'Falha ao renderizar: ' + err.message;
+      caixa.textContent = t('Falha ao renderizar: ') + err.message;
       return caixa;
     }
     caixa.innerHTML = result.html;
@@ -1624,7 +1643,7 @@
     cab.className = 'backlinks-head';
     var chev = window.MarkPadIcons.build('chevron-down', 13);
     if (chev) cab.appendChild(chev);
-    cab.appendChild(document.createTextNode('Mencoes ligadas'));
+    cab.appendChild(document.createTextNode(t('Mencoes ligadas')));
     var conta = document.createElement('span');
     conta.className = 'backlinks-count';
     conta.textContent = '…';
@@ -1657,7 +1676,7 @@
       if (!itens.length) {
         var vazio = document.createElement('p');
         vazio.className = 'pane-empty';
-        vazio.textContent = 'Nenhum arquivo da pasta aponta para este.';
+        vazio.textContent = t('Nenhum arquivo da pasta aponta para este.');
         corpo.appendChild(vazio);
         return;
       }
@@ -1924,7 +1943,7 @@
     if (chev) head.appendChild(chev);
 
     var rotulo = document.createElement('span');
-    rotulo.textContent = 'Propriedades';
+    rotulo.textContent = t('Propriedades');
     head.appendChild(rotulo);
 
     var conta = document.createElement('span');
@@ -1961,7 +1980,7 @@
       } else {
         var vazio = document.createElement('span');
         vazio.className = 'property-empty';
-        vazio.textContent = 'vazio';
+        vazio.textContent = t('vazio');
         valor.appendChild(vazio);
       }
 
@@ -2012,8 +2031,8 @@
     for (var i = 0; i < caixas.length; i++) {
       caixas[i].disabled = !podeEditar;
       caixas[i].title = podeEditar
-        ? 'Marcar ou desmarcar'
-        : 'Destrave a edicao (Ctrl+E) para marcar';
+        ? t('Marcar ou desmarcar')
+        : t('Destrave a edicao (Ctrl+E) para marcar');
     }
     container.classList.toggle('tasks-live', podeEditar);
   }
@@ -2069,7 +2088,7 @@
         var li = caixa.parentElement;
         var linha = li && li.getAttribute('data-task-line');
         if (linha == null) { e.preventDefault(); return; }
-        if (tab.locked) { e.preventDefault(); toast('Edicao travada. Ctrl+E para liberar.', '', 1600); return; }
+        if (tab.locked) { e.preventDefault(); toast(t('Edicao travada. Ctrl+E para liberar.'), '', 1600); return; }
 
         /*
          * Com um bloco aberto na edicao ao vivo, o documento ja cresceu ou
@@ -2107,8 +2126,8 @@
         var code = el.parentElement.querySelector('code');
         if (code) {
           navigator.clipboard.writeText(code.textContent).then(function () {
-            el.textContent = 'Copiado';
-            setTimeout(function () { el.textContent = 'Copiar'; }, 1200);
+            el.textContent = t('Copiado');
+            setTimeout(function () { el.textContent = t('Copiar'); }, 1200);
           });
         }
         return;
@@ -2161,7 +2180,7 @@
             : window.MarkPadMarkdown.slugify(secaoWl);
           var destinoWl = idWl && container.querySelector('#' + CSS.escape(idWl));
           if (destinoWl) { destinoWl.scrollIntoView({ behavior: 'smooth', block: 'start' }); piscaAlvo(destinoWl); }
-          else toast('Secao nao encontrada: ' + secaoWl, 'warn');
+          else toast(t('Secao nao encontrada: ') + secaoWl, 'warn');
           return;
         }
 
@@ -2186,7 +2205,7 @@
 
   function resolveAndOpen(relative, tab) {
     var base = tab.dir || app.folder;
-    if (!base) { toast('Sem pasta de referencia para resolver o link.', 'warn'); return; }
+    if (!base) { toast(t('Sem pasta de referencia para resolver o link.'), 'warn'); return; }
 
     var candidate = isAbsolutePath(relative) ? relative : joinPath(base, relative);
 
@@ -2196,9 +2215,9 @@
         // Nao achou ao lado: procura pelo nome na pasta aberta, como o Obsidian faz.
         return findByName(relative);
       }
-      toast('Arquivo nao encontrado: ' + relative, 'warn');
+      toast(t('Arquivo nao encontrado: ') + relative, 'warn');
       return null;
-    }).catch(function () { toast('Arquivo nao encontrado: ' + relative, 'warn'); });
+    }).catch(function () { toast(t('Arquivo nao encontrado: ') + relative, 'warn'); });
   }
 
   /*
@@ -2239,7 +2258,7 @@
 
   function findByName(name) {
     return buscaPorNome(name).then(function (achados) {
-      if (!achados.length) { toast('Arquivo nao encontrado: ' + name, 'warn'); return null; }
+      if (!achados.length) { toast(t('Arquivo nao encontrado: ') + name, 'warn'); return null; }
       if (achados.length > 1) toast(achados.length + ' arquivos com esse nome; abri o mais raso.', 'warn');
       return openPath(achados[0].path);
     });
@@ -2440,7 +2459,7 @@
   function renderStatus() {
     var tab = activeTab();
 
-    $('statusPath').textContent = tab ? (tab.path || 'nao salvo') : '';
+    $('statusPath').textContent = tab ? (tab.path || t('nao salvo')) : '';
     $('statusPath').title = tab ? (tab.path || '') : '';
 
     if (!tab) {
@@ -2462,7 +2481,7 @@
         var ln = upto.split('\n').length;
         var col = ta.selectionStart - nl;
         var sel = ta.selectionEnd - ta.selectionStart;
-        $('statusCursor').textContent = 'Ln ' + ln + ', Col ' + col + (sel ? ' (' + sel + ' sel)' : '');
+        $('statusCursor').textContent = t('Ln ') + ln + ', Col ' + col + (sel ? ' (' + sel + ' sel)' : '');
       } else {
         $('statusCursor').textContent = '';
       }
@@ -2471,10 +2490,10 @@
       $('statusEncoding').textContent = tab.encoding.toUpperCase();
     }
 
-    $('statusWrap').textContent = settings.wordWrap ? 'Quebra: sim' : 'Quebra: nao';
+    $('statusWrap').textContent = settings.wordWrap ? t('Quebra: sim') : t('Quebra: nao');
     $('statusZoom').textContent = Math.round(settings.fontSize / 16 * 100) + '%';
-    $('statusTheme').textContent = settings.theme === 'dark' ? 'Escuro'
-      : settings.theme === 'light' ? 'Claro' : 'Sistema';
+    $('statusTheme').textContent = settings.theme === 'dark' ? t('Escuro')
+      : settings.theme === 'light' ? t('Claro') : t('Sistema');
   }
 
   function renderOutline() {
@@ -2591,7 +2610,7 @@
   function setFolder(path, quiet) {
     app.folder = path;
     invalidateFileIndex();
-    $('folderName').textContent = path ? path.split(/[\\/]/).pop() : 'nenhuma pasta aberta';
+    $('folderName').textContent = path ? path.split(/[\\/]/).pop() : t('nenhuma pasta aberta');
     $('folderName').title = path || '';
     refreshTree();
     if (settings.sidebarPane === 'tags') renderTags();
@@ -2603,17 +2622,17 @@
     b.textContent = settings.treeOnlyMarkdown ? '.md' : 'tudo';
     b.classList.toggle('is-on', !!settings.treeOnlyMarkdown);
     b.title = settings.treeOnlyMarkdown
-      ? 'Mostrando só markdown — clique para ver todos os arquivos'
-      : 'Mostrando todos os arquivos — clique para ver só markdown';
+      ? t('Mostrando só markdown — clique para ver todos os arquivos')
+      : t('Mostrando todos os arquivos — clique para ver só markdown');
   }
 
   var ORDENS = [
-    { id: 'nome-asc',    rotulo: 'Nome (A a Z)' },
-    { id: 'nome-desc',   rotulo: 'Nome (Z a A)' },
-    { id: 'mod-desc',    rotulo: 'Modificado (recente primeiro)' },
-    { id: 'mod-asc',     rotulo: 'Modificado (antigo primeiro)' },
-    { id: 'criado-desc', rotulo: 'Criado (recente primeiro)' },
-    { id: 'criado-asc',  rotulo: 'Criado (antigo primeiro)' }
+    { id: 'nome-asc',    rotulo: t('Nome (A a Z)') },
+    { id: 'nome-desc',   rotulo: t('Nome (Z a A)') },
+    { id: 'mod-desc',    rotulo: t('Modificado (recente primeiro)') },
+    { id: 'mod-asc',     rotulo: t('Modificado (antigo primeiro)') },
+    { id: 'criado-desc', rotulo: t('Criado (recente primeiro)') },
+    { id: 'criado-asc',  rotulo: t('Criado (antigo primeiro)') }
   ];
 
   /*
@@ -2660,7 +2679,7 @@
     });
     itens.push('-');
     itens.push({
-      label: 'Pastas antes dos arquivos',
+      label: t('Pastas antes dos arquivos'),
       icon: 'folder',
       checked: settings.treeFoldersFirst !== false,
       action: function () {
@@ -2843,7 +2862,7 @@
 
     var carregando = document.createElement('p');
     carregando.className = 'pane-empty';
-    carregando.textContent = 'Procurando...';
+    carregando.textContent = t('Procurando...');
     box.appendChild(carregando);
 
     var consulta = app.treeFilter;
@@ -2860,7 +2879,7 @@
       if (!achados.length) {
         var vazio = document.createElement('p');
         vazio.className = 'pane-empty';
-        vazio.textContent = 'Nenhum arquivo com esse nome.';
+        vazio.textContent = t('Nenhum arquivo com esse nome.');
         box.appendChild(vazio);
         return;
       }
@@ -2873,7 +2892,7 @@
       if (achados.length > limite) {
         var mais = document.createElement('p');
         mais.className = 'pane-empty';
-        mais.textContent = 'e mais ' + (achados.length - limite) + ' — refine o filtro.';
+        mais.textContent = t('e mais ') + (achados.length - limite) + ' — refine o filtro.';
         box.appendChild(mais);
       }
       markTreeActive();
@@ -2940,8 +2959,8 @@
         var vazio = document.createElement('div');
         vazio.className = 'palette-item is-empty';
         vazio.textContent = app.folder
-          ? 'Nenhum arquivo com esse nome.'
-          : 'Abra uma pasta para procurar por nome.';
+          ? t('Nenhum arquivo com esse nome.')
+          : t('Abra uma pasta para procurar por nome.');
         listEl.appendChild(vazio);
         return;
       }
@@ -3054,8 +3073,8 @@
         var aviso = document.createElement('p');
         aviso.className = 'pane-empty';
         aviso.textContent = settings.treeOnlyMarkdown
-          ? 'Nenhum arquivo .md aqui. Toque no filtro acima para ver todos.'
-          : 'Pasta vazia.';
+          ? t('Nenhum arquivo .md aqui. Toque no filtro acima para ver todos.')
+          : t('Pasta vazia.');
         container.appendChild(aviso);
         return;
       }
@@ -3129,7 +3148,7 @@
     }).catch(function (err) {
       var p = document.createElement('p');
       p.className = 'pane-empty';
-      p.textContent = 'Nao consegui ler a pasta: ' + err.message;
+      p.textContent = t('Nao consegui ler a pasta: ') + err.message;
       container.appendChild(p);
     });
   }
@@ -3315,10 +3334,10 @@
       var p = document.createElement('p');
       p.className = 'pane-empty';
       p.textContent = tags.length
-        ? 'Nenhuma tag com esse nome.'
+        ? t('Nenhuma tag com esse nome.')
         : (app.folder
-          ? 'Nenhuma tag nos arquivos desta pasta.'
-          : 'Nenhuma tag nos documentos abertos. Abra uma pasta para varrer o disco.');
+          ? t('Nenhuma tag nos arquivos desta pasta.')
+          : t('Nenhuma tag nos documentos abertos. Abra uma pasta para varrer o disco.'));
       box.appendChild(p);
       renderTagResumo(0, 0);
       return;
@@ -3456,21 +3475,21 @@
     showMenu([
       { label: '#' + no.caminho, header: true },
       {
-        label: app.folder ? 'Buscar na pasta' : 'Buscar no documento',
+        label: app.folder ? t('Buscar na pasta') : t('Buscar no documento'),
         icon: 'search',
         action: function () { buscaTag(no.caminho); }
       },
       {
-        label: 'Copiar #' + no.caminho,
+        label: t('Copiar #') + no.caminho,
         icon: 'copy',
         action: function () {
           navigator.clipboard.writeText('#' + no.caminho);
-          toast('Tag copiada.', 'ok', 1200);
+          toast(t('Tag copiada.'), 'ok', 1200);
         }
       },
       '-',
       {
-        label: 'Inserir no documento',
+        label: t('Inserir no documento'),
         icon: 'plus',
         disabled: !tab || tab.locked,
         action: function () { insereTag(no.caminho); }
@@ -3511,9 +3530,9 @@
   }
 
   var ORDENS_TAG = [
-    { id: 'contagem', label: 'Mais usadas primeiro' },
-    { id: 'nome-asc', label: 'Nome (A → Z)' },
-    { id: 'nome-desc', label: 'Nome (Z → A)' }
+    { id: 'contagem', label: t('Mais usadas primeiro') },
+    { id: 'nome-asc', label: t('Nome (A → Z)') },
+    { id: 'nome-desc', label: t('Nome (Z → A)') }
   ];
 
   function tagSortMenu(x, y) {
@@ -3603,7 +3622,7 @@
       box.innerHTML = '';
       var p = document.createElement('p');
       p.className = 'pane-empty';
-      p.textContent = 'Busca falhou: ' + err.message;
+      p.textContent = t('Busca falhou: ') + err.message;
       box.appendChild(p);
     });
   }
@@ -3644,7 +3663,7 @@
     if (!tab) return;
 
     openFind();
-    if (tab.locked) { toast('Destrave a edicao para substituir.', 'warn'); return; }
+    if (tab.locked) { toast(t('Destrave a edicao para substituir.'), 'warn'); return; }
     $('replaceInput').focus();
     $('replaceInput').select();
   }
@@ -3655,7 +3674,7 @@
     $('replaceInput').disabled = !canEdit;
     $('btnReplace').disabled = !canEdit;
     $('btnReplaceAll').disabled = !canEdit;
-    $('replaceInput').placeholder = canEdit ? 'Substituir' : 'Substituir (destrave para usar)';
+    $('replaceInput').placeholder = canEdit ? 'Substituir' : t('Substituir (destrave para usar)');
   }
 
   function buildFindRegex() {
@@ -3837,7 +3856,7 @@
     var replacement = $('replaceInput').value;
     var count = 0;
     var next = tab.content.replace(re, function () { count++; return replacement; });
-    if (!count) { toast('Nada para substituir.', 'warn'); return; }
+    if (!count) { toast(t('Nada para substituir.'), 'warn'); return; }
 
     replaceRange(0, tab.content.length, next);
     toast(count + ' substituicoes.', 'ok');
@@ -3851,7 +3870,56 @@
       (settings.theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
     document.body.classList.toggle('theme-dark', dark);
     document.body.classList.toggle('theme-light', !dark);
+    window.MarkPadThemes.aplicar({
+      paletaId: settings.palette,
+      escuro: dark,
+      acento: settings.accent,
+      importado: settings.vscodeTheme
+    });
     bridge.call('setTitleBarTheme', { dark: dark }).catch(function () {});
+  }
+
+  /** O tema importado esta valendo agora? (so vale no modo em que foi feito) */
+  function temaImportadoAtivo() {
+    if (!settings.vscodeTheme) return false;
+    return settings.vscodeTheme.escuro === document.body.classList.contains('theme-dark');
+  }
+
+  /**
+   * Le um arquivo de tema do VS Code e adota.
+   *
+   * O arquivo vem de fora, entao nada dele chega ao CSS sem passar pelo filtro
+   * de themes.js — e se o filtro derrubar tudo, o que sobra e a paleta de
+   * casa, nao uma janela em branco.
+   */
+  function importarTemaVSCode() {
+    bridge.call('openFileDialog', { multi: false, filter: 'json' }).then(function (paths) {
+      if (!paths || !paths.length) return null;
+      var caminho = paths[0];
+      return bridge.call('readFile', { path: caminho }).then(function (res) {
+        var nome = caminho.split(/[\\/]/).pop().replace(/\.(json|jsonc)$/i, '');
+        var tema = window.MarkPadThemes.doVSCode(res.content, nome);
+        settings.vscodeTheme = tema;
+        // Um tema escuro so aparece com a janela escura. Em vez de importar e
+        // nao mostrar nada, a janela vai junto — foi o que o usuario pediu.
+        var querEscuro = tema.escuro;
+        var estaEscuro = document.body.classList.contains('theme-dark');
+        if (querEscuro !== estaEscuro) settings.theme = querEscuro ? 'dark' : 'light';
+        applyTheme();
+        renderStatus();
+        persist();
+        toast(t('Tema "{nome}" importado.', { nome: tema.nome }), 'ok');
+      });
+    }).catch(function (err) {
+      toast(t('Nao deu para importar: ') + (err && err.message ? err.message : err), 'error');
+    });
+  }
+
+  function removerTemaVSCode() {
+    settings.vscodeTheme = null;
+    applyTheme();
+    persist();
+    toast(t('Tema importado removido.'), 'ok');
   }
 
   function applyFontSizes() {
@@ -3883,62 +3951,63 @@
     var modo = modoDe(tab);
 
     return [
-      { id: 'open', label: 'Abrir arquivo...', key: 'Ctrl+O', icon: 'file-text', action: doOpen },
-      { id: 'openFolder', label: 'Abrir pasta...', key: 'Ctrl+Shift+O', icon: 'folder-open', action: doOpenFolder },
-      { id: 'new', label: 'Nova nota', key: 'Ctrl+N', icon: 'plus', action: newTab },
-      { id: 'save', label: 'Salvar', key: 'Ctrl+S', icon: 'save', enabled: !!unlocked, action: function () { saveTab(); } },
-      { id: 'saveAs', label: 'Salvar como...', key: 'Ctrl+Shift+S', icon: 'save', enabled: !!tab, action: function () { saveTab(activeTab(), true); } },
-      { id: 'close', label: 'Fechar aba', key: 'Ctrl+W', icon: 'x', enabled: !!tab, action: function () { closeTab(app.activeId); } },
-      { id: 'reopen', label: 'Reabrir aba fechada', key: 'Ctrl+Shift+T', icon: 'refresh', enabled: !!app.fechadas.length, action: reabrirAba },
-      { id: 'lock', label: unlocked ? 'Travar edicao' : 'Liberar edicao', key: 'Ctrl+E', icon: unlocked ? 'lock' : 'unlock', enabled: !!tab, action: toggleLock },
-      { id: 'modeRead', label: 'Modo: leitura', icon: 'book-open', enabled: !!tab, checked: modo === 'leitura', action: function () { setModo('leitura'); } },
-      { id: 'modeLive', label: 'Modo: edicao ao vivo', icon: 'pencil', enabled: !!tab, checked: modo === 'vivo', action: function () { setModo('vivo'); } },
-      { id: 'modeSource', label: 'Modo: codigo-fonte', key: 'Ctrl+Shift+C', icon: 'code', enabled: !!tab, checked: modo === 'fonte', action: function () { setModo('fonte'); } },
-      { id: 'modeSplit', label: 'Leitura ao lado do codigo', key: 'Ctrl+Shift+L', icon: 'columns', enabled: modo === 'fonte', checked: !!(tab && tab.showSource && tab.showPreview), action: togglePreviewPane },
-      { id: 'find', label: 'Localizar no documento', key: 'Ctrl+F', icon: 'search', enabled: !!tab, action: openFind },
-      { id: 'replace', label: 'Substituir no documento', key: 'Ctrl+H', icon: 'text', enabled: !!unlocked, action: openReplace },
-      { id: 'findFolder', label: 'Buscar na pasta', key: 'Ctrl+Shift+F', icon: 'search', action: function () { openFolderSearch(); } },
-      { id: 'goto', label: 'Ir para a linha...', key: 'Ctrl+G', icon: 'list', enabled: !!tab, action: promptGoToLine },
-      { id: 'foldAll', label: 'Recolher todas as secoes', key: 'Ctrl+Shift+-', icon: 'chevron-up', enabled: !!tab, action: function () { setAllFolds(true); } },
-      { id: 'unfoldAll', label: 'Expandir todas as secoes', key: 'Ctrl+Shift++', icon: 'chevron-down', enabled: !!tab, action: function () { setAllFolds(false); } },
-      { id: 'reload', label: 'Recarregar do disco', icon: 'refresh', enabled: !!(tab && tab.path), action: function () { reloadFromDisk(); } },
-      { id: 'wrap', label: 'Quebra automatica de linha', key: 'Alt+Z', icon: 'wrap', checked: settings.wordWrap, action: function () { settings.wordWrap = !settings.wordWrap; applyWrap(); renderEditorHighlight(); renderStatus(); persist(); } },
-      { id: 'properties', label: 'Mostrar propriedades', icon: 'list', checked: settings.showProperties !== false, action: function () { settings.showProperties = settings.showProperties === false; renderViews(); persist(); } },
-      { id: 'gutter', label: 'Numeros de linha', icon: 'list', checked: settings.lineNumbers, action: function () { settings.lineNumbers = !settings.lineNumbers; renderEditorHighlight(); persist(); } },
-      { id: 'wide', label: 'Largura total da linha', icon: 'columns', checked: settings.wideLines, action: function () { settings.wideLines = !settings.wideLines; applyFontSizes(); persist(); } },
-      { id: 'lockOnOpen', label: 'Abrir sempre travado', icon: 'lock', checked: settings.lockOnOpen, action: function () { settings.lockOnOpen = !settings.lockOnOpen; persist(); toast(settings.lockOnOpen ? 'Novos arquivos abrirao travados.' : 'Novos arquivos abrirao destravados.', 'ok'); } },
-      { id: 'confirmUnlock', label: 'Pedir confirmacao ao destravar', icon: 'unlock', checked: settings.confirmUnlock, action: function () { settings.confirmUnlock = !settings.confirmUnlock; persist(); } },
-      { id: 'autoSave', label: 'Salvar automaticamente', icon: 'save', checked: settings.autoSave, action: function () { settings.autoSave = !settings.autoSave; persist(); toast(settings.autoSave ? 'Salvamento automatico ligado.' : 'Salvamento automatico desligado.', 'ok'); } },
-      { id: 'remote', label: 'Carregar imagens da internet', icon: 'eye', checked: settings.loadRemoteImages, action: function () { settings.loadRemoteImages = !settings.loadRemoteImages; renderViews(); persist(); } },
-      { id: 'treeFilter', label: 'Painel: só arquivos markdown', icon: 'folder', checked: settings.treeOnlyMarkdown, action: function () { settings.treeOnlyMarkdown = !settings.treeOnlyMarkdown; renderTreeFilter(); refreshTree(); persist(); } },
-      { id: 'warnNonMd', label: 'Avisar ao abrir arquivo não-markdown', icon: 'warning', checked: settings.warnNonMarkdown, action: function () { settings.warnNonMarkdown = !settings.warnNonMarkdown; persist(); toast(settings.warnNonMarkdown ? 'O aviso volta a aparecer.' : 'Aviso desligado.', 'ok'); } },
-      { id: 'theme', label: 'Alternar tema', icon: settings.theme === 'light' ? 'moon' : 'sun', action: cycleTheme },
-      { id: 'zoomIn', label: 'Aumentar fonte', key: 'Ctrl++', icon: 'plus', action: function () { zoom(1); } },
-      { id: 'zoomOut', label: 'Diminuir fonte', key: 'Ctrl+-', icon: 'x', action: function () { zoom(-1); } },
-      { id: 'zoomReset', label: 'Fonte padrao', key: 'Ctrl+0', icon: 'refresh', action: function () { settings.fontSize = 16; settings.editorFontSize = 14; applyFontSizes(); renderStatus(); persist(); } },
-      { id: 'sidebar', label: 'Painel lateral', key: 'Ctrl+\\', icon: 'panel-left', checked: settings.sidebarVisible, action: function () { toggleSidebar(); } },
-      { id: 'rename', label: 'Renomear...', key: 'F2', icon: 'text', enabled: !!(tab && tab.path), action: function () { renameDoc(activeTab().path); } },
-      { id: 'move', label: 'Mover para...', icon: 'folder', enabled: !!(tab && tab.path), action: function () { moveDoc(activeTab().path); } },
-      { id: 'duplicate', label: 'Duplicar', icon: 'copy', enabled: !!(tab && tab.path), action: function () { duplicateDoc(activeTab().path); } },
-      { id: 'openWith', label: 'Abrir no app padrao do Windows', icon: 'external', enabled: !!(tab && tab.path), action: function () { openWithDefaultApp(activeTab().path); } },
-      { id: 'delete', label: 'Excluir arquivo...', icon: 'trash', enabled: !!(tab && tab.path), action: function () { deleteDoc(activeTab().path); } },
-      { id: 'export', label: 'Exportar como HTML...', icon: 'external', enabled: !!tab, action: exportHtml },
-      { id: 'print', label: 'Imprimir', key: 'Ctrl+Alt+P', icon: 'printer', enabled: !!tab, action: doPrint },
-      { id: 'copyPath', label: 'Copiar caminho do arquivo', icon: 'copy', enabled: !!(tab && tab.path), action: function () { navigator.clipboard.writeText(activeTab().path); toast('Caminho copiado.', 'ok', 1200); } },
-      { id: 'reveal', label: 'Mostrar no Explorer', icon: 'reveal', enabled: !!(tab && tab.path), action: function () { bridge.call('revealInExplorer', { path: activeTab().path }); } },
-      { id: 'assoc', label: app.isDefault ? 'Remover o MarkPad como padrao de .md'
-          : app.associated ? 'Definir o MarkPad como padrao de .md'
-          : 'Abrir arquivos .md com o MarkPad',
+      { id: 'open', label: t('Abrir arquivo...'), key: 'Ctrl+O', icon: 'file-text', action: doOpen },
+      { id: 'openFolder', label: t('Abrir pasta...'), key: 'Ctrl+Shift+O', icon: 'folder-open', action: doOpenFolder },
+      { id: 'new', label: t('Nova nota'), key: 'Ctrl+N', icon: 'plus', action: newTab },
+      { id: 'save', label: t('Salvar'), key: 'Ctrl+S', icon: 'save', enabled: !!unlocked, action: function () { saveTab(); } },
+      { id: 'saveAs', label: t('Salvar como...'), key: 'Ctrl+Shift+S', icon: 'save', enabled: !!tab, action: function () { saveTab(activeTab(), true); } },
+      { id: 'close', label: t('Fechar aba'), key: 'Ctrl+W', icon: 'x', enabled: !!tab, action: function () { closeTab(app.activeId); } },
+      { id: 'reopen', label: t('Reabrir aba fechada'), key: 'Ctrl+Shift+T', icon: 'refresh', enabled: !!app.fechadas.length, action: reabrirAba },
+      { id: 'lock', label: unlocked ? t('Travar edicao') : t('Liberar edicao'), key: 'Ctrl+E', icon: unlocked ? 'lock' : 'unlock', enabled: !!tab, action: toggleLock },
+      { id: 'modeRead', label: t('Modo: leitura'), icon: 'book-open', enabled: !!tab, checked: modo === 'leitura', action: function () { setModo('leitura'); } },
+      { id: 'modeLive', label: t('Modo: edicao ao vivo'), icon: 'pencil', enabled: !!tab, checked: modo === 'vivo', action: function () { setModo('vivo'); } },
+      { id: 'modeSource', label: t('Modo: codigo-fonte'), key: 'Ctrl+Shift+C', icon: 'code', enabled: !!tab, checked: modo === 'fonte', action: function () { setModo('fonte'); } },
+      { id: 'modeSplit', label: t('Leitura ao lado do codigo'), key: 'Ctrl+Shift+L', icon: 'columns', enabled: modo === 'fonte', checked: !!(tab && tab.showSource && tab.showPreview), action: togglePreviewPane },
+      { id: 'find', label: t('Localizar no documento'), key: 'Ctrl+F', icon: 'search', enabled: !!tab, action: openFind },
+      { id: 'replace', label: t('Substituir no documento'), key: 'Ctrl+H', icon: 'text', enabled: !!unlocked, action: openReplace },
+      { id: 'findFolder', label: t('Buscar na pasta'), key: 'Ctrl+Shift+F', icon: 'search', action: function () { openFolderSearch(); } },
+      { id: 'goto', label: t('Ir para a linha...'), key: 'Ctrl+G', icon: 'list', enabled: !!tab, action: promptGoToLine },
+      { id: 'foldAll', label: t('Recolher todas as secoes'), key: 'Ctrl+Shift+-', icon: 'chevron-up', enabled: !!tab, action: function () { setAllFolds(true); } },
+      { id: 'unfoldAll', label: t('Expandir todas as secoes'), key: 'Ctrl+Shift++', icon: 'chevron-down', enabled: !!tab, action: function () { setAllFolds(false); } },
+      { id: 'reload', label: t('Recarregar do disco'), icon: 'refresh', enabled: !!(tab && tab.path), action: function () { reloadFromDisk(); } },
+      { id: 'wrap', label: t('Quebra automatica de linha'), key: 'Alt+Z', icon: 'wrap', checked: settings.wordWrap, action: function () { settings.wordWrap = !settings.wordWrap; applyWrap(); renderEditorHighlight(); renderStatus(); persist(); } },
+      { id: 'properties', label: t('Mostrar propriedades'), icon: 'list', checked: settings.showProperties !== false, action: function () { settings.showProperties = settings.showProperties === false; renderViews(); persist(); } },
+      { id: 'gutter', label: t('Numeros de linha'), icon: 'list', checked: settings.lineNumbers, action: function () { settings.lineNumbers = !settings.lineNumbers; renderEditorHighlight(); persist(); } },
+      { id: 'wide', label: t('Largura total da linha'), icon: 'columns', checked: settings.wideLines, action: function () { settings.wideLines = !settings.wideLines; applyFontSizes(); persist(); } },
+      { id: 'lockOnOpen', label: t('Abrir sempre travado'), icon: 'lock', checked: settings.lockOnOpen, action: function () { settings.lockOnOpen = !settings.lockOnOpen; persist(); toast(settings.lockOnOpen ? t('Novos arquivos abrirao travados.') : t('Novos arquivos abrirao destravados.'), 'ok'); } },
+      { id: 'confirmUnlock', label: t('Pedir confirmacao ao destravar'), icon: 'unlock', checked: settings.confirmUnlock, action: function () { settings.confirmUnlock = !settings.confirmUnlock; persist(); } },
+      { id: 'autoSave', label: t('Salvar automaticamente'), icon: 'save', checked: settings.autoSave, action: function () { settings.autoSave = !settings.autoSave; persist(); toast(settings.autoSave ? t('Salvamento automatico ligado.') : t('Salvamento automatico desligado.'), 'ok'); } },
+      { id: 'remote', label: t('Carregar imagens da internet'), icon: 'eye', checked: settings.loadRemoteImages, action: function () { settings.loadRemoteImages = !settings.loadRemoteImages; renderViews(); persist(); } },
+      { id: 'treeFilter', label: t('Painel: só arquivos markdown'), icon: 'folder', checked: settings.treeOnlyMarkdown, action: function () { settings.treeOnlyMarkdown = !settings.treeOnlyMarkdown; renderTreeFilter(); refreshTree(); persist(); } },
+      { id: 'warnNonMd', label: t('Avisar ao abrir arquivo não-markdown'), icon: 'warning', checked: settings.warnNonMarkdown, action: function () { settings.warnNonMarkdown = !settings.warnNonMarkdown; persist(); toast(settings.warnNonMarkdown ? t('O aviso volta a aparecer.') : t('Aviso desligado.'), 'ok'); } },
+      { id: 'theme', label: t('Alternar tema'), icon: settings.theme === 'light' ? 'moon' : 'sun', action: cycleTheme },
+      { id: 'palette', label: t('Paleta de cores...'), icon: 'sun', action: function () { openSettings('aparencia'); } },
+      { id: 'zoomIn', label: t('Aumentar fonte'), key: 'Ctrl++', icon: 'plus', action: function () { zoom(1); } },
+      { id: 'zoomOut', label: t('Diminuir fonte'), key: 'Ctrl+-', icon: 'x', action: function () { zoom(-1); } },
+      { id: 'zoomReset', label: t('Fonte padrao'), key: 'Ctrl+0', icon: 'refresh', action: function () { settings.fontSize = 16; settings.editorFontSize = 14; applyFontSizes(); renderStatus(); persist(); } },
+      { id: 'sidebar', label: t('Painel lateral'), key: 'Ctrl+\\', icon: 'panel-left', checked: settings.sidebarVisible, action: function () { toggleSidebar(); } },
+      { id: 'rename', label: t('Renomear...'), key: 'F2', icon: 'text', enabled: !!(tab && tab.path), action: function () { renameDoc(activeTab().path); } },
+      { id: 'move', label: t('Mover para...'), icon: 'folder', enabled: !!(tab && tab.path), action: function () { moveDoc(activeTab().path); } },
+      { id: 'duplicate', label: t('Duplicar'), icon: 'copy', enabled: !!(tab && tab.path), action: function () { duplicateDoc(activeTab().path); } },
+      { id: 'openWith', label: t('Abrir no app padrao do Windows'), icon: 'external', enabled: !!(tab && tab.path), action: function () { openWithDefaultApp(activeTab().path); } },
+      { id: 'delete', label: t('Excluir arquivo...'), icon: 'trash', enabled: !!(tab && tab.path), action: function () { deleteDoc(activeTab().path); } },
+      { id: 'export', label: t('Exportar como HTML...'), icon: 'external', enabled: !!tab, action: exportHtml },
+      { id: 'print', label: t('Imprimir'), key: 'Ctrl+Alt+P', icon: 'printer', enabled: !!tab, action: doPrint },
+      { id: 'copyPath', label: t('Copiar caminho do arquivo'), icon: 'copy', enabled: !!(tab && tab.path), action: function () { navigator.clipboard.writeText(activeTab().path); toast(t('Caminho copiado.'), 'ok', 1200); } },
+      { id: 'reveal', label: t('Mostrar no Explorer'), icon: 'reveal', enabled: !!(tab && tab.path), action: function () { bridge.call('revealInExplorer', { path: activeTab().path }); } },
+      { id: 'assoc', label: app.isDefault ? t('Remover o MarkPad como padrao de .md')
+          : app.associated ? t('Definir o MarkPad como padrao de .md')
+          : t('Abrir arquivos .md com o MarkPad'),
         icon: 'link', checked: app.isDefault, action: toggleAssociation },
-      { id: 'switcher', label: 'Abrir arquivo pelo nome...', key: 'Ctrl+P', icon: 'search', action: function () { openSwitcher(); } },
-      { id: 'treeSearch', label: 'Filtrar arquivos por nome', icon: 'filter', action: function () { setPane('files'); toggleTreeFilter(true); } },
-      { id: 'tags', label: 'Painel: tags', icon: 'hash', action: function () { if (!settings.sidebarVisible) toggleSidebar(true); setPane('tags'); } },
-      { id: 'tagSort', label: 'Ordenar tags por...', icon: 'sort', action: function () { if (!settings.sidebarVisible) toggleSidebar(true); setPane('tags'); var r = $('btnTagSort').getBoundingClientRect(); tagSortMenu(r.right - 250, r.bottom + 4); } },
-      { id: 'treeSort', label: 'Ordenar arquivos por...', icon: 'sort', action: function () { setPane('files'); var r = $('btnTreeSort').getBoundingClientRect(); treeSortMenu(r.right - 250, r.bottom + 4); } },
-      { id: 'treeCollapse', label: 'Recolher todas as pastas', icon: 'chevrons-up', enabled: !!app.folder, action: collapseTree },
-      { id: 'quickBar', label: 'Barra de acesso rapido', icon: 'command', checked: settings.quickBarVisible, action: function () { settings.quickBarVisible = !settings.quickBarVisible; renderQuickBar(); persist(); } },
-      { id: 'settings', label: 'Configuracoes...', key: 'Ctrl+,', icon: 'settings', action: function () { openSettings(); } },
-      { id: 'devtools', label: 'Ferramentas do desenvolvedor', icon: 'settings', action: function () { bridge.call('devTools', {}); } }
+      { id: 'switcher', label: t('Abrir arquivo pelo nome...'), key: 'Ctrl+P', icon: 'search', action: function () { openSwitcher(); } },
+      { id: 'treeSearch', label: t('Filtrar arquivos por nome'), icon: 'filter', action: function () { setPane('files'); toggleTreeFilter(true); } },
+      { id: 'tags', label: t('Painel: tags'), icon: 'hash', action: function () { if (!settings.sidebarVisible) toggleSidebar(true); setPane('tags'); } },
+      { id: 'tagSort', label: t('Ordenar tags por...'), icon: 'sort', action: function () { if (!settings.sidebarVisible) toggleSidebar(true); setPane('tags'); var r = $('btnTagSort').getBoundingClientRect(); tagSortMenu(r.right - 250, r.bottom + 4); } },
+      { id: 'treeSort', label: t('Ordenar arquivos por...'), icon: 'sort', action: function () { setPane('files'); var r = $('btnTreeSort').getBoundingClientRect(); treeSortMenu(r.right - 250, r.bottom + 4); } },
+      { id: 'treeCollapse', label: t('Recolher todas as pastas'), icon: 'chevrons-up', enabled: !!app.folder, action: collapseTree },
+      { id: 'quickBar', label: t('Barra de acesso rapido'), icon: 'command', checked: settings.quickBarVisible, action: function () { settings.quickBarVisible = !settings.quickBarVisible; renderQuickBar(); persist(); } },
+      { id: 'settings', label: t('Configuracoes...'), key: 'Ctrl+,', icon: 'settings', action: function () { openSettings(); } },
+      { id: 'devtools', label: t('Ferramentas do desenvolvedor'), icon: 'settings', action: function () { bridge.call('devTools', {}); } }
     ];
   }
 
@@ -4001,7 +4070,7 @@
 
     var cfg = document.createElement('button');
     cfg.className = 'quick-btn';
-    cfg.title = 'Configuracoes   Ctrl+,';
+    cfg.title = t('Configuracoes   Ctrl+,');
     var gear = window.MarkPadIcons.build('settings', 16);
     if (gear) cfg.appendChild(gear);
     cfg.onclick = function () { openSettings(); };
@@ -4010,11 +4079,11 @@
     bar.oncontextmenu = function (e) {
       e.preventDefault();
       showMenu([
-        { label: 'Configurar a barra...', icon: 'settings', action: function () { openSettings('barra'); } },
-        { label: 'Mostrar rotulos', icon: 'text', checked: settings.quickBarLabels,
+        { label: t('Configurar a barra...'), icon: 'settings', action: function () { openSettings('barra'); } },
+        { label: t('Mostrar rotulos'), icon: 'text', checked: settings.quickBarLabels,
           action: function () { settings.quickBarLabels = !settings.quickBarLabels; renderQuickBar(); persist(); } },
         '-',
-        { label: 'Ocultar a barra', icon: 'x',
+        { label: t('Ocultar a barra'), icon: 'x',
           action: function () { settings.quickBarVisible = false; renderQuickBar(); persist(); } }
       ], e.clientX, e.clientY);
     };
@@ -4117,6 +4186,144 @@
     return r;
   }
 
+  // As amostras de cor do painel de aparencia dependem do modo da janela: a
+  // mesma paleta tem duas caras. Trocar o modo no proprio painel tem que
+  // repintar as amostras, senao o cartao continua mostrando o tema de ontem.
+  var atualizarAmostras = function () {};
+
+  /**
+   * A grade de paletas. Cartao em vez de <select> porque cor se escolhe
+   * olhando: cada cartao pinta o proprio fundo e o proprio acento, ja no modo
+   * (claro/escuro) em que a janela esta.
+   */
+  function montarPaletas(pai) {
+    var grade = document.createElement('div');
+    grade.className = 'theme-grid';
+    pai.appendChild(grade);
+
+    var aviso = document.createElement('div');
+    aviso.className = 'set-desc theme-grid-note';
+    pai.appendChild(aviso);
+
+    function pintar() {
+      var escuro = document.body.classList.contains('theme-dark');
+      var importado = temaImportadoAtivo();
+      grade.textContent = '';
+
+      window.MarkPadThemes.PALETAS.forEach(function (p) {
+        var am = window.MarkPadThemes.amostra(p.id, escuro);
+        var cartao = document.createElement('button');
+        cartao.type = 'button';
+        cartao.className = 'theme-card' + (!importado && settings.palette === p.id ? ' is-active' : '');
+        cartao.title = p.descricao;
+
+        var tela = document.createElement('span');
+        tela.className = 'theme-card-swatch';
+        tela.style.background = am.fundo;
+        ['--color-base-30', '--color-base-70'].forEach(function (chave) {
+          var m = escuro ? p.dark : p.light;
+          var ponto = document.createElement('span');
+          ponto.className = 'theme-card-dot';
+          ponto.style.background = (m && m[chave]) || (escuro ? '#3a3a3a' : '#dcdcdc');
+          tela.appendChild(ponto);
+        });
+        var acento = document.createElement('span');
+        acento.className = 'theme-card-dot is-accent';
+        acento.style.background = am.acento;
+        tela.appendChild(acento);
+        cartao.appendChild(tela);
+
+        var nome = document.createElement('span');
+        nome.className = 'theme-card-name';
+        nome.textContent = p.nome;
+        cartao.appendChild(nome);
+
+        cartao.onclick = function () {
+          settings.palette = p.id;
+          // Escolher uma paleta de casa e dizer que o tema importado saiu de
+          // cena; mante-lo guardado e invisivel so confundiria a proxima vez.
+          if (settings.vscodeTheme) settings.vscodeTheme = null;
+          applyTheme();
+          persist();
+          pintar();
+        };
+        grade.appendChild(cartao);
+      });
+
+      var tema = settings.vscodeTheme;
+      if (!tema) {
+        aviso.textContent = '';
+      } else if (importado) {
+        aviso.textContent = t('Valendo agora: tema importado "{nome}".', { nome: tema.nome });
+      } else {
+        aviso.textContent = t('O tema importado "{nome}" e {modo} e esta fora do ar no modo atual.',
+          { nome: tema.nome, modo: tema.escuro ? t('escuro') : t('claro') });
+      }
+    }
+
+    pintar();
+    atualizarAmostras = pintar;
+
+    var linha = setLinha(pai, t('Tema do VS Code'),
+      t('Um arquivo .json de tema do VS Code vira paleta aqui. So as cores entram — o resto do arquivo e ignorado.'));
+    setBotao(linha, t('Importar...'), function () { importarTemaVSCode(); setTimeout(pintar, 0); });
+    if (settings.vscodeTheme) {
+      setBotao(linha, t('Remover'), function () { removerTemaVSCode(); pintar(); }, 'danger');
+    }
+  }
+
+  /** Cor de destaque: seis presets, um seletor livre e a volta para a paleta. */
+  function montarAcento(pai) {
+    var PRESETS = [
+      { nome: t('Roxo'), cor: '#8a5cf6' }, { nome: t('Azul'), cor: '#2f7ff7' },
+      { nome: t('Verde'), cor: '#1eab5a' }, { nome: t('Laranja'), cor: '#e07b1f' },
+      { nome: t('Vermelho'), cor: '#e0455a' }, { nome: t('Rosa'), cor: '#e055a8' },
+      { nome: t('Ciano'), cor: '#12a8a8' }, { nome: t('Grafite'), cor: '#6b7280' }
+    ];
+
+    var ctl = setLinha(pai, t('Cor de destaque'),
+      t('Vale sobre a cor da paleta. Muda o link, o foco e o realce da selecao.'));
+    var faixa = document.createElement('div');
+    faixa.className = 'accent-row';
+    ctl.appendChild(faixa);
+
+    function repintar() {
+      faixa.querySelectorAll('.accent-dot').forEach(function (d) {
+        d.classList.toggle('is-active', (settings.accent || '').toLowerCase() === d.dataset.cor);
+      });
+      livre.value = settings.accent || '#8a5cf6';
+      padrao.hidden = !settings.accent;
+    }
+
+    function escolher(cor) {
+      settings.accent = cor || '';
+      applyTheme();
+      persist();
+      repintar();
+    }
+
+    PRESETS.forEach(function (p) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'accent-dot';
+      b.title = p.nome;
+      b.dataset.cor = p.cor;
+      b.style.background = p.cor;
+      b.onclick = function () { escolher(p.cor); };
+      faixa.appendChild(b);
+    });
+
+    var livre = document.createElement('input');
+    livre.type = 'color';
+    livre.className = 'accent-free';
+    livre.title = t('Outra cor');
+    livre.oninput = function () { escolher(livre.value); };
+    faixa.appendChild(livre);
+
+    var padrao = setBotao(ctl, t('Usar a da paleta'), function () { escolher(''); });
+    repintar();
+  }
+
   function setBotao(ctl, rotulo, fn, cls) {
     var b = document.createElement('button');
     b.type = 'button';
@@ -4127,17 +4334,21 @@
     return b;
   }
 
+  // Fecha o painel de configuracoes de fora — hoje so quem troca o idioma
+  // precisa, para reabrir o painel ja no idioma novo.
+  var fecharSettings = function () {};
+
   function openSettings(abaInicial) {
     if ($('settingsBox')) return;
 
     var ABAS = [
-      { id: 'aparencia',   nome: 'Aparencia',      icon: 'sun',       render: abaAparencia },
-      { id: 'editor',      nome: 'Editor e trava', icon: 'lock',      render: abaEditor },
-      { id: 'arquivos',    nome: 'Arquivos',       icon: 'folder',    render: abaArquivos },
-      { id: 'barra',       nome: 'Barra rapida',   icon: 'command',   render: abaBarra },
-      { id: 'atalhos',     nome: 'Atalhos',        icon: 'list',      render: abaAtalhos },
-      { id: 'atualizacao', nome: 'Atualizacoes',   icon: 'refresh',   render: abaAtualizacao },
-      { id: 'sobre',       nome: 'Sobre',          icon: 'info',      render: abaSobre }
+      { id: 'aparencia',   nome: t('Aparencia'),      icon: 'sun',       render: abaAparencia },
+      { id: 'editor',      nome: t('Editor e trava'), icon: 'lock',      render: abaEditor },
+      { id: 'arquivos',    nome: t('Arquivos'),       icon: 'folder',    render: abaArquivos },
+      { id: 'barra',       nome: t('Barra rapida'),   icon: 'command',   render: abaBarra },
+      { id: 'atalhos',     nome: t('Atalhos'),        icon: 'list',      render: abaAtalhos },
+      { id: 'atualizacao', nome: t('Atualizacoes'),   icon: 'refresh',   render: abaAtualizacao },
+      { id: 'sobre',       nome: t('Sobre'),          icon: 'info',      render: abaSobre }
     ];
 
     var atual = abaInicial || 'aparencia';
@@ -4152,7 +4363,7 @@
 
     var navTitle = document.createElement('div');
     navTitle.className = 'settings-nav-title';
-    navTitle.textContent = 'Configuracoes';
+    navTitle.textContent = t('Configuracoes');
     nav.appendChild(navTitle);
 
     var body = document.createElement('div');
@@ -4166,7 +4377,7 @@
 
     var btnFechar = document.createElement('button');
     btnFechar.className = 'icon-btn';
-    btnFechar.title = 'Fechar (Esc)';
+    btnFechar.title = t('Fechar (Esc)');
     var xi = window.MarkPadIcons.build('x', 16);
     if (xi) btnFechar.appendChild(xi);
     btnFechar.onclick = function () { fechar(); };
@@ -4213,8 +4424,10 @@
       overlay.onclick = null;
       box.remove();
       document.removeEventListener('keydown', onKey, true);
+      fecharSettings = function () {};
       persist();
     }
+    fecharSettings = fechar;
 
     function onKey(e) {
       if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); fechar(); }
@@ -4228,127 +4441,149 @@
   }
 
   function abaAparencia(pai) {
-    setSecao(pai, 'Tema');
-    setSelect(setLinha(pai, 'Tema da janela', 'O tema "sistema" segue a configuracao do Windows.'),
-      [{ value: 'dark', label: 'Escuro' }, { value: 'light', label: 'Claro' }, { value: 'system', label: 'Sistema' }],
+    setSecao(pai, t('Tema'));
+    setSelect(setLinha(pai, t('Tema da janela'), t('O tema "sistema" segue a configuracao do Windows.')),
+      [{ value: 'dark', label: t('Escuro') }, { value: 'light', label: t('Claro') }, { value: 'system', label: t('Sistema') }],
       function () { return settings.theme; },
-      function (v) { settings.theme = v; applyTheme(); renderStatus(); persist(); });
+      function (v) { settings.theme = v; applyTheme(); renderStatus(); atualizarAmostras(); persist(); });
 
-    setSecao(pai, 'Texto');
-    setRange(setLinha(pai, 'Tamanho da fonte de leitura', 'Vale para o modo leitura e para o painel de leitura.'),
+    montarPaletas(pai);
+    montarAcento(pai);
+
+    setSecao(pai, t('Idioma'));
+    var idiomas = [{ value: 'auto', label: t('Seguir o Windows') }].concat(
+      window.MarkPadI18n.IDIOMAS.map(function (i) { return { value: i.code, label: i.nome }; }));
+    setSelect(setLinha(pai, t('Idioma da interface'),
+        t('O idioma do documento nao muda — so os menus, avisos e configuracoes.')),
+      idiomas,
+      function () { return settings.language || 'auto'; },
+      function (v) {
+        settings.language = v;
+        persist();
+        // A janela inteira fala o idioma antigo: barra de status, abas, menus,
+        // a arvore e este proprio painel. Redesenhar tudo e mais barato (e mais
+        // honesto) do que caçar cada texto ja escrito na tela.
+        applySettings();
+        renderAll();
+        fecharSettings();
+        openSettings('aparencia');
+      });
+
+    setSecao(pai, t('Texto'));
+    setRange(setLinha(pai, t('Tamanho da fonte de leitura'), t('Vale para o modo leitura e para o painel de leitura.')),
       12, 26, 1, 'px',
       function () { return settings.fontSize; },
       function (v) { settings.fontSize = v; applyFontSizes(); renderStatus(); persist(); });
 
-    setRange(setLinha(pai, 'Tamanho da fonte do editor', 'Vale para o painel de codigo-fonte.'),
+    setRange(setLinha(pai, t('Tamanho da fonte do editor'), t('Vale para o painel de codigo-fonte.')),
       10, 22, 1, 'px',
       function () { return settings.editorFontSize; },
       function (v) { settings.editorFontSize = v; applyFontSizes(); renderStatus(); persist(); });
 
-    setToggle(setLinha(pai, 'Largura total da linha', 'Desligado, o texto fica numa coluna estreita, mais confortavel de ler.'),
+    setToggle(setLinha(pai, t('Largura total da linha'), t('Desligado, o texto fica numa coluna estreita, mais confortavel de ler.')),
       function () { return settings.wideLines; },
       function (v) { settings.wideLines = v; applyFontSizes(); persist(); });
 
-    setSecao(pai, 'Janela');
-    setToggle(setLinha(pai, 'Painel lateral visivel', 'Ctrl+\\ tambem alterna.'),
+    setSecao(pai, t('Janela'));
+    setToggle(setLinha(pai, t('Painel lateral visivel'), t('Ctrl+\\ tambem alterna.')),
       function () { return settings.sidebarVisible; },
       function (v) { toggleSidebar(v); });
 
-    setToggle(setLinha(pai, 'Mostrar propriedades', 'A ficha com o bloco --- do topo do documento, no modo leitura.'),
+    setToggle(setLinha(pai, t('Mostrar propriedades'), t('A ficha com o bloco --- do topo do documento, no modo leitura.')),
       function () { return settings.showProperties !== false; },
       function (v) { settings.showProperties = v; renderViews(); persist(); });
 
-    setToggle(setLinha(pai, 'Mencoes ligadas', 'No fim da leitura: quem, na pasta aberta, aponta para este documento.'),
+    setToggle(setLinha(pai, t('Mencoes ligadas'), t('No fim da leitura: quem, na pasta aberta, aponta para este documento.')),
       function () { return settings.showBacklinks !== false; },
       function (v) { settings.showBacklinks = v; renderViews(); persist(); });
 
-    setToggle(setLinha(pai, 'Previa ao pairar o mouse', 'Pare o mouse sobre um link interno e a nota aparece num cartao.'),
+    setToggle(setLinha(pai, t('Previa ao pairar o mouse'), t('Pare o mouse sobre um link interno e a nota aparece num cartao.')),
       function () { return settings.hoverPreview !== false; },
       function (v) { settings.hoverPreview = v; if (!v) fechaPrevia(); persist(); });
 
-    setToggle(setLinha(pai, 'Animacoes', 'Desligue para uma interface instantanea, sem transicoes.'),
+    setToggle(setLinha(pai, t('Animacoes'), t('Desligue para uma interface instantanea, sem transicoes.')),
       function () { return settings.animations !== false; },
       function (v) { settings.animations = v; applyAnimations(); persist(); });
   }
 
   function abaEditor(pai) {
-    setSecao(pai, 'A trava');
-    setToggle(setLinha(pai, 'Abrir sempre travado', 'O jeito seguro: nenhum arquivo abre em modo de edicao.'),
+    setSecao(pai, t('A trava'));
+    setToggle(setLinha(pai, t('Abrir sempre travado'), t('O jeito seguro: nenhum arquivo abre em modo de edicao.')),
       function () { return settings.lockOnOpen; },
       function (v) { settings.lockOnOpen = v; persist(); });
 
-    setToggle(setLinha(pai, 'Pedir confirmacao ao destravar', 'Uma pergunta a mais antes de liberar a edicao.'),
+    setToggle(setLinha(pai, t('Pedir confirmacao ao destravar'), t('Uma pergunta a mais antes de liberar a edicao.')),
       function () { return settings.confirmUnlock; },
       function (v) { settings.confirmUnlock = v; persist(); });
 
-    setSecao(pai, 'Edicao');
-    setToggle(setLinha(pai, 'Salvar automaticamente', 'Grava sozinho pouco depois de voce parar de digitar.'),
+    setSecao(pai, t('Edicao'));
+    setToggle(setLinha(pai, t('Salvar automaticamente'), t('Grava sozinho pouco depois de voce parar de digitar.')),
       function () { return settings.autoSave; },
       function (v) { settings.autoSave = v; persist(); });
 
-    setToggle(setLinha(pai, 'Quebra automatica de linha', 'Alt+Z tambem alterna.'),
+    setToggle(setLinha(pai, t('Quebra automatica de linha'), t('Alt+Z tambem alterna.')),
       function () { return settings.wordWrap; },
       function (v) { settings.wordWrap = v; applyWrap(); renderEditorHighlight(); renderStatus(); persist(); });
 
-    setToggle(setLinha(pai, 'Numeros de linha', 'Na margem do painel de codigo-fonte.'),
+    setToggle(setLinha(pai, t('Numeros de linha'), t('Na margem do painel de codigo-fonte.')),
       function () { return settings.lineNumbers; },
       function (v) { settings.lineNumbers = v; renderEditorHighlight(); persist(); });
   }
 
   function abaArquivos(pai) {
-    setSecao(pai, 'Painel de arquivos');
-    setToggle(setLinha(pai, 'Mostrar so arquivos markdown', 'Desligado, a arvore lista todos os arquivos da pasta.'),
+    setSecao(pai, t('Painel de arquivos'));
+    setToggle(setLinha(pai, t('Mostrar so arquivos markdown'), t('Desligado, a arvore lista todos os arquivos da pasta.')),
       function () { return settings.treeOnlyMarkdown; },
       function (v) { settings.treeOnlyMarkdown = v; renderTreeFilter(); refreshTree(); persist(); });
 
-    setSelect(setLinha(pai, 'Ordenar por', 'Vale para a arvore inteira. Tambem esta no botao de ordenar do painel.'),
+    setSelect(setLinha(pai, t('Ordenar por'), t('Vale para a arvore inteira. Tambem esta no botao de ordenar do painel.')),
       ORDENS.map(function (o) { return { value: o.id, label: o.rotulo }; }),
       function () { return settings.treeSort || 'nome-asc'; },
       function (v) { settings.treeSort = v; refreshTree(); persist(); });
 
-    setToggle(setLinha(pai, 'Pastas antes dos arquivos', 'Desligado, pastas e arquivos entram na mesma ordenacao.'),
+    setToggle(setLinha(pai, t('Pastas antes dos arquivos'), t('Desligado, pastas e arquivos entram na mesma ordenacao.')),
       function () { return settings.treeFoldersFirst !== false; },
       function (v) { settings.treeFoldersFirst = v; refreshTree(); persist(); });
 
-    setSecao(pai, 'Ao abrir');
-    setToggle(setLinha(pai, 'Avisar ao abrir arquivo nao-markdown', 'A confirmacao antes de abrir algo que nao parece markdown.'),
+    setSecao(pai, t('Ao abrir'));
+    setToggle(setLinha(pai, t('Avisar ao abrir arquivo nao-markdown'), t('A confirmacao antes de abrir algo que nao parece markdown.')),
       function () { return settings.warnNonMarkdown; },
       function (v) { settings.warnNonMarkdown = v; persist(); });
 
-    setToggle(setLinha(pai, 'Restaurar a sessao anterior', 'Reabre as abas e a pasta que estavam abertas.'),
+    setToggle(setLinha(pai, t('Restaurar a sessao anterior'), t('Reabre as abas e a pasta que estavam abertas.')),
       function () { return settings.restoreSession; },
       function (v) { settings.restoreSession = v; persist(); });
 
-    setToggle(setLinha(pai, 'Carregar imagens da internet', 'Desligado, so imagens do proprio disco aparecem. Mais privado.'),
+    setToggle(setLinha(pai, t('Carregar imagens da internet'), t('Desligado, so imagens do proprio disco aparecem. Mais privado.')),
       function () { return settings.loadRemoteImages; },
       function (v) { settings.loadRemoteImages = v; renderViews(); persist(); });
 
-    setSecao(pai, 'Windows');
-    var assoc = setLinha(pai, 'Arquivos .md',
-      app.isDefault ? 'O MarkPad e o aplicativo padrao para .md.'
-        : app.associated ? 'O MarkPad aparece em "Abrir com". Ainda nao e o padrao.'
-        : 'O MarkPad ainda nao esta registrado para .md.');
-    setBotao(assoc, app.isDefault ? 'Remover' : app.associated ? 'Tornar padrao' : 'Registrar',
+    setSecao(pai, t('Windows'));
+    var assoc = setLinha(pai, t('Arquivos .md'),
+      app.isDefault ? t('O MarkPad e o aplicativo padrao para .md.')
+        : app.associated ? t('O MarkPad aparece em "Abrir com". Ainda nao e o padrao.')
+        : t('O MarkPad ainda nao esta registrado para .md.'));
+    setBotao(assoc, app.isDefault ? t('Remover') : app.associated ? t('Tornar padrao') : 'Registrar',
       function () { toggleAssociation(); });
 
-    var dados = setLinha(pai, 'Pasta de dados',
-      (app.portable ? 'Modo portatil. ' : '') + (app.dataRoot || ''));
-    setBotao(dados, 'Abrir', function () {
+    var dados = setLinha(pai, t('Pasta de dados'),
+      (app.portable ? t('Modo portatil. ') : '') + (app.dataRoot || ''));
+    setBotao(dados, t('Abrir'), function () {
       if (app.dataRoot) bridge.call('revealInExplorer', { path: app.dataRoot });
     });
   }
 
   function abaBarra(pai, ir) {
-    setSecao(pai, 'A barra');
-    setToggle(setLinha(pai, 'Mostrar a barra de acesso rapido', 'A fileira de botoes abaixo das abas.'),
+    setSecao(pai, t('A barra'));
+    setToggle(setLinha(pai, t('Mostrar a barra de acesso rapido'), t('A fileira de botoes abaixo das abas.')),
       function () { return settings.quickBarVisible; },
       function (v) { settings.quickBarVisible = v; renderQuickBar(); persist(); });
 
-    setToggle(setLinha(pai, 'Mostrar os rotulos', 'Com o nome ao lado do icone, a barra fica mais larga.'),
+    setToggle(setLinha(pai, t('Mostrar os rotulos'), t('Com o nome ao lado do icone, a barra fica mais larga.')),
       function () { return settings.quickBarLabels; },
       function (v) { settings.quickBarLabels = v; renderQuickBar(); persist(); });
 
-    setSecao(pai, 'Botoes');
+    setSecao(pai, t('Botoes'));
 
     var byId = {};
     commands().forEach(function (c) { byId[c.id] = c; });
@@ -4408,7 +4643,7 @@
         redesenhar();
       }, i === settings.quickBar.length - 1);
 
-      acao('x', 'Tirar da barra', function () {
+      acao('x', t('Tirar da barra'), function () {
         settings.quickBar.splice(i, 1);
         redesenhar();
       });
@@ -4419,7 +4654,7 @@
     if (!settings.quickBar || !settings.quickBar.length) {
       var vazio = document.createElement('p');
       vazio.className = 'set-desc';
-      vazio.textContent = 'A barra esta vazia. Escolha um comando abaixo para comecar.';
+      vazio.textContent = t('A barra esta vazia. Escolha um comando abaixo para comecar.');
       lista.appendChild(vazio);
     }
 
@@ -4427,13 +4662,13 @@
       return byId[id] && (settings.quickBar || []).indexOf(id) < 0;
     });
 
-    var addCtl = setLinha(pai, 'Adicionar um botao', faltando.length ? '' : 'Todos os comandos ja estao na barra.');
+    var addCtl = setLinha(pai, t('Adicionar um botao'), faltando.length ? '' : 'Todos os comandos ja estao na barra.');
     if (faltando.length) {
       var sel = document.createElement('select');
       sel.className = 'set-select';
       var vazioOpt = document.createElement('option');
       vazioOpt.value = '';
-      vazioOpt.textContent = 'escolha um comando';
+      vazioOpt.textContent = t('escolha um comando');
       sel.appendChild(vazioOpt);
       faltando.forEach(function (id) {
         var o = document.createElement('option');
@@ -4449,8 +4684,8 @@
       addCtl.appendChild(sel);
     }
 
-    var padraoCtl = setLinha(pai, 'Restaurar o padrao', 'Volta a barra para os sete botoes originais.');
-    setBotao(padraoCtl, 'Restaurar', function () {
+    var padraoCtl = setLinha(pai, t('Restaurar o padrao'), t('Volta a barra para os sete botoes originais.'));
+    setBotao(padraoCtl, t('Restaurar'), function () {
       settings.quickBar = DEFAULTS.quickBar.slice();
       settings.quickBarLabels = DEFAULTS.quickBarLabels;
       settings.quickBarVisible = DEFAULTS.quickBarVisible;
@@ -4462,7 +4697,7 @@
     var busca = document.createElement('input');
     busca.type = 'text';
     busca.className = 'text-input settings-filter';
-    busca.placeholder = 'Filtrar comandos';
+    busca.placeholder = t('Filtrar comandos');
     busca.spellcheck = false;
     pai.appendChild(busca);
 
@@ -4494,7 +4729,7 @@
 
         var key = document.createElement('span');
         key.className = 'hotkey-key' + (c.key ? '' : ' is-empty');
-        key.textContent = c.key || 'sem atalho';
+        key.textContent = c.key || t('sem atalho');
         row.appendChild(key);
 
         lista.appendChild(row);
@@ -4503,7 +4738,7 @@
       if (!n) {
         var vazio = document.createElement('p');
         vazio.className = 'set-desc';
-        vazio.textContent = 'Nenhum comando com esse nome.';
+        vazio.textContent = t('Nenhum comando com esse nome.');
         lista.appendChild(vazio);
       }
     }
@@ -4516,46 +4751,50 @@
   function abaAtualizacao(pai) {
     function redesenha() { pai.textContent = ''; abaAtualizacao(pai); }
 
-    setSecao(pai, 'Versao');
-    var v = setLinha(pai, 'Versao instalada',
+    setSecao(pai, t('Versao'));
+    var v = setLinha(pai, t('Versao instalada'),
       'MarkPad ' + (app.version || '?') + (app.portable ? ' (portatil)' : ''));
-    setBotao(v, 'Ver as versoes', abrePaginaReleases);
+    setBotao(v, t('Ver as versoes'), abrePaginaReleases);
 
-    setSecao(pai, 'Atualizacao automatica');
-    setToggle(setLinha(pai, 'Procurar atualizacoes ao abrir',
-      'Consulta as versoes publicadas no GitHub uma vez por dia, quando o MarkPad inicia. '
-      + 'Nada e baixado sem voce mandar.'),
+    setSecao(pai, t('Atualizacao automatica'));
+    setToggle(setLinha(pai, t('Procurar atualizacoes ao abrir'),
+      t('Consulta as versoes publicadas no GitHub uma vez por dia, quando o MarkPad inicia. ')
+      + t('Nada e baixado sem voce mandar.')),
       function () { return settings.checkUpdates !== false; },
       function (val) { settings.checkUpdates = val; persist(); });
 
-    var linha = setLinha(pai, 'Procurar agora', descreveEstadoAtualizacao());
-    var botao = setBotao(linha, 'Procurar', function () {
+    var linha = setLinha(pai, t('Procurar agora'), descreveEstadoAtualizacao());
+    var botao = setBotao(linha, t('Procurar'), function () {
       botao.disabled = true;
-      botao.textContent = 'Procurando...';
+      botao.textContent = t('Procurando...');
       verificaAtualizacao(true).then(function (r) {
-        if (r && r.ok && !r.available) toast('O MarkPad ja esta na versao mais nova.', 'ok');
-        else if (!r || !r.ok) toast('Nao deu para consultar as versoes agora.', 'warn');
+        if (r && r.ok && !r.available) toast(t('O MarkPad ja esta na versao mais nova.'), 'ok');
+        else if (!r || !r.ok) toast(t('Nao deu para consultar as versoes agora.'), 'warn');
         redesenha();
       });
     });
 
     if (atualizacao.pendente) {
-      setSecao(pai, 'Download pronto');
+      setSecao(pai, t('Download pronto'));
       var d = setLinha(pai, 'MarkPad ' + atualizacao.pendente.version,
-        'Ja baixado e conferido. Entra sozinho na proxima vez que o MarkPad abrir, '
-        + 'ou agora, se voce mandar.');
-      setBotao(d, 'Instalar agora', aplicaAtualizacao, 'primary');
-      setBotao(d, 'Descartar', function () { descartaAtualizacao().then(redesenha); }, 'danger');
+        t('Ja baixado e conferido. Entra sozinho na proxima vez que o MarkPad abrir, ')
+        + t('ou agora, se voce mandar.'));
+      setBotao(d, t('Instalar agora'), aplicaAtualizacao, 'primary');
+      setBotao(d, t('Descartar'), function () { descartaAtualizacao().then(redesenha); }, 'danger');
     }
   }
 
   /** Estado da aba de atualizacoes, em uma frase. */
   function descreveEstadoAtualizacao() {
-    if (atualizacao.estado === 'baixando') return 'Baixando agora...';
-    if (atualizacao.pendente) return 'MarkPad ' + atualizacao.pendente.version + ' ja esta baixada.';
-    if (atualizacao.info) return 'MarkPad ' + atualizacao.info.latest + ' esta disponivel.';
-    if (!settings.lastUpdateCheck) return 'Ainda nao foi consultado nesta instalacao.';
-    return 'Ultima consulta: ' + new Date(Number(settings.lastUpdateCheck)).toLocaleString();
+    if (atualizacao.estado === 'baixando') return t('Baixando agora...');
+    if (atualizacao.pendente) {
+      return t('MarkPad {versao} ja esta baixada.', { versao: atualizacao.pendente.version });
+    }
+    if (atualizacao.info) {
+      return t('MarkPad {versao} esta disponivel.', { versao: atualizacao.info.latest });
+    }
+    if (!settings.lastUpdateCheck) return t('Ainda nao foi consultado nesta instalacao.');
+    return t('Ultima consulta: ') + new Date(Number(settings.lastUpdateCheck)).toLocaleString();
   }
 
   function abaSobre(pai) {
@@ -4563,29 +4802,29 @@
 
     var p = document.createElement('p');
     p.className = 'set-desc';
-    p.textContent = 'Leitor e editor de Markdown para Windows. Sem cofre, sem projeto, sem cerimonia: '
-      + 'abre um arquivo e pronto. Todo arquivo abre travado — no estado travado nao existe campo de '
-      + 'texto na tela, entao nao ha tecla que edite, apague ou digite nada.';
+    p.textContent = t('Leitor e editor de Markdown para Windows. Sem cofre, sem projeto, sem cerimonia: ')
+      + t('abre um arquivo e pronto. Todo arquivo abre travado — no estado travado nao existe campo de ')
+      + t('texto na tela, entao nao ha tecla que edite, apague ou digite nada.');
     pai.appendChild(p);
 
-    setLinha(pai, 'Versao', 'MarkPad ' + (app.version || '?'));
-    setLinha(pai, 'Instalacao', app.portable ? 'Portatil' : 'Instalado');
-    setLinha(pai, 'Licenca', 'MIT');
+    setLinha(pai, t('Versao'), 'MarkPad ' + (app.version || '?'));
+    setLinha(pai, t('Instalacao'), app.portable ? 'Portatil' : 'Instalado');
+    setLinha(pai, t('Licenca'), 'MIT');
 
-    setSecao(pai, 'Links');
-    var repo = setLinha(pai, 'Codigo-fonte', 'github.com/NBN-PATRIC/markpad');
-    setBotao(repo, 'Abrir', function () {
+    setSecao(pai, t('Links'));
+    var repo = setLinha(pai, t('Codigo-fonte'), 'github.com/NBN-PATRIC/markpad');
+    setBotao(repo, t('Abrir'), function () {
       bridge.call('openExternal', { url: 'https://github.com/NBN-PATRIC/markpad' });
     });
 
-    var bug = setLinha(pai, 'Relatar um problema', 'Abre a pagina de issues do repositorio.');
-    setBotao(bug, 'Abrir', function () {
+    var bug = setLinha(pai, t('Relatar um problema'), t('Abre a pagina de issues do repositorio.'));
+    setBotao(bug, t('Abrir'), function () {
       bridge.call('openExternal', { url: 'https://github.com/NBN-PATRIC/markpad/issues' });
     });
 
-    setSecao(pai, 'Diagnostico');
-    var dev = setLinha(pai, 'Ferramentas do desenvolvedor', 'Console do WebView2, para investigar um erro.');
-    setBotao(dev, 'Abrir', function () { bridge.call('devTools', {}); });
+    setSecao(pai, t('Diagnostico'));
+    var dev = setLinha(pai, t('Ferramentas do desenvolvedor'), t('Console do WebView2, para investigar um erro.'));
+    setBotao(dev, t('Abrir'), function () { bridge.call('devTools', {}); });
   }
 
   function applyAnimations() {
@@ -4645,7 +4884,7 @@
         if (c.checked) {
           var ck = document.createElement('span');
           ck.className = 'pal-sub';
-          ck.textContent = 'ativo';
+          ck.textContent = t('ativo');
           el.appendChild(ck);
         }
         if (c.key) {
@@ -4712,19 +4951,19 @@
     // preferencia depois. Quem abre este menu quase sempre quer a primeira parte.
     showMenu([
       entry('save'), entry('saveAs'), entry('reload'), '-',
-      { label: 'Documento', header: true },
+      { label: t('Documento'), header: true },
       entry('rename'), entry('move'), entry('duplicate'), '-',
       entry('export'), entry('print'), '-',
       entry('openWith'), entry('reveal'), entry('copyPath'), '-',
       entry('delete'), '-',
-      { label: 'Navegar', header: true },
+      { label: t('Navegar'), header: true },
       entry('find'), entry('findFolder'), entry('goto'),
       entry('foldAll'), entry('unfoldAll'), '-',
-      { label: 'Visual', header: true },
+      { label: t('Visual'), header: true },
       entry('wrap'), entry('gutter'), entry('properties'), entry('wide'), entry('theme'), '-',
-      { label: 'Trava', header: true },
+      { label: t('Trava'), header: true },
       entry('lockOnOpen'), entry('confirmUnlock'), entry('autoSave'), '-',
-      { label: 'Arquivos', header: true },
+      { label: t('Arquivos'), header: true },
       entry('treeFilter'), entry('warnNonMd'), '-',
       entry('remote'), entry('assoc'), '-',
       entry('quickBar'), entry('settings')
@@ -4734,37 +4973,37 @@
   /* O mesmo cardapio para qualquer arquivo do painel, arvore ou lista rasa. */
   function fileContextMenu(path) {
     return [
-      { label: 'Abrir', icon: 'file-text', action: function () { openPath(path); } },
+      { label: t('Abrir'), icon: 'file-text', action: function () { openPath(path); } },
       '-',
-      { label: 'Renomear...', icon: 'text', action: function () { renameDoc(path); } },
-      { label: 'Mover para...', icon: 'folder', action: function () { moveDoc(path); } },
-      { label: 'Duplicar', icon: 'copy', action: function () { duplicateDoc(path); } },
+      { label: t('Renomear...'), icon: 'text', action: function () { renameDoc(path); } },
+      { label: t('Mover para...'), icon: 'folder', action: function () { moveDoc(path); } },
+      { label: t('Duplicar'), icon: 'copy', action: function () { duplicateDoc(path); } },
       '-',
-      { label: 'Abrir no app padrao', icon: 'external', action: function () { openWithDefaultApp(path); } },
-      { label: 'Mostrar no Explorer', icon: 'reveal', action: function () { bridge.call('revealInExplorer', { path: path }); } },
-      { label: 'Copiar caminho', icon: 'copy', action: function () { navigator.clipboard.writeText(path); toast('Caminho copiado.', 'ok', 1200); } },
+      { label: t('Abrir no app padrao'), icon: 'external', action: function () { openWithDefaultApp(path); } },
+      { label: t('Mostrar no Explorer'), icon: 'reveal', action: function () { bridge.call('revealInExplorer', { path: path }); } },
+      { label: t('Copiar caminho'), icon: 'copy', action: function () { navigator.clipboard.writeText(path); toast(t('Caminho copiado.'), 'ok', 1200); } },
       '-',
-      { label: 'Excluir arquivo...', icon: 'trash', action: function () { deleteDoc(path); } }
+      { label: t('Excluir arquivo...'), icon: 'trash', action: function () { deleteDoc(path); } }
     ];
   }
 
   function tabContextMenu(tab) {
     return [
-      { label: 'Salvar', icon: 'save', disabled: tab.locked, action: function () { saveTab(tab); } },
-      { label: 'Fechar', icon: 'x', action: function () { closeTab(tab.id); } },
-      { label: 'Fechar as outras', action: function () {
+      { label: t('Salvar'), icon: 'save', disabled: tab.locked, action: function () { saveTab(tab); } },
+      { label: t('Fechar'), icon: 'x', action: function () { closeTab(tab.id); } },
+      { label: t('Fechar as outras'), action: function () {
           app.tabs.slice().forEach(function (t) { if (t.id !== tab.id) closeTab(t.id); });
         } },
       '-',
-      { label: 'Renomear...', icon: 'text', key: 'F2', disabled: !tab.path, action: function () { renameDoc(tab.path); } },
-      { label: 'Mover para...', icon: 'folder', disabled: !tab.path, action: function () { moveDoc(tab.path); } },
-      { label: 'Duplicar', icon: 'copy', disabled: !tab.path, action: function () { duplicateDoc(tab.path); } },
+      { label: t('Renomear...'), icon: 'text', key: 'F2', disabled: !tab.path, action: function () { renameDoc(tab.path); } },
+      { label: t('Mover para...'), icon: 'folder', disabled: !tab.path, action: function () { moveDoc(tab.path); } },
+      { label: t('Duplicar'), icon: 'copy', disabled: !tab.path, action: function () { duplicateDoc(tab.path); } },
       '-',
-      { label: 'Abrir no app padrao', icon: 'external', disabled: !tab.path, action: function () { openWithDefaultApp(tab.path); } },
-      { label: 'Mostrar no Explorer', icon: 'reveal', disabled: !tab.path, action: function () { bridge.call('revealInExplorer', { path: tab.path }); } },
-      { label: 'Copiar caminho', icon: 'copy', disabled: !tab.path, action: function () { navigator.clipboard.writeText(tab.path); toast('Caminho copiado.', 'ok', 1200); } },
+      { label: t('Abrir no app padrao'), icon: 'external', disabled: !tab.path, action: function () { openWithDefaultApp(tab.path); } },
+      { label: t('Mostrar no Explorer'), icon: 'reveal', disabled: !tab.path, action: function () { bridge.call('revealInExplorer', { path: tab.path }); } },
+      { label: t('Copiar caminho'), icon: 'copy', disabled: !tab.path, action: function () { navigator.clipboard.writeText(tab.path); toast(t('Caminho copiado.'), 'ok', 1200); } },
       '-',
-      { label: 'Excluir arquivo...', icon: 'trash', disabled: !tab.path, action: function () { deleteDoc(tab.path); } }
+      { label: t('Excluir arquivo...'), icon: 'trash', disabled: !tab.path, action: function () { deleteDoc(tab.path); } }
     ];
   }
 
@@ -4801,7 +5040,7 @@
 
   function falhaDoc(verbo) {
     return function (err) {
-      if (err) toast('Nao consegui ' + verbo + ': ' + err.message, 'error', 6000);
+      if (err) toast(t('Nao consegui ') + verbo + ': ' + err.message, 'error', 6000);
     };
   }
 
@@ -4811,14 +5050,14 @@
     var nome = baseName(path);
     var ponto = nome.lastIndexOf('.');
 
-    return promptDialog('Renomear arquivo', 'Ele continua na mesma pasta.', {
+    return promptDialog(t('Renomear arquivo'), t('Ele continua na mesma pasta.'), {
       value: nome,
-      okLabel: 'Renomear',
+      okLabel: t('Renomear'),
       selectTo: ponto > 0 ? ponto : nome.length,
-      validate: function (t) {
-        if (!t) return 'Digite um nome.';
-        if (/[\\/]/.test(t)) return 'Sem barras — para trocar de pasta, use "Mover para...".';
-        if (/[<>:"|?*]/.test(t)) return 'O Windows nao aceita estes: < > : " | ? *';
+      validate: function (nomeNovo) {
+        if (!nomeNovo) return t('Digite um nome.');
+        if (/[\\/]/.test(nomeNovo)) return t('Sem barras — para trocar de pasta, use "Mover para...".');
+        if (/[<>:"|?*]/.test(nomeNovo)) return t('O Windows nao aceita estes: < > : " | ? *');
         return null;
       }
     }).then(function (novo) {
@@ -4827,7 +5066,7 @@
         var tab = tabByPath(path);
         if (tab) adotarCaminho(tab, info, path);
         else { dropRecent(path); arvoreMudou(); }
-        toast('Agora se chama ' + info.name, 'ok');
+        toast(t('Agora se chama ') + info.name, 'ok');
       });
     }).catch(falhaDoc('renomear'));
   }
@@ -4841,7 +5080,7 @@
         var tab = tabByPath(path);
         if (tab) adotarCaminho(tab, info, path);
         else { dropRecent(path); arvoreMudou(); }
-        toast('Movido para ' + info.dir, 'ok', 3200);
+        toast(t('Movido para ') + info.dir, 'ok', 3200);
       });
     }).catch(falhaDoc('mover'));
   }
@@ -4851,7 +5090,7 @@
 
     return bridge.call('duplicateFile', { path: path }).then(function (info) {
       arvoreMudou();
-      toast('Copia criada: ' + info.name, 'ok');
+      toast(t('Copia criada: ') + info.name, 'ok');
       return doOpenPath(info.path, {});
     }).catch(falhaDoc('duplicar'));
   }
@@ -4865,11 +5104,14 @@
 
     // Excluir vem primeiro e Cancelar por ultimo de proposito: o Enter aciona
     // o ultimo botao, e o padrao do teclado nao pode ser apagar arquivo.
-    return dialog('Excluir arquivo?',
-      'O arquivo <strong>' + escapeText(nome) + '</strong> vai para a Lixeira do Windows' +
-      (sujo ? ', e as alteracoes que ainda nao foram salvas se perdem junto' : '') + '.',
-      [{ label: 'Excluir', value: true, cls: 'danger' },
-       { label: 'Cancelar', value: false }]
+    return dialog(t('Excluir arquivo?'),
+      (sujo
+        ? t('O arquivo <strong>{nome}</strong> vai para a Lixeira do Windows, e as alteracoes que ainda nao foram salvas se perdem junto.',
+            { nome: escapeText(nome) })
+        : t('O arquivo <strong>{nome}</strong> vai para a Lixeira do Windows.',
+            { nome: escapeText(nome) })),
+      [{ label: t('Excluir'), value: true, cls: 'danger' },
+       { label: t('Cancelar'), value: false }]
     ).then(function (sim) {
       if (!sim) return null;
       return bridge.call('deleteFile', { path: path }).then(function () {
@@ -4877,7 +5119,7 @@
         dropRecent(path);
         arvoreMudou();
         persist();
-        toast('Foi para a Lixeira: ' + nome, 'ok', 3600);
+        toast(t('Foi para a Lixeira: ') + nome, 'ok', 3600);
       });
     }).catch(falhaDoc('excluir'));
   }
@@ -4885,7 +5127,7 @@
   function openWithDefaultApp(path) {
     if (!path) return Promise.resolve();
     return bridge.call('openWithDefault', { path: path })
-      .catch(falhaDoc('abrir no app padrao'));
+      .catch(falhaDoc(t('abrir no app padrao')));
   }
 
   // ============================================================== acoes
@@ -4944,14 +5186,19 @@
         '<title>' + escapeText(tab.name) + '</title><style>' + css +
         '\nbody{padding:40px 20px;overflow:auto;height:auto}' +
         '\n.markdown-preview{padding:0}</style></head>' +
-        '<body class="' + (dark ? 'theme-dark' : 'theme-light') + '">' +
+        // A paleta vive no `style` do <body>, nao numa folha — sem carregar o
+        // atributo junto, o HTML exportado sairia sempre com as cores de casa.
+        '<body class="' + (dark ? 'theme-dark' : 'theme-light') + '"' +
+        (document.body.getAttribute('style')
+          ? ' style="' + escapeText(document.body.getAttribute('style')).replace(/"/g, '&quot;') + '"'
+          : '') + '>' +
         '<div class="markdown-preview">' + holder.innerHTML + '</div></body></html>';
 
       return bridge.call('writeHtml', { path: path, content: html }).then(function () {
-        toast('Exportado para ' + path.split(/[\\/]/).pop(), 'ok');
+        toast(t('Exportado para ') + path.split(/[\\/]/).pop(), 'ok');
       });
     }).catch(function (err) {
-      toast('Falha ao exportar: ' + err.message, 'error');
+      toast(t('Falha ao exportar: ') + err.message, 'error');
     });
   }
 
@@ -4959,7 +5206,7 @@
     var tab = activeTab();
     if (!tab) return;
     var total = tab.content.split('\n').length;
-    var answer = window.prompt('Ir para a linha (1-' + total + '):', '');
+    var answer = window.prompt(t('Ir para a linha (1-{total}):', { total: total }), '');
     var n = parseInt(answer, 10);
     if (n > 0) goToLine(Math.min(n, total));
   }
@@ -4968,16 +5215,16 @@
     // Registrado mas nao padrao ainda cai no fluxo de baixo, para poder
     // oferecer a promocao a padrao em vez de so remover.
     if (app.isDefault) {
-      dialog('Remover associacao?',
-        'O MarkPad sairá da lista de aplicativos para arquivos <strong>.md</strong>.',
-        [{ label: 'Cancelar', value: false }, { label: 'Remover', value: true, cls: 'danger' }]
+      dialog(t('Remover associacao?'),
+        t('O MarkPad sairá da lista de aplicativos para arquivos <strong>.md</strong>.'),
+        [{ label: t('Cancelar'), value: false }, { label: t('Remover'), value: true, cls: 'danger' }]
       ).then(function (yes) {
         if (!yes) return;
         bridge.call('fileAssociation', { enable: false }).then(function () {
           app.associated = false;
           app.isDefault = false;
-          toast('Associacao removida.', 'ok', 3000);
-        }).catch(function (err) { toast('Nao consegui alterar: ' + err.message, 'error', 5000); });
+          toast(t('Associacao removida.'), 'ok', 3000);
+        }).catch(function (err) { toast(t('Nao consegui alterar: ') + err.message, 'error', 5000); });
       });
       return;
     }
@@ -4992,16 +5239,16 @@
         '</strong>.'
       : '';
 
-    dialog('Abrir arquivos .md com o MarkPad',
-      'O MarkPad entrará na lista de aplicativos para <strong>.md</strong>, ' +
+    dialog(t('Abrir arquivos .md com o MarkPad'),
+      t('O MarkPad entrará na lista de aplicativos para <strong>.md</strong>, ') +
       '<strong>.markdown</strong>, <strong>.mdown</strong>, <strong>.mkd</strong> e ' +
       '<strong>.mdx</strong>, e aparecerá em Configurações &rsaquo; Aplicativos padrão.' + extra +
       '<br><br>Para virar o padrão de fato, o Windows exige que <em>você</em> confirme: ' +
-      'ele mostra uma caixa de escolha. Nenhum programa pode fazer isso sozinho.' +
+      t('ele mostra uma caixa de escolha. Nenhum programa pode fazer isso sozinho.') +
       '<br><br>Tudo é gravado apenas no seu usuário (HKCU) e some ao remover.',
-      [{ label: 'Cancelar', value: null },
-       { label: 'Só registrar', value: 'register' },
-       { label: 'Registrar e definir padrão', value: 'default', cls: 'primary' }]
+      [{ label: t('Cancelar'), value: null },
+       { label: t('Só registrar'), value: 'register' },
+       { label: t('Registrar e definir padrão'), value: 'default', cls: 'primary' }]
     ).then(function (choice) {
       if (!choice) return;
 
@@ -5012,14 +5259,14 @@
         app.currentHandler = res.handler || app.currentHandler;
 
         if (choice === 'register') {
-          toast('Registrado. O MarkPad já aparece em "Abrir com".', 'ok', 4000);
+          toast(t('Registrado. O MarkPad já aparece em "Abrir com".'), 'ok', 4000);
         } else if (res.isDefault) {
-          toast('Pronto. Arquivos .md agora abrem no MarkPad.', 'ok', 4000);
+          toast(t('Pronto. Arquivos .md agora abrem no MarkPad.'), 'ok', 4000);
         } else {
-          toast('Registrado, mas o padrão não mudou — a escolha foi cancelada.', 'warn', 5000);
+          toast(t('Registrado, mas o padrão não mudou — a escolha foi cancelada.'), 'warn', 5000);
         }
       }).catch(function (err) {
-        toast('Nao consegui alterar: ' + err.message, 'error', 5000);
+        toast(t('Nao consegui alterar: ') + err.message, 'error', 5000);
       });
     });
   }
@@ -5133,7 +5380,7 @@
     if (e.key === 'F2' && !ctrl && !e.altKey && !e.shiftKey) {
       e.preventDefault();
       if (tab && tab.path) renameDoc(tab.path);
-      else toast('Salve o documento antes de renomear.', 'warn');
+      else toast(t('Salve o documento antes de renomear.'), 'warn');
       return;
     }
 
@@ -5437,7 +5684,7 @@
     }).catch(function (err) {
       atualizacao.estado = 'disponivel';
       desenhaBarraAtualizacao();
-      toast('Nao deu para baixar a atualizacao: ' + mensagemDeErro(err), 'warn', 6000);
+      toast(t('Nao deu para baixar a atualizacao: ') + mensagemDeErro(err), 'warn', 6000);
     });
   }
 
@@ -5447,7 +5694,7 @@
    */
   function aplicaAtualizacao() {
     bridge.call('updateApply', {}).catch(function (err) {
-      toast('Nao deu para iniciar a instalacao: ' + mensagemDeErro(err), 'warn', 6000);
+      toast(t('Nao deu para iniciar a instalacao: ') + mensagemDeErro(err), 'warn', 6000);
     });
   }
 
@@ -5501,25 +5748,25 @@
     }
 
     if (estado === 'disponivel') {
-      titulo.textContent = 'MarkPad ' + info.latest + ' disponivel';
+      titulo.textContent = t('MarkPad {versao} disponivel', { versao: info.latest });
 
       if (info.canInstall) {
-        desc.textContent = 'Voce esta na ' + info.current + '.'
+        desc.textContent = t('Voce esta na ') + info.current + '.'
           + (info.size ? ' O download tem ' + tamanhoLegivel(info.size) + '.' : '');
         botao('Baixar', baixaAtualizacao, 'primary');
-        botao('Ver as notas', abrePaginaReleases);
+        botao(t('Ver as notas'), abrePaginaReleases);
       } else if (info.portable) {
         // Portatil pode estar num pendrive so de leitura, ou existir em tres
         // copias na maquina. Trocar sozinho seria trocar a copia errada.
-        desc.textContent = 'Esta e a versao portatil: baixe o novo .zip e substitua a pasta.';
-        botao('Abrir a pagina', abrePaginaReleases, 'primary');
+        desc.textContent = t('Esta e a versao portatil: baixe o novo .zip e substitua a pasta.');
+        botao(t('Abrir a pagina'), abrePaginaReleases, 'primary');
       } else {
-        desc.textContent = 'Esta versao nao publicou a soma de conferencia do instalador, '
-          + 'entao o download automatico fica de fora. Baixe pela pagina.';
-        botao('Abrir a pagina', abrePaginaReleases, 'primary');
+        desc.textContent = t('Esta versao nao publicou a soma de conferencia do instalador, ')
+          + t('entao o download automatico fica de fora. Baixe pela pagina.');
+        botao(t('Abrir a pagina'), abrePaginaReleases, 'primary');
       }
     } else if (estado === 'baixando') {
-      titulo.textContent = 'Baixando MarkPad ' + (info.latest || '');
+      titulo.textContent = t('Baixando MarkPad ') + (info.latest || '');
       desc.textContent = atualizacao.total
         ? tamanhoLegivel(atualizacao.baixado) + ' de ' + tamanhoLegivel(atualizacao.total)
         : tamanhoLegivel(atualizacao.baixado) + ' ate agora';
@@ -5531,14 +5778,14 @@
       $('updateProgressFill').style.width = pct + '%';
     } else if (estado === 'pronta') {
       var v = (atualizacao.pendente && atualizacao.pendente.version) || info.latest || '';
-      titulo.textContent = 'MarkPad ' + v + ' pronta para instalar';
-      desc.textContent = 'O MarkPad fecha, instala e abre de novo — leva alguns segundos. '
-        + 'Se preferir, a troca acontece sozinha na proxima vez que voce abrir.';
-      botao('Reiniciar agora', aplicaAtualizacao, 'primary');
-      botao('Na proxima vez', function () {
+      titulo.textContent = t('MarkPad {versao} pronta para instalar', { versao: v });
+      desc.textContent = t('O MarkPad fecha, instala e abre de novo — leva alguns segundos. ')
+        + t('Se preferir, a troca acontece sozinha na proxima vez que voce abrir.');
+      botao(t('Reiniciar agora'), aplicaAtualizacao, 'primary');
+      botao(t('Na proxima vez'), function () {
         atualizacao.escondida = true;
         desenhaBarraAtualizacao();
-        toast('A atualizacao entra na proxima vez que o MarkPad abrir.', '', 4000);
+        toast(t('A atualizacao entra na proxima vez que o MarkPad abrir.'), '', 4000);
       });
     }
 
@@ -5665,16 +5912,16 @@
       e.preventDefault();
       var sel = ta.value.slice(ta.selectionStart, ta.selectionEnd);
       showMenu([
-        { label: 'Recortar', icon: 'copy', disabled: !sel, action: function () { document.execCommand('cut'); } },
-        { label: 'Copiar', icon: 'copy', disabled: !sel, action: function () { document.execCommand('copy'); } },
-        { label: 'Colar', icon: 'copy', action: function () {
+        { label: t('Recortar'), icon: 'copy', disabled: !sel, action: function () { document.execCommand('cut'); } },
+        { label: t('Copiar'), icon: 'copy', disabled: !sel, action: function () { document.execCommand('copy'); } },
+        { label: t('Colar'), icon: 'copy', action: function () {
             navigator.clipboard.readText().then(function (t) {
               replaceRange(ta.selectionStart, ta.selectionEnd, textoColado(ta, t));
             });
           } },
         '-',
-        { label: 'Selecionar tudo', action: function () { ta.select(); } },
-        { label: 'Travar edicao', icon: 'lock', action: toggleLock }
+        { label: t('Selecionar tudo'), action: function () { ta.select(); } },
+        { label: t('Travar edicao'), icon: 'lock', action: toggleLock }
       ], e.clientX, e.clientY);
     });
 
@@ -5691,8 +5938,8 @@
 
       var sel = String(window.getSelection());
       showMenu([
-        { label: 'Copiar', icon: 'copy', disabled: !sel, action: function () { navigator.clipboard.writeText(sel); } },
-        { label: 'Selecionar tudo', action: function () {
+        { label: t('Copiar'), icon: 'copy', disabled: !sel, action: function () { navigator.clipboard.writeText(sel); } },
+        { label: t('Selecionar tudo'), action: function () {
             var r = document.createRange();
             r.selectNodeContents($('preview'));
             var s = window.getSelection();
@@ -5702,9 +5949,9 @@
         '-',
         // Este menu tambem abre no modo vivo, onde a edicao ja esta liberada:
         // rotulo fixo mentiria sobre o que o clique faz com a trava.
-        { label: tab && tab.locked ? 'Liberar edicao' : 'Travar edicao',
+        { label: tab && tab.locked ? t('Liberar edicao') : t('Travar edicao'),
           icon: tab && tab.locked ? 'unlock' : 'lock', key: 'Ctrl+E', action: toggleLock },
-        { label: 'Localizar', icon: 'search', key: 'Ctrl+F', action: openFind }
+        { label: t('Localizar'), icon: 'search', key: 'Ctrl+F', action: openFind }
       ], e.clientX, e.clientY);
     });
 
@@ -5756,8 +6003,8 @@
       var tab = activeTab();
       if (!tab) return;
       showMenu([
-        { label: 'Windows (CRLF)', checked: tab.eol === '\r\n', action: function () { tab.eol = '\r\n'; renderStatus(); } },
-        { label: 'Unix (LF)', checked: tab.eol === '\n', action: function () { tab.eol = '\n'; renderStatus(); } }
+        { label: t('Windows (CRLF)'), checked: tab.eol === '\r\n', action: function () { tab.eol = '\r\n'; renderStatus(); } },
+        { label: t('Unix (LF)'), checked: tab.eol === '\n', action: function () { tab.eol = '\n'; renderStatus(); } }
       ], window.innerWidth - 240, window.innerHeight - 120);
     };
     $('statusEncoding').onclick = function () {
@@ -5768,7 +6015,7 @@
         return {
           label: enc.toUpperCase(),
           checked: tab.encoding === enc,
-          action: function () { tab.encoding = enc; renderStatus(); toast('Sera gravado em ' + enc.toUpperCase() + '.', 'ok'); }
+          action: function () { tab.encoding = enc; renderStatus(); toast(t('Sera gravado em ') + enc.toUpperCase() + '.', 'ok'); }
         };
       }), window.innerWidth - 240, window.innerHeight - 160);
     };
@@ -5840,24 +6087,24 @@
     }
 
     showMenu([
-      { label: 'Formatar', header: true },
+      { label: t('Formatar'), header: true },
       fmt('Negrito', 'bold', function () { live.wrap('**', '**'); }),
-      fmt('Itálico', 'italic', function () { live.wrap('*', '*'); }),
+      fmt(t('Itálico'), 'italic', function () { live.wrap('*', '*'); }),
       fmt('Riscado', 'strike', function () { live.wrap('~~', '~~'); }),
       fmt('Destaque', 'highlight', function () { live.wrap('==', '=='); }),
-      fmt('Código', 'code', function () { live.wrap('`', '`'); }),
+      fmt(t('Código'), 'code', function () { live.wrap('`', '`'); }),
       '-',
-      { label: 'Parágrafo', header: true },
+      { label: t('Parágrafo'), header: true },
       fmt('Título 1', 'heading', function () { live.setLinePrefix('# '); }),
-      fmt('Título 2', 'heading', function () { live.setLinePrefix('## '); }),
-      fmt('Título 3', 'heading', function () { live.setLinePrefix('### '); }),
+      fmt(t('Título 2'), 'heading', function () { live.setLinePrefix('## '); }),
+      fmt(t('Título 3'), 'heading', function () { live.setLinePrefix('### '); }),
       fmt('Texto normal', 'text', function () { live.setLinePrefix(''); }),
       fmt('Citação', 'quote', function () { live.setLinePrefix('> '); }),
       fmt('Lista', 'list', function () { live.setLinePrefix('- '); }),
       fmt('Lista numerada', 'list', function () { live.setLinePrefix('', { ordered: true }); }),
       fmt('Tarefa', 'todo', function () { live.setLinePrefix('- [ ] '); }),
       '-',
-      { label: 'Inserir', header: true },
+      { label: t('Inserir'), header: true },
       fmt('Link', 'link', function () { live.insert('[%s](%c)'); }),
       fmt('Tabela', 'table', function () {
         live.insert('\n| %c | Coluna |\n|:--|:--|\n| | |\n');
@@ -5865,10 +6112,10 @@
       fmt('Bloco de código', 'code', function () { live.insert('\n```%c\n\n```\n'); }),
       // O leitor ja renderiza $$...$$, [[...]] e #tag; faltava caminho de mouse
       // para as tres — quem nao decorou a sintaxe nao chegava nelas.
-      fmt('Bloco matemático', 'sigma', function () { live.insert('\n$$\n%c\n$$\n'); }),
+      fmt(t('Bloco matemático'), 'sigma', function () { live.insert('\n$$\n%c\n$$\n'); }),
       fmt('Link interno', 'link', function () { live.insert('[[%c]]'); }),
       fmt('Tag', 'hash', function () { live.insert('#%c'); }),
-      fmt('Destaque (callout)', 'info', function () { live.insert('\n> [!note] %c\n> \n'); }),
+      fmt(t('Destaque (callout)'), 'info', function () { live.insert('\n> [!note] %c\n> \n'); }),
       fmt('Régua horizontal', 'minus', function () { live.insert('\n---\n%c'); }),
       fmt('Nota de rodapé', 'note', function () { live.insert('[^%c]'); })
     ], x, y);
@@ -5925,7 +6172,58 @@
 
   // =============================================================== inicio
 
+  /**
+   * Traduz o que veio escrito no index.html.
+   *
+   * Roda antes de qualquer render, quando a pagina ainda e so a marcacao
+   * estatica — por isso da para varrer tudo sem distinguir o que e texto de
+   * tela do que e conteudo: conteudo ainda nao existe. Uma frase sem traducao
+   * atravessa intacta, entao varrer demais nao estraga nada.
+   *
+   * O original fica guardado em `data-pt`: trocar de idioma no meio da sessao
+   * chama isto de novo, e sem o original a segunda passada traduziria o texto
+   * ja traduzido (que nao e chave de nada) e a tela travaria no primeiro
+   * idioma escolhido.
+   */
+  var estaticoMapeado = false;
+
+  function traduzirEstatico() {
+    var raiz = $('app');
+    if (!raiz) return;
+
+    ['title', 'placeholder', 'aria-label'].forEach(function (attr) {
+      var alvos = raiz.querySelectorAll('[' + attr + '], [data-pt-' + attr + ']');
+      Array.prototype.forEach.call(alvos, function (el) {
+        var guardado = 'data-pt-' + attr;
+        if (!el.hasAttribute(guardado)) el.setAttribute(guardado, el.getAttribute(attr) || '');
+        el.setAttribute(attr, t(el.getAttribute(guardado)));
+      });
+    });
+
+    var passeio = document.createTreeWalker(raiz, NodeFilter.SHOW_TEXT, null);
+    var no;
+    while ((no = passeio.nextNode())) {
+      // Depois da primeira passada a pagina ja tem conteudo de documento
+      // dentro de #app, e conteudo nao se traduz — uma nota que diga so
+      // "Abrir" viraria "Open" no meio do texto do usuario. Entao a partir
+      // dai so os nos marcados na primeira passada (a marcacao estatica)
+      // continuam elegiveis.
+      if (estaticoMapeado && no.__pt === undefined) continue;
+      var bruto = no.__pt !== undefined ? no.__pt : no.nodeValue;
+      if (!bruto || !bruto.trim()) continue;
+      no.__pt = bruto;
+      // O espaco em volta e da diagramacao, nao da frase: traduzir o miolo e
+      // devolver as bordas mantem o espacamento do HTML como estava.
+      var antes = bruto.match(/^\s*/)[0];
+      var depois = bruto.match(/\s*$/)[0];
+      no.nodeValue = antes + t(bruto.trim()) + depois;
+    }
+    estaticoMapeado = true;
+  }
+
   function applySettings() {
+    window.MarkPadI18n.definir(settings.language);
+    traduzirEstatico();
     applyTheme();
     applyFontSizes();
     applyAnimations();
@@ -5972,7 +6270,7 @@
           tab.savedContent = fresh.content;
           tab.mtime = fresh.mtime;
           if (tab.id === app.activeId) renderAll();
-          toast(tab.name + ' foi atualizado no disco.', 'ok', 2200);
+          toast(t('{arquivo} foi atualizado no disco.', { arquivo: tab.name }), 'ok', 2200);
         }).catch(function () {});
       } else {
         tab.staleOnDisk = true;
@@ -5986,11 +6284,11 @@
       if (!dirty.length) { bridge.call('confirmClose', {}); return; }
 
       var names = dirty.map(function (t) { return escapeText(t.name); }).join(', ');
-      dialog('Fechar o MarkPad?',
-        'Ha alteracoes nao salvas em: <strong>' + names + '</strong>.',
-        [{ label: 'Sair sem salvar', value: 'discard', cls: 'danger' },
-         { label: 'Cancelar', value: null },
-         { label: 'Salvar e sair', value: 'save', cls: 'primary' }]
+      dialog(t('Fechar o MarkPad?'),
+        t('Ha alteracoes nao salvas em: <strong>{nomes}</strong>.', { nomes: names }),
+        [{ label: t('Sair sem salvar'), value: 'discard', cls: 'danger' },
+         { label: t('Cancelar'), value: null },
+         { label: t('Salvar e sair'), value: 'save', cls: 'primary' }]
       ).then(function (choice) {
         if (choice === null) return;
         if (choice === 'discard') { bridge.call('confirmClose', {}); return; }

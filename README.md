@@ -106,8 +106,20 @@ Reforços contra edição acidental:
 - Grava via arquivo temporário + troca atômica: falta de energia no meio não
   deixa o original truncado.
 - Recarrega sozinho quando o arquivo muda no disco (se não houver edição pendente).
-- Exportar HTML, imprimir, tema claro/escuro/sistema, zoom.
+- Exportar HTML, imprimir, zoom.
 - **Atualização automática** com verificação de SHA-256 — ver abaixo.
+
+**Aparência e idioma**
+- Tema claro, escuro ou seguindo o Windows, e **oito paletas de cor** por cima
+  dele: Nord, Dracula, Solarized, Gruvbox, GitHub, Rose Pine, Papel (sépia) e
+  Alto contraste — cada uma com versão clara e escura. Nenhuma fica abaixo de
+  4,5:1 de contraste; o teste mede e reprova.
+- **Cor de destaque** própria, oito predefinições ou livre.
+- **Importar tema do VS Code**: um `.json` de tema vira paleta. Só literal de
+  cor entra — o filtro roda no import e de novo a cada abertura, porque o tema
+  fica guardado em disco.
+- **Interface em português, inglês e espanhol**, com "seguir o Windows" como
+  padrão. O idioma do documento não muda: só menus, avisos e configurações.
 
 ## Atualização automática
 
@@ -292,6 +304,8 @@ web/                  a interface inteira (embutida no exe publicado)
   changes.js          diff por linha para a margem de alterações
   icons.js            os ícones, montados em SVG
   app.js              abas, trava, modos, painéis, busca, comandos
+  themes.js           as paletas e a leitura de tema do VS Code
+  i18n.js             os textos da interface em pt-BR, inglês e espanhol
   style.css           tokens de cor e layout
 dev/                  preview no navegador + testes
 tools/                ícone, artefatos de release, somas e instaladores

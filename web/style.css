@@ -1876,6 +1876,85 @@ body.no-gutter .ed-row .ln { display: none; }
 
 .set-range { width: 150px; accent-color: var(--color-accent); }
 
+/* ---------------------------------------------------- paletas e acento */
+
+.theme-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  gap: 8px;
+  padding: 12px 0 4px;
+}
+
+.theme-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  background: var(--background-primary);
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: var(--text-muted);
+  transition: border-color var(--anim-fast) var(--anim-ease),
+              background var(--anim-fast) var(--anim-ease);
+}
+.theme-card:hover { background: var(--background-modifier-hover); }
+.theme-card.is-active {
+  border-color: var(--color-accent);
+  color: var(--text-normal);
+  box-shadow: inset 0 0 0 1px var(--color-accent);
+}
+
+.theme-card-swatch {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 40px;
+  padding: 6px;
+  border-radius: var(--radius-s);
+  border: 1px solid var(--background-modifier-border);
+}
+.theme-card-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+}
+.theme-card-dot.is-accent { margin-left: auto; }
+.theme-card-name {
+  font-size: var(--font-ui-smaller);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.theme-grid-note:empty { display: none; }
+.theme-grid-note { margin: 0 0 6px; }
+
+.accent-row { display: flex; align-items: center; gap: 6px; }
+.accent-dot {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--background-modifier-border);
+  cursor: pointer;
+}
+.accent-dot:hover { transform: scale(1.12); }
+.accent-dot.is-active {
+  box-shadow: 0 0 0 2px var(--background-primary), 0 0 0 4px var(--text-normal);
+}
+.accent-free {
+  width: 24px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  background: var(--background-modifier-form-field);
+  cursor: pointer;
+}
+
 .switch {
   position: relative;
   width: 38px; height: 21px;

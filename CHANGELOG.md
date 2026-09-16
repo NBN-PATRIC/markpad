@@ -6,6 +6,38 @@ Versionamento [SemVer](https://semver.org/lang/pt-BR/).
 ## [Não lançado]
 
 ### Adicionado
+- **Paletas de cor.** Além de claro/escuro, oito paletas prontas — Nord,
+  Dracula, Solarized, Gruvbox, GitHub, Rose Pine, Papel (sépia, para ler muito
+  tempo seguido) e Alto contraste — cada uma com a sua versão clara e a sua
+  versão escura, escolhidas numa grade de cartões que já se pintam com as
+  cores que vão aplicar. A folha de estilo do MarkPad sempre foi dirigida por
+  variáveis, no desenho do Obsidian, então uma paleta é só a troca de umas
+  vinte raízes: o resto da interface segue atrás sozinho.
+  - **Cor de destaque separada da paleta**: oito predefinições e um seletor
+    livre, valendo sobre a cor que a paleta traz.
+  - **Nenhuma paleta fica abaixo de 4,5:1** entre o texto e o fundo — nem no
+    texto apagado da interface. `dev/test-themes.js` mede e reprova.
+- **Importar tema do VS Code.** Um `.json` de tema do VS Code vira paleta: o
+  fundo e o texto do editor desenham a escada de cinzas inteira por
+  interpolação, e o que o tema declarar de barra lateral, campo, borda, erro,
+  aviso e foco entra por cima. Aceita `jsonc` (comentário e vírgula sobrando,
+  como o VS Code). Um tema escuro traz a janela para o escuro junto, senão
+  seria importar e não ver nada.
+  - **Só literal de cor entra**, e conferido de novo a cada abertura, não só na
+    hora de importar: o tema fica guardado nas configurações, que são um
+    arquivo em disco como outro qualquer. A CSP da página permite `img-src
+    https:`, então um valor com `url(https://…)` dentro seria um farol de
+    "abriu o MarkPad" escondido num tema. O que não é cor é descartado e o
+    padrão da casa fica no lugar.
+- **A interface fala português, inglês e espanhol.** A escolha está em
+  Configurações → Aparência → Idioma, com "Seguir o Windows" como padrão; o
+  idioma do documento não entra nisso — só menus, avisos, diálogos e
+  configurações. Trocar redesenha a janela na hora.
+  - A chave de tradução é o próprio texto em português, não um identificador,
+    então uma frase sem tradução aparece em português em vez de aparecer como
+    `menu.saveAs`. `dev/test-i18n.js` vigia os dois sentidos: chave do
+    dicionário que sumiu do código, e frase pedida pelo código que ninguém
+    traduziu.
 - **Transclusão: `![[Nota]]` embute a nota, não um link.** Como no Obsidian:
   o conteúdo aparece incrustado num cartão com o nome da nota e um atalho para
   abri-la. `![[Nota#Seção]]` embute só a seção (com as subseções),

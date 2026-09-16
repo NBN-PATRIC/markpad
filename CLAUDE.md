@@ -10,7 +10,8 @@ propósito. Interface web embutida no assembly (exe de arquivo único).
 ## Mapa
 
 - `MainWindow.xaml.cs` — lado nativo: janela, abas, bridge com o WebView2
-- `web/` — toda a UI (app.js, liveedit.js, markdown.js, style.css); embutida no build
+- `web/` — toda a UI (app.js, liveedit.js, markdown.js, themes.js, i18n.js,
+  style.css); embutida no build
 - `dev/` — preview.html + stub-bridge.js para iterar na UI sem recompilar; scripts de teste
 - `tools/` — build-release.ps1, build-installer.ps1, sign.ps1 (assinatura de código)
 - `installer/` — markpad.iss (Inno Setup) e markpad.wxs (MSI/WiX)
@@ -30,10 +31,21 @@ propósito. Interface web embutida no assembly (exe de arquivo único).
   checagem nem editar `SHA256SUMS.txt` à mão.
 - Release: usar `tools/build-release.ps1` (não `dotnet publish` avulso), e
   atualizar `CHANGELOG.md` + `<Version>` no `.csproj` juntos.
+- **Texto de interface passa por `t()`** (`web/i18n.js`). A chave é o próprio
+  português, não um identificador. Ao mexer numa frase já traduzida, ajuste o
+  dicionário junto — `node dev/test-i18n.js` reprova chave órfã e frase pedida
+  sem tradução.
+- **Cor nova vai como variável CSS**, não como valor solto: as paletas de
+  `web/themes.js` trocam as raízes e o resto da folha segue atrás. Valor vindo
+  de arquivo de fora (tema do VS Code) só entra se for literal de cor.
+- Antes de commitar, rodar os cinco testes de nó: `markdown`, `liveedit`,
+  `changes`, `themes`, `i18n`.
 
-## Estado (2026-08-28)
+## Estado (2026-09-16)
 
-Ativo. v1.2.0 lançada em 2026-08-21 (instaladores em `dist/`). Desde a tag há
-7 commits não lançados — auto-update (`Updater.cs`), paridade do parser com o
-Obsidian e polimento — listados em `[Não lançado]` no CHANGELOG; além disso,
-mudanças não commitadas em `web/app.js` e `web/style.css`.
+Ativo. v1.2.0 lançada em 2026-08-21 (instaladores em `dist/`). Desde a tag,
+`[Não lançado]` acumula: auto-update (`Updater.cs`), paridade do parser com o
+Obsidian, transclusão/backlinks/prévia ao pairar e — em 16/09 — **paletas de
+cor, importação de tema do VS Code e interface em três idiomas**. A 1.3.0
+ainda não foi cortada: falta bumpar `<Version>` no `.csproj`, fechar a seção
+do CHANGELOG e rodar `tools/build-release.ps1`.

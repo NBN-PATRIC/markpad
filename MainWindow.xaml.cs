@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.IO;
 using System.Text;
 using System.Text.Json;
@@ -401,7 +401,7 @@ public partial class MainWindow : Window
                 return OnRendererReady();
 
             case "openFileDialog":
-                return OpenFileDialog(Bool(args, "multi", true));
+                return OpenFileDialog(Bool(args, "multi", true), Str(args, "filter"));
 
             case "openFolderDialog":
                 return OpenFolderDialog();
@@ -623,13 +623,24 @@ public partial class MainWindow : Window
 
     // ------------------------------------------------------------- dialogos
 
-    private object? OpenFileDialog(bool multi)
+    // O filtro nomeado existe porque um dialogo de "abrir" que comeca mostrando
+    // .md nao ajuda quem foi buscar um tema: seria caçar o .json na lista de
+    // "todos os arquivos" toda vez. A chave e do chamador, nunca o filtro cru,
+    // para a UI nao poder montar string de dialogo do Windows.
+    private static readonly Dictionary<string, (string Titulo, string Filtro)> NamedFilters = new()
     {
+        ["json"] = ("Abrir tema", "Tema do VS Code (*.json)|*.json;*.jsonc|Todos os arquivos (*.*)|*.*")
+    };
+
+    private object? OpenFileDialog(bool multi, string filter = "")
+    {
+        var nomeado = !string.IsNullOrEmpty(filter) && NamedFilters.TryGetValue(filter, out var f) ? f : default;
+
         var dlg = new OpenFileDialog
         {
-            Title = "Abrir",
+            Title = nomeado.Titulo ?? "Abrir",
             Multiselect = multi,
-            Filter =
+            Filter = nomeado.Filtro ??
                 "Markdown (*.md;*.markdown;*.mdx)|*.md;*.markdown;*.mdown;*.mkd;*.mdx|" +
                 "Texto (*.txt;*.log;*.csv)|*.txt;*.text;*.log;*.csv|" +
                 "Dados (*.json;*.yml;*.yaml;*.toml;*.ini)|*.json;*.yml;*.yaml;*.toml;*.ini;*.cfg;*.conf|" +
