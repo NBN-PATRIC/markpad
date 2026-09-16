@@ -3,7 +3,11 @@
 Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 Versionamento [SemVer](https://semver.org/lang/pt-BR/).
 
-## [Não lançado]
+## [1.3.0] — 2026-09-16
+
+Aparência e idioma: o tema deixou de ser só claro/escuro, e a interface deixou
+de falar só português. No caminho, a edição ao vivo — que só funcionava fora
+das seções, ou seja quase nunca — passou a funcionar.
 
 ### Adicionado
 - **Paletas de cor.** Além de claro/escuro, oito paletas prontas — Nord,
@@ -440,7 +444,8 @@ dependência de outros aplicativos.
 - Gravação restrita a caminhos abertos na sessão e a extensões de texto.
 - Nenhuma navegação sai do aplicativo.
 
-[Não lançado]: https://github.com/NBN-PATRIC/markpad/compare/v1.2.0...HEAD
+[Não lançado]: https://github.com/NBN-PATRIC/markpad/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/NBN-PATRIC/markpad/releases/tag/v1.3.0
 [1.2.0]: https://github.com/NBN-PATRIC/markpad/releases/tag/v1.2.0
 [1.1.0]: https://github.com/NBN-PATRIC/markpad/releases/tag/v1.1.0
 [1.0.0]: https://github.com/NBN-PATRIC/markpad/releases/tag/v1.0.0
