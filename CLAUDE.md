@@ -25,8 +25,10 @@ propósito. Interface web embutida no assembly (exe de arquivo único).
 - NUNCA versionar chaves de assinatura (`*.pfx`, `*.p12`, `.certs/`) nem
   binários (`dist/`, `publish/`, `bin/`, `obj/`) — o `.gitignore` já cobre;
   não relaxar essas entradas.
-- Repositório privado da NBN: `github.com/NBN-PATRIC/markpad`. Não trocar o
-  remote nem publicar em outro lugar sem o Patric pedir.
+- Repositório **público** da NBN: `github.com/NBN-PATRIC/markpad` (conferido
+  em 16/09/2026; este arquivo dizia "privado", que estava errado). Não trocar o
+  remote nem publicar em outro lugar sem o Patric pedir — e, sendo público,
+  vale dobrado a regra de não commitar segredo nenhum.
 - O Updater só aceita pacote com SHA-256 conferido — não enfraquecer essa
   checagem nem editar `SHA256SUMS.txt` à mão.
 - Release: usar `tools/build-release.ps1` (não `dotnet publish` avulso), e
@@ -43,9 +45,15 @@ propósito. Interface web embutida no assembly (exe de arquivo único).
 
 ## Estado (2026-09-16)
 
-Ativo. v1.2.0 lançada em 2026-08-21 (instaladores em `dist/`). Desde a tag,
-`[Não lançado]` acumula: auto-update (`Updater.cs`), paridade do parser com o
-Obsidian, transclusão/backlinks/prévia ao pairar e — em 16/09 — **paletas de
-cor, importação de tema do VS Code e interface em três idiomas**. A 1.3.0
-ainda não foi cortada: falta bumpar `<Version>` no `.csproj`, fechar a seção
-do CHANGELOG e rodar `tools/build-release.ps1`.
+Ativo. **v1.3.0 lançada em 2026-09-16** — paletas de cor, tema do VS Code,
+interface em pt-BR/inglês/espanhol, e a edição ao vivo consertada (na 1.2.0 ela
+não abria editor dentro de nenhuma seção, ou seja quase nunca). É também a
+primeira release que o atualizador automático consome: `MarkPad-1.3.0-setup-win-x64.exe`
+e `SHA256SUMS.txt` estão publicados, e a cadeia de conferência foi validada
+contra o digest da própria API do GitHub.
+
+Pendentes do rumo Obsidian (conferidos no código, não na lista): painel de
+links de saída, operadores de busca (`path:`, `tag:`, `file:`), gráfico local,
+arrastar título para reordenar seção. **KaTeX e Mermaid** estão parados à
+espera de decisão: os dois pedem biblioteca externa, contra a promessa de
+"zero dependências, funciona offline" do README.
