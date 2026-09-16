@@ -163,5 +163,116 @@ if (alvo) {
   check('conteudo final correto', doc.includes('\nfinal\n'));
 }
 
+/*
+ * Qual bloco o clique abre.
+ *
+ * Até aqui o teste cobria a aritmética de fatiar o documento, que é onde mora
+ * o risco de corromper arquivo. Mas o modo ao vivo já ficou inteiro inútil por
+ * outro motivo, e sem nenhum teste reclamar: o recolhimento embrulha tudo que
+ * segue um título numa `.heading-section` sem `data-line`, e a regra antiga
+ * procurava o bloco entre os filhos DIRETOS do painel. Num documento com
+ * títulos — ou seja, em todos — clicar num parágrafo não abria editor nenhum,
+ * e o modo parecia "só leitura que não deixa editar".
+ *
+ * Então aqui o alvo é o `topBlock` de verdade, exercitado pelo mesmo
+ * `mousedown` que o app dispara, sobre a forma de DOM que o app realmente
+ * monta (app.js move os nós para dentro da `.heading-section`, e as seções
+ * aninham).
+ */
+console.log('\nqual bloco o clique abre');
+{
+  const liveSandbox = { window: {}, document: {}, console };
+  liveSandbox.global = liveSandbox;
+  vm.createContext(liveSandbox);
+  vm.runInContext(fs.readFileSync(path.join(web, 'liveedit.js'), 'utf8'), liveSandbox);
+
+  /** Casa seletores simples separados por vírgula: `tag`, `.classe`. */
+  function casa(no, seletor) {
+    return seletor.split(',').some((parte) => {
+      const s = parte.trim();
+      if (s.startsWith('.')) return no.classList.contains(s.slice(1));
+      return no.tagName === s.toUpperCase();
+    });
+  }
+
+  function criar(tag, attrs = {}, filhos = []) {
+    const no = {
+      nodeType: 1,
+      tagName: tag.toUpperCase(),
+      className: attrs.class || '',
+      _attrs: attrs,
+      parentNode: null,
+      hasAttribute: (n) => Object.prototype.hasOwnProperty.call(no._attrs, n),
+      getAttribute: (n) => (no.hasAttribute(n) ? String(no._attrs[n]) : null),
+      classList: { contains: (c) => (no.className || '').split(/\s+/).includes(c) },
+      closest(sel) {
+        let p = no;
+        while (p && p.nodeType === 1) { if (casa(p, sel)) return p; p = p.parentNode; }
+        return null;
+      },
+      addEventListener(tipo, fn) { (no._ouvintes[tipo] = no._ouvintes[tipo] || []).push(fn); },
+      _ouvintes: {}
+    };
+    filhos.forEach((f) => { f.parentNode = no; });
+    no.childNodes = filhos;
+    return no;
+  }
+
+  // A forma que app.js monta: cada título leva o que vem depois para dentro de
+  // uma .heading-section, e uma seção dentro da outra quando os níveis aninham.
+  const alvoParagrafo = criar('p', { 'data-line': 6, 'data-line-end': 6 });
+  const link = criar('a', { href: '#' });
+  const paragrafoComLink = criar('p', { 'data-line': 8, 'data-line-end': 8 }, [link]);
+  const subLista = criar('ul', { 'data-line': 11, 'data-line-end': 12 });
+  const itemComSubLista = criar('li', {}, [subLista]);
+  const listaExterna = criar('ul', { 'data-line': 10, 'data-line-end': 12 }, [itemComSubLista]);
+  const chevron = criar('span', { class: 'fold-chevron' });
+  const h2 = criar('h2', { 'data-line': 4, 'data-line-end': 4, class: 'is-foldable' }, [chevron]);
+
+  const secaoInterna = criar('div', { class: 'heading-section' },
+    [alvoParagrafo, paragrafoComLink, listaExterna]);
+  const secaoExterna = criar('div', { class: 'heading-section' }, [h2, secaoInterna]);
+  const h1 = criar('h1', { 'data-line': 0, 'data-line-end': 0 });
+  const raiz = criar('div', { id: 'preview' }, [h1, secaoExterna]);
+
+  let editavel = true;
+  const live = liveSandbox.window.MarkPadLiveEdit.create(raiz, {
+    getContent: () => '', setContent: () => {}, isEditable: () => editavel
+  });
+
+  let abriu = null;
+  live.enter = function (block) { abriu = block; };
+
+  function clicar(alvo) {
+    abriu = null;
+    raiz._ouvintes.mousedown.forEach((fn) => fn({
+      button: 0, target: alvo, clientX: 10, clientY: 10, preventDefault() {}
+    }));
+    return abriu;
+  }
+
+  check('paragrafo dentro de duas heading-section abre editor',
+    clicar(alvoParagrafo) === alvoParagrafo,
+    'foi ' + (abriu ? abriu.tagName : 'nenhum'));
+
+  check('e o bloco NAO e filho direto da raiz (era esse o bug)',
+    alvoParagrafo.parentNode !== raiz);
+
+  check('o titulo embrulhador tambem abre',
+    clicar(h2) === h2, 'foi ' + (abriu ? abriu.tagName : 'nenhum'));
+
+  check('clique na sublista edita a lista inteira, nao a sublista',
+    clicar(subLista) === listaExterna,
+    'foi ' + (abriu ? abriu.tagName + ' linha ' + abriu.getAttribute('data-line') : 'nenhum'));
+
+  check('a setinha de recolher nao abre editor', clicar(chevron) === null);
+  check('link continua clicavel', clicar(link) === null);
+  check('clique na propria seccao (sem data-line) nao abre nada',
+    clicar(secaoInterna) === null);
+
+  editavel = false;
+  check('com o documento travado nao abre nada', clicar(alvoParagrafo) === null);
+}
+
 console.log('\n' + passed + '/' + (passed + failed) + ' passaram');
 process.exit(failed ? 1 : 0);
