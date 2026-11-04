@@ -91,6 +91,51 @@
     return vazio;
   }
 
+  /**
+   * Diferenca linha a linha entre dois textos, para mostrar (historico de
+   * versoes): lista de { op: '=', '-' ou '+', texto }. '-' e o que so existe
+   * em `base`, '+' o que so existe em `atual`. Mesma estrategia do
+   * linhasAlteradas: corta prefixo e sufixo iguais, LCS so no miolo, e o
+   * mesmo teto — miolo grande vira "tudo saiu, tudo entrou", que e verdade
+   * mesmo sendo grosso.
+   */
+  function diff(base, atual) {
+    var A = String(base).split('\n'), B = String(atual).split('\n');
+    var ini = 0;
+    var limite = Math.min(A.length, B.length);
+    while (ini < limite && A[ini] === B[ini]) ini++;
+    var fim = 0;
+    while (fim < limite - ini && A[A.length - 1 - fim] === B[B.length - 1 - fim]) fim++;
+
+    var ops = [];
+    for (var i = 0; i < ini; i++) ops.push({ op: '=', texto: A[i] });
+
+    var am = A.slice(ini, A.length - fim), bm = B.slice(ini, B.length - fim);
+    if (am.length > LIMITE_LCS || bm.length > LIMITE_LCS) {
+      am.forEach(function (l) { ops.push({ op: '-', texto: l }); });
+      bm.forEach(function (l) { ops.push({ op: '+', texto: l }); });
+    } else {
+      var a = am.length, b = bm.length, tabela = [];
+      for (var r = 0; r <= a; r++) tabela.push(new Int32Array(b + 1));
+      for (var x = a - 1; x >= 0; x--) {
+        for (var y = b - 1; y >= 0; y--) {
+          tabela[x][y] = am[x] === bm[y] ? tabela[x + 1][y + 1] + 1 : Math.max(tabela[x + 1][y], tabela[x][y + 1]);
+        }
+      }
+      var p = 0, q = 0;
+      while (p < a && q < b) {
+        if (am[p] === bm[q]) { ops.push({ op: '=', texto: am[p] }); p++; q++; }
+        else if (tabela[p + 1][q] >= tabela[p][q + 1]) { ops.push({ op: '-', texto: am[p] }); p++; }
+        else { ops.push({ op: '+', texto: bm[q] }); q++; }
+      }
+      while (p < a) ops.push({ op: '-', texto: am[p++] });
+      while (q < b) ops.push({ op: '+', texto: bm[q++] });
+    }
+
+    for (var j = A.length - fim; j < A.length; j++) ops.push({ op: '=', texto: A[j] });
+    return ops;
+  }
+
   /** Resumo para a barra de status. */
   function resumo(status) {
     var mod = 0, salvas = 0;
@@ -104,6 +149,7 @@
   global.MarkPadChanges = {
     statusPorLinha: statusPorLinha,
     linhasAlteradas: linhasAlteradas,
+    diff: diff,
     resumo: resumo
   };
 })(window);

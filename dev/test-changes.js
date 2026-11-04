@@ -122,5 +122,16 @@ console.log('\nresumo para a barra de status');
     JSON.stringify(r));
 }
 
+console.log('\ndiff para o historico de versoes');
+{
+  const d = ch.diff('a\nb\nc\nd', 'a\nB\nc\nd\ne');
+  const txt = d.map((o) => o.op + o.texto).join(' ');
+  check('troca e acrescimo', txt === '=a -b +B =c =d +e', txt);
+  const igual = ch.diff('x\ny', 'x\ny');
+  check('textos iguais so tem =', igual.every((o) => o.op === '='), JSON.stringify(igual));
+  const vazio = ch.diff('', 'um\ndois');
+  check('do vazio: tudo entra', vazio.map((o) => o.op).join('') === '-++', vazio.map((o) => o.op).join(''));
+}
+
 console.log('\n' + passed + '/' + (passed + failed) + ' passaram');
 process.exit(failed ? 1 : 0);

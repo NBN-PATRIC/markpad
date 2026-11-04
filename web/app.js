@@ -4882,6 +4882,7 @@
       { id: 'rename', label: t('Renomear...'), key: 'F2', icon: 'text', enabled: !!(tab && tab.path), action: function () { renameDoc(activeTab().path); } },
       { id: 'move', label: t('Mover para...'), icon: 'folder', enabled: !!(tab && tab.path), action: function () { moveDoc(activeTab().path); } },
       { id: 'duplicate', label: t('Duplicar'), icon: 'copy', enabled: !!(tab && tab.path), action: function () { duplicateDoc(activeTab().path); } },
+      { id: 'versions', label: t('Historico de versoes...'), icon: 'clock', enabled: !!(tab && tab.path), action: function () { abreVersoes(activeTab().path); } },
       { id: 'openWith', label: t('Abrir no app padrao do Windows'), icon: 'external', enabled: !!(tab && tab.path), action: function () { openWithDefaultApp(activeTab().path); } },
       { id: 'delete', label: t('Excluir arquivo...'), icon: 'trash', enabled: !!(tab && tab.path), action: function () { deleteDoc(activeTab().path); } },
       { id: 'export', label: t('Exportar como HTML...'), icon: 'external', enabled: !!tab, action: exportHtml },
@@ -5890,6 +5891,7 @@
       { label: t('Renomear...'), icon: 'text', action: function () { renameDoc(path); } },
       { label: t('Mover para...'), icon: 'folder', action: function () { moveDoc(path); } },
       { label: t('Duplicar'), icon: 'copy', action: function () { duplicateDoc(path); } },
+      { label: t('Historico de versoes...'), icon: 'clock', action: function () { abreVersoes(path); } },
       '-',
       { label: t('Abrir no app padrao'), icon: 'external', action: function () { openWithDefaultApp(path); } },
       { label: t('Mostrar no Explorer'), icon: 'reveal', action: function () { bridge.call('revealInExplorer', { path: path }); } },
@@ -5919,6 +5921,7 @@
       { label: t('Renomear...'), icon: 'text', key: 'F2', disabled: !tab.path, action: function () { renameDoc(tab.path); } },
       { label: t('Mover para...'), icon: 'folder', disabled: !tab.path, action: function () { moveDoc(tab.path); } },
       { label: t('Duplicar'), icon: 'copy', disabled: !tab.path, action: function () { duplicateDoc(tab.path); } },
+      { label: t('Historico de versoes...'), icon: 'clock', disabled: !tab.path, action: function () { abreVersoes(tab.path); } },
       '-',
       { label: t('Abrir no app padrao'), icon: 'external', disabled: !tab.path, action: function () { openWithDefaultApp(tab.path); } },
       { label: t('Mostrar no Explorer'), icon: 'reveal', disabled: !tab.path, action: function () { bridge.call('revealInExplorer', { path: tab.path }); } },
@@ -6171,6 +6174,232 @@
         toast(t('Foi para a Lixeira: ') + nome, 'ok', 3600);
       });
     }).catch(falhaDoc('excluir'));
+  }
+
+  // ------------------------------------------------ historico de versoes
+
+  /*
+   * O historico local (o "recuperar arquivo" do Obsidian): o C# guarda o que
+   * estava no disco antes de cada gravacao, uma copia a cada cinco minutos,
+   * por 30 dias. Aqui se escolhe uma, ve a diferenca para o texto da aba e
+   * restaura — restaurar so troca o texto da aba; quem grava e o Ctrl+S, e
+   * "Recarregar do disco" desfaz.
+   */
+  function abreVersoes(path) {
+    var tab = tabByPath(path);
+    if (!path) return Promise.resolve();
+    if (live) live.commit();
+
+    return bridge.call('listVersions', { path: path }).then(function (res) {
+      var versoes = (res && res.versions) || [];
+      var overlay = $('overlay');
+      var box = document.createElement('div');
+      box.className = 'dialog versoes';
+      box.setAttribute('role', 'dialog');
+
+      var h = document.createElement('h2');
+      h.textContent = t('Versoes de {nome}', { nome: baseName(path) });
+      box.appendChild(h);
+
+      var p = document.createElement('p');
+      p.textContent = versoes.length
+        ? t('Copias guardadas antes de cada gravacao: uma a cada 5 minutos, por 30 dias. Restaurar so troca o texto da aba; o Ctrl+S e que grava.')
+        : t('Nenhuma versao guardada ainda. Elas aparecem depois que o MarkPad grava por cima deste arquivo.');
+      box.appendChild(p);
+
+      var corpo = document.createElement('div');
+      corpo.className = 'versoes-corpo';
+      var lista = document.createElement('div');
+      lista.className = 'versoes-lista';
+      lista.setAttribute('role', 'listbox');
+      var vista = document.createElement('div');
+      vista.className = 'versoes-diff';
+      corpo.appendChild(lista);
+      corpo.appendChild(vista);
+      if (versoes.length) box.appendChild(corpo);
+
+      var acoes = document.createElement('div');
+      acoes.className = 'dialog-actions';
+      var btCopiar = botao(t('Copiar texto'), '');
+      var btFechar = botao(t('Fechar'), '');
+      var btRestaurar = botao(t('Restaurar esta versao'), 'primary');
+      if (versoes.length) { acoes.appendChild(btCopiar); }
+      acoes.appendChild(btFechar);
+      if (versoes.length) acoes.appendChild(btRestaurar);
+      box.appendChild(acoes);
+
+      var escolhida = null;   // { id, when, content }
+
+      function botao(rotulo, cls) {
+        var b = document.createElement('button');
+        b.className = 'btn' + (cls ? ' ' + cls : '');
+        b.textContent = rotulo;
+        return b;
+      }
+
+      function fecha() {
+        overlay.hidden = true;
+        box.remove();
+        document.removeEventListener('keydown', onKey, true);
+      }
+      function onKey(e) {
+        if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); fecha(); return; }
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+          e.preventDefault();
+          var i = versoes.findIndex(function (v) { return escolhida && v.id === escolhida.id; });
+          i = Math.max(0, Math.min(versoes.length - 1, i + (e.key === 'ArrowDown' ? 1 : -1)));
+          escolhe(versoes[i]);
+        }
+      }
+
+      function textoAtual() {
+        var aba = tabByPath(path);
+        return aba ? Promise.resolve(aba.content) : bridge.call('readFile', { path: path }).then(function (d) { return d.content; });
+      }
+
+      function escolhe(v) {
+        Array.prototype.forEach.call(lista.children, function (el) {
+          el.classList.toggle('is-active', el.getAttribute('data-id') === v.id);
+          if (el.getAttribute('data-id') === v.id) el.scrollIntoView({ block: 'nearest' });
+        });
+        vista.textContent = '';
+        escolhida = null;
+        Promise.all([bridge.call('readVersion', { path: path, id: v.id }), textoAtual()]).then(function (r) {
+          escolhida = { id: v.id, when: v.when, content: r[0].content };
+          desenhaDiff(vista, r[1], r[0].content);
+        }).catch(function (err) { vista.textContent = t('Nao consegui ler a versao: ') + err.message; });
+      }
+
+      versoes.forEach(function (v) {
+        var item = document.createElement('div');
+        item.className = 'versoes-item';
+        item.setAttribute('data-id', v.id);
+        item.setAttribute('role', 'option');
+        var quando = document.createElement('span');
+        quando.textContent = dataCurta(v.when);
+        var sub = document.createElement('span');
+        sub.className = 'pal-sub';
+        sub.textContent = haQuanto(v.when) + ' · ' + tamanhoLegivel(v.size);
+        item.appendChild(quando);
+        item.appendChild(sub);
+        item.onclick = function () { escolhe(v); };
+        lista.appendChild(item);
+      });
+
+      btFechar.onclick = fecha;
+      btCopiar.onclick = function () {
+        if (!escolhida) return;
+        navigator.clipboard.writeText(escolhida.content);
+        toast(t('Texto da versao copiado.'), 'ok', 1600);
+      };
+      btRestaurar.onclick = function () {
+        if (!escolhida) return;
+        var v = escolhida;
+        fecha();
+        restauraVersao(path, v);
+      };
+
+      document.body.appendChild(box);
+      overlay.hidden = false;
+      overlay.onclick = fecha;
+      document.addEventListener('keydown', onKey, true);
+      if (versoes.length) escolhe(versoes[0]);
+      (versoes.length ? btRestaurar : btFechar).focus();
+    }).catch(function (err) { toast(t('Nao consegui ler o historico: ') + err.message, 'error', 5000); });
+  }
+
+  /*
+   * A diferenca do texto da aba para a versao, como um diff unificado: '-'
+   * e o que so existe no atual (sai se restaurar), '+' o que so existe na
+   * versao (volta). Trechos iguais encolhem para tres linhas de contexto.
+   */
+  function desenhaDiff(vista, atual, versao) {
+    vista.textContent = '';
+    var ops = window.MarkPadChanges.diff(atual, versao);
+    var mudou = ops.some(function (o) { return o.op !== '='; });
+    if (!mudou) {
+      var igual = document.createElement('p');
+      igual.className = 'pane-empty';
+      igual.textContent = t('Igual ao texto atual.');
+      vista.appendChild(igual);
+      return;
+    }
+
+    var legenda = document.createElement('div');
+    legenda.className = 'versoes-legenda';
+    var tira = ops.filter(function (o) { return o.op === '-'; }).length;
+    var poe = ops.filter(function (o) { return o.op === '+'; }).length;
+    var linhas = function (n) { return n === 1 ? t('1 linha') : t('{n} linhas', { n: n }); };
+    legenda.textContent = t('Em relacao ao texto atual: {a} e {r}', { a: '+' + linhas(poe), r: '−' + linhas(tira) });
+    vista.appendChild(legenda);
+
+    var CONTEXTO = 3;
+    var perto = ops.map(function () { return false; });
+    ops.forEach(function (o, i) {
+      if (o.op === '=') return;
+      for (var k = Math.max(0, i - CONTEXTO); k <= Math.min(ops.length - 1, i + CONTEXTO); k++) perto[k] = true;
+    });
+
+    var pre = document.createElement('div');
+    pre.className = 'versoes-linhas';
+    var pulou = false;
+    ops.forEach(function (o, i) {
+      if (!perto[i]) {
+        if (!pulou) {
+          var corte = document.createElement('div');
+          corte.className = 'diff-corte';
+          corte.textContent = '…';
+          pre.appendChild(corte);
+        }
+        pulou = true;
+        return;
+      }
+      pulou = false;
+      var linha = document.createElement('div');
+      linha.className = 'diff-linha' + (o.op === '+' ? ' diff-mais' : o.op === '-' ? ' diff-menos' : '');
+      var sinal = document.createElement('span');
+      sinal.className = 'diff-sinal';
+      sinal.textContent = o.op === '=' ? ' ' : o.op === '-' ? '−' : '+';
+      linha.appendChild(sinal);
+      linha.appendChild(document.createTextNode(o.texto || ' '));
+      pre.appendChild(linha);
+    });
+    vista.appendChild(pre);
+  }
+
+  function restauraVersao(path, v) {
+    var aplica = function (tab) {
+      if (live) live.commit();
+      tab.content = v.content;
+      invalidateLineStatus(tab);
+      if (tab.id !== app.activeId) selectTab(tab.id);
+      if (tab.locked) setLocked(tab, false, true);
+      renderAll();
+      toast(t('Versao de {quando} restaurada na aba, ainda nao gravada. Para desistir, use “Recarregar do disco”.',
+        { quando: dataCurta(v.when) }), 'ok', 6000);
+    };
+    var tab = tabByPath(path);
+    if (tab) { aplica(tab); return Promise.resolve(); }
+    return doOpenPath(path, {}).then(aplica);
+  }
+
+  function dataCurta(ms) {
+    var d = new Date(ms);
+    var hoje = new Date();
+    var ontem = new Date(Date.now() - 86400000);
+    var hora = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+    if (d.toDateString() === hoje.toDateString()) return t('hoje, {hora}', { hora: hora });
+    if (d.toDateString() === ontem.toDateString()) return t('ontem, {hora}', { hora: hora });
+    return d.toLocaleDateString(undefined, { day: '2-digit', month: '2-digit' }) + ', ' + hora;
+  }
+
+  function haQuanto(ms) {
+    var min = Math.max(0, Math.round((Date.now() - ms) / 60000));
+    if (min < 1) return t('agora ha pouco');
+    if (min < 60) return t('ha {n} min', { n: min });
+    var h = Math.round(min / 60);
+    if (h < 48) return t('ha {n} h', { n: h });
+    return t('ha {n} dias', { n: Math.round(h / 24) });
   }
 
   function openWithDefaultApp(path) {

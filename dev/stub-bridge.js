@@ -109,6 +109,19 @@
   var MTIMES = {};
   function mtimeDe(k) { return MTIMES[k] || (MTIMES[k] = 1000); }
 
+  // Historico de versoes fingido: o guia ja nasce com uma versao de ontem
+  // (titulo e uma tarefa diferentes), e todo writeFile guarda a anterior.
+  var VERSOES = {};
+  function guardaVersao(k, texto, quando) {
+    var lista = VERSOES[k] || (VERSOES[k] = []);
+    var d = new Date(quando);
+    var id = d.toISOString().replace(/[-:]/g, '').replace('.', '').slice(0, 18) + '.txt';
+    lista.push({ id: id, when: quando, size: texto.length, content: texto });
+  }
+  guardaVersao('C:\\notas\\guia.md', SAMPLE.replace('# Guia rapido do MarkPad', '# Guia do MarkPad (rascunho)')
+    .replace('- [ ] Explorar os atalhos\n', '- [ ] Explorar os atalhos\n- [ ] Tarefa que foi apagada depois\n'),
+    Date.now() - 26 * 3600 * 1000);
+
   /* Fora do WebView nao ha rede nem instalador. Abra o preview com
      ?update=1 para o atualizador encenar o fluxo inteiro: aviso, download
      com barra de progresso e "pronta para instalar". */
@@ -150,9 +163,22 @@
               };
               break;
             case 'writeFile':
+              if (FILES[msg.args.path] !== undefined && FILES[msg.args.path] !== msg.args.content) {
+                guardaVersao(msg.args.path, FILES[msg.args.path], Date.now());
+              }
               FILES[msg.args.path] = msg.args.content;
               MTIMES[msg.args.path] = mtimeDe(msg.args.path) + 1;
               result = { path: msg.args.path, mtime: MTIMES[msg.args.path] };
+              break;
+            case 'listVersions':
+              result = { versions: (VERSOES[msg.args.path] || []).slice().reverse().map(function (v) {
+                return { id: v.id, when: v.when, size: v.size };
+              }) };
+              break;
+            case 'readVersion':
+              var achadaV = (VERSOES[msg.args.path] || []).filter(function (v) { return v.id === msg.args.id; })[0];
+              if (!achadaV) throw new Error('essa versao nao existe mais.');
+              result = { content: achadaV.content };
               break;
             case 'indexFolder':
               // Mesmo contrato do C#, com lote minusculo (1 KB) para o preview

@@ -526,6 +526,12 @@ public partial class MainWindow : Window
                 DropBackup(Str(args, "path"));
                 return true;
 
+            case "listVersions":
+                return ListVersions(Str(args, "path"));
+
+            case "readVersion":
+                return ReadVersion(Str(args, "path"), Str(args, "id"));
+
             case "loadSettings":
                 return LoadSettingsFile();
 
@@ -823,6 +829,7 @@ public partial class MainWindow : Window
             var attributes = File.GetAttributes(full);
             if (attributes.HasFlag(FileAttributes.ReadOnly))
                 throw new UnauthorizedAccessException("o arquivo esta marcado como somente leitura no disco.");
+            GuardaVersao(full);
             File.Replace(temp, full, null, true);
         }
         else
@@ -1525,6 +1532,103 @@ public partial class MainWindow : Window
         return new { backups = achados };
     }
 
+    // ------------------------------------------------ historico de versoes
+
+    /*
+     * O historico local de versoes (o "recuperar arquivo" do Obsidian): antes
+     * de gravar por cima de um arquivo, o texto que estava no disco vai para
+     * data/versions/<chave>/. Uma versao por janela de cinco minutos — salvar
+     * dez vezes seguidas guarda o estado de antes da primeira, nao dez copias
+     * quase iguais —, no maximo 100 por arquivo e por 30 dias. Falhar aqui
+     * nunca impede a gravacao: a versao e rede de seguranca, nao requisito.
+     */
+    private static readonly TimeSpan VersaoIntervalo = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan VersaoValidade = TimeSpan.FromDays(30);
+    private const int VersoesMax = 100;
+    private const string VersaoFormato = "yyyyMMdd'T'HHmmssfff";
+    private static readonly System.Text.RegularExpressions.Regex RE_VERSAO_ID =
+        new(@"^\d{8}T\d{9}\.txt$", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    private string PastaDeVersoes(string full) => Path.Combine(DataRoot, "versions", BackupKey(full));
+
+    private static DateTime? QuandoDaVersao(string arquivo)
+    {
+        var nome = Path.GetFileNameWithoutExtension(arquivo);
+        return DateTime.TryParseExact(nome, VersaoFormato, System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal,
+            out var quando) ? quando : null;
+    }
+
+    private static List<string> VersoesDe(string dir) =>
+        Directory.Exists(dir)
+            ? Directory.GetFiles(dir, "*.txt")
+                .Where(f => RE_VERSAO_ID.IsMatch(Path.GetFileName(f)))
+                .OrderBy(f => Path.GetFileName(f), StringComparer.Ordinal)
+                .ToList()
+            : new List<string>();
+
+    private void GuardaVersao(string full)
+    {
+        try
+        {
+            var info = new FileInfo(full);
+            if (!info.Exists || info.Length > 8 * 1024 * 1024 || !TextExtensions.Contains(info.Extension)) return;
+
+            var bytes = File.ReadAllBytes(full);
+            if (LooksBinary(bytes)) return;
+            var texto = DecodeText(bytes).text.Replace("\r\n", "\n").Replace('\r', '\n');
+
+            var dir = PastaDeVersoes(full);
+            var versoes = VersoesDe(dir);
+            var agora = DateTime.UtcNow;
+
+            if (versoes.Count > 0)
+            {
+                var ultima = versoes[^1];
+                if (QuandoDaVersao(ultima) is { } quando && agora - quando < VersaoIntervalo) return;
+                if (File.ReadAllText(ultima, Encoding.UTF8) == texto) return;
+            }
+
+            Directory.CreateDirectory(dir);
+            // De qual arquivo e esta pasta: a chave e um hash, e sem isto ninguem
+            // saberia de onde vieram as versoes de um arquivo que ja nao existe.
+            File.WriteAllText(Path.Combine(dir, "caminho"), full, new UTF8Encoding(false));
+            File.WriteAllText(Path.Combine(dir, agora.ToString(VersaoFormato) + ".txt"), texto, new UTF8Encoding(false));
+
+            versoes = VersoesDe(dir);
+            for (var i = 0; i < versoes.Count; i++)
+            {
+                var velha = QuandoDaVersao(versoes[i]) is { } q && agora - q > VersaoValidade;
+                if (velha || versoes.Count - i > VersoesMax) File.Delete(versoes[i]);
+            }
+        }
+        catch { /* sem versao desta vez; a gravacao segue */ }
+    }
+
+    private object ListVersions(string path)
+    {
+        var full = Path.GetFullPath(path);
+        var lista = VersoesDe(PastaDeVersoes(full))
+            .Select(f => new
+            {
+                id = Path.GetFileName(f),
+                when = QuandoDaVersao(f) is { } q ? new DateTimeOffset(q, TimeSpan.Zero).ToUnixTimeMilliseconds() : 0,
+                size = new FileInfo(f).Length
+            })
+            .Reverse()
+            .ToList();
+        return new { versions = lista };
+    }
+
+    private object ReadVersion(string path, string id)
+    {
+        // O id vem do JS: so o formato exato passa, nada de "..\" escapando da pasta.
+        if (!RE_VERSAO_ID.IsMatch(id)) throw new ArgumentException("versao invalida.");
+        var arquivo = Path.Combine(PastaDeVersoes(Path.GetFullPath(path)), id);
+        if (!File.Exists(arquivo)) throw new FileNotFoundException("essa versao nao existe mais.");
+        return new { content = File.ReadAllText(arquivo, Encoding.UTF8) };
+    }
+
     private void DropBackup(string path)
     {
         var alvo = Path.Combine(BackupDirectory, BackupKey(path) + ".json");
@@ -1692,7 +1796,39 @@ public partial class MainWindow : Window
         _writablePaths.Add(to);
         _watchedFiles.Remove(from);
         _watchedFiles.Add(to);
+        LevaVersoes(from, to);
         return FileFacts(to);
+    }
+
+    /// <summary>
+    /// As versoes ficam guardadas pela chave do caminho: renomear ou mover sem
+    /// levar a pasta junto deixaria o historico para tras, preso ao nome velho.
+    /// </summary>
+    private void LevaVersoes(string from, string to)
+    {
+        try
+        {
+            var velha = PastaDeVersoes(from);
+            var nova = PastaDeVersoes(to);
+            if (!Directory.Exists(velha) || string.Equals(velha, nova, StringComparison.OrdinalIgnoreCase)) return;
+            if (Directory.Exists(nova))
+            {
+                // O destino ja tinha historico (nome reaproveitado): junta, sem
+                // sobrescrever o que existe.
+                foreach (var f in Directory.GetFiles(velha, "*.txt"))
+                {
+                    var alvo = Path.Combine(nova, Path.GetFileName(f));
+                    if (!File.Exists(alvo)) File.Move(f, alvo);
+                }
+                Directory.Delete(velha, true);
+            }
+            else
+            {
+                Directory.Move(velha, nova);
+            }
+            File.WriteAllText(Path.Combine(nova, "caminho"), to, new UTF8Encoding(false));
+        }
+        catch { /* historico fica no nome velho; o arquivo ja mudou e isso basta */ }
     }
 
     private object RenameFile(string path, string name)

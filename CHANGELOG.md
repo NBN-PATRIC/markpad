@@ -18,6 +18,14 @@ Versionamento [SemVer](https://semver.org/lang/pt-BR/).
   marcam os que não têm destino na pasta; clicar num desses leva à linha
   dele. O índice relê só as notas que mudaram, e a primeira varredura de uma
   pasta grande vem em lotes, sem congelar a janela.
+- **Histórico local de versões.** Antes de gravar por cima de um arquivo, o
+  MarkPad guarda o que estava no disco (uma cópia a cada 5 minutos por
+  arquivo, até 100 cópias e por 30 dias, na pasta de dados do app). "Histórico
+  de versões..." (paleta, menu da aba e menu do arquivo) lista as cópias,
+  mostra a diferença para o texto atual (o que volta e o que sai) e restaura
+  na aba sem gravar: o Ctrl+S é que grava, e "Recarregar do disco" desiste.
+  Vale para tudo que o MarkPad grava, inclusive a atualização de links ao
+  renomear; renomear ou mover leva o histórico junto.
 - **"Ligar" nas menções não ligadas.** Pairar a linha mostra o botão, que
   troca a menção por `[[Nota]]` no outro arquivo (ou `[[Nota|como estava
   escrito]]` quando era um apelido ou outra caixa de letra). A linha é relida
