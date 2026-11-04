@@ -24,6 +24,10 @@ Versionamento [SemVer](https://semver.org/lang/pt-BR/).
   sessão. As abas se reordenam arrastando. Aba nova entra logo depois da ativa,
   não mais no fim. Ctrl+PgUp/PgDn trocam de aba e Ctrl+Shift+PgUp/PgDn movem a
   aba. O menu da aba ganhou "Fechar à direita" e "Fechar as não modificadas".
+- **Tela inteira (F11) e "Sempre no topo".** F11 tira a moldura e ocupa a tela
+  toda, por cima da barra de tarefas; F11 de novo volta exatamente como
+  estava. "Sempre no topo" fica na paleta de comandos (Ctrl+Shift+P), útil para
+  deixar um procedimento aberto por cima do terminal.
 - **`[[Nota#Seção]]` abre a nota já na seção.** Antes a seção era descartada e
   a nota abria no topo. Vale também para `[texto](nota.md#Seção)`.
 

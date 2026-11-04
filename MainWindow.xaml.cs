@@ -484,6 +484,13 @@ public partial class MainWindow : Window
                 Title = Str(args, "title", "MarkPad");
                 return true;
 
+            case "toggleFullScreen":
+                return SetFullScreen(!_telaCheia);
+
+            case "setTopmost":
+                Topmost = Bool(args, "on", !Topmost);
+                return Topmost;
+
             case "setTitleBarTheme":
                 _darkTitleBar = Bool(args, "dark", true);
                 NativeMethods.ApplyTitleBarTheme(new WindowInteropHelper(this).Handle, _darkTitleBar);
@@ -814,6 +821,41 @@ public partial class MainWindow : Window
             size = info.Length,
             mtime = new DateTimeOffset(info.LastWriteTimeUtc).ToUnixTimeMilliseconds()
         };
+    }
+
+    // --------------------------------------------------------- tela inteira
+    //
+    // F11, como no Notepad++ e no Obsidian: sem moldura, ocupando a tela toda,
+    // inclusive a barra de tarefas. Volta exatamente ao estado de antes.
+
+    private bool _telaCheia;
+    private WindowState _estadoAntesDaTelaCheia;
+    private WindowStyle _estiloAntesDaTelaCheia;
+    private ResizeMode _redimensionarAntesDaTelaCheia;
+
+    private bool SetFullScreen(bool ligar)
+    {
+        if (ligar == _telaCheia) return _telaCheia;
+        if (ligar)
+        {
+            _estadoAntesDaTelaCheia = WindowState;
+            _estiloAntesDaTelaCheia = WindowStyle;
+            _redimensionarAntesDaTelaCheia = ResizeMode;
+            WindowStyle = WindowStyle.None;
+            ResizeMode = ResizeMode.NoResize;
+            // Ja maximizada, o WPF nao recalcula a area: passa por Normal para
+            // a janela sem moldura cobrir tambem a barra de tarefas.
+            if (WindowState == WindowState.Maximized) WindowState = WindowState.Normal;
+            WindowState = WindowState.Maximized;
+        }
+        else
+        {
+            WindowStyle = _estiloAntesDaTelaCheia;
+            ResizeMode = _redimensionarAntesDaTelaCheia;
+            WindowState = _estadoAntesDaTelaCheia;
+        }
+        _telaCheia = ligar;
+        return _telaCheia;
     }
 
     // ------------------------------------------------------- configuracoes

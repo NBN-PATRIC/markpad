@@ -783,6 +783,22 @@
     selectTab(tab.id);
   }
 
+  // ================================================== janela: modos de tela
+
+  function alternaTelaInteira() {
+    bridge.call('toggleFullScreen', {}).then(function (ligada) {
+      app.telaInteira = !!ligada;
+      if (ligada) toast(t('Tela inteira. F11 para sair.'), '', 1800);
+    }).catch(function () {});
+  }
+
+  function alternaSempreNoTopo() {
+    bridge.call('setTopmost', { on: !app.sempreNoTopo }).then(function (ligado) {
+      app.sempreNoTopo = !!ligado;
+      toast(ligado ? t('Sempre no topo: ligado.') : t('Sempre no topo: desligado.'), 'ok', 1500);
+    }).catch(function () {});
+  }
+
   // ==================================================== abas: ordem e fixacao
   //
   // Aba fixada mora no comeco da faixa (como no Notepad++), mostra um alfinete
@@ -4341,6 +4357,8 @@
       { id: 'delete', label: t('Excluir arquivo...'), icon: 'trash', enabled: !!(tab && tab.path), action: function () { deleteDoc(activeTab().path); } },
       { id: 'export', label: t('Exportar como HTML...'), icon: 'external', enabled: !!tab, action: exportHtml },
       { id: 'print', label: t('Imprimir'), key: 'Ctrl+Alt+P', icon: 'printer', enabled: !!tab, action: doPrint },
+      { id: 'fullscreen', label: t('Tela inteira'), key: 'F11', icon: 'external', checked: !!app.telaInteira, action: alternaTelaInteira },
+      { id: 'topmost', label: t('Sempre no topo'), icon: 'pin', checked: !!app.sempreNoTopo, action: alternaSempreNoTopo },
       { id: 'copyPath', label: t('Copiar caminho do arquivo'), icon: 'copy', enabled: !!(tab && tab.path), action: function () { navigator.clipboard.writeText(activeTab().path); toast(t('Caminho copiado.'), 'ok', 1200); } },
       { id: 'reveal', label: t('Mostrar no Explorer'), icon: 'reveal', enabled: !!(tab && tab.path), action: function () { bridge.call('revealInExplorer', { path: activeTab().path }); } },
       { id: 'assoc', label: app.isDefault ? t('Remover o MarkPad como padrao de .md')
@@ -5773,6 +5791,13 @@
     }
 
     if (ctrl && e.altKey && e.key.toLowerCase() === 'p') { e.preventDefault(); doPrint(); return; }
+
+    // F11: tela inteira (o lado nativo tira a moldura e cobre a barra de tarefas).
+    if (e.key === 'F11' && !ctrl && !e.altKey && !e.shiftKey) {
+      e.preventDefault();
+      alternaTelaInteira();
+      return;
+    }
 
     if (e.key === 'F2' && !ctrl && !e.altKey && !e.shiftKey) {
       e.preventDefault();
