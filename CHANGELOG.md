@@ -23,6 +23,11 @@ Versionamento [SemVer](https://semver.org/lang/pt-BR/).
 - **Arquivo ANSI com €, aspas curvas ou travessão** aparecia com lixo no lugar
   desses caracteres: era lido como Latin-1. Agora é lido como Windows-1252 (o
   ANSI do Windows em português), que devolve os mesmos bytes ao salvar.
+- **Substituir com expressão regular usa os grupos.** `$1` saía literal no
+  texto. Agora o modo regex entende `$1` a `$99`, `$<nome>`, `$&` e `$$`, e
+  também `\n`, `\t` e `\\` (como no Notepad++). Fora do modo regex o texto de
+  substituição continua valendo ao pé da letra. "Trocar" (uma ocorrência) casa
+  de novo no documento inteiro, então lookbehind e âncoras funcionam.
 - **Salvar em codificação de um byte não troca mais caractere por `?` calado.**
   Um emoji num arquivo ANSI sumia ao salvar; agora o MarkPad recusa e explica
   que é preciso trocar para UTF-8 no rodapé.

@@ -89,6 +89,8 @@
     'Copiado': 'Copied',
     'Digite alguma coisa.': 'Type something.',
     'Nada para substituir.': 'Nothing to replace.',
+    '1 substituição.': '1 replacement.',
+    '{n} substituições.': '{n} replacements.',
     'Salve o documento antes de renomear.': 'Save the document before renaming it.',
     'Sem pasta de referencia para resolver o link.': 'No reference folder to resolve the link against.',
     'Sem barras — para trocar de pasta, use "Mover para...".':
@@ -640,6 +642,8 @@
     'Copiado': 'Copiado',
     'Digite alguma coisa.': 'Escriba algo.',
     'Nada para substituir.': 'Nada que reemplazar.',
+    '1 substituição.': '1 reemplazo.',
+    '{n} substituições.': '{n} reemplazos.',
     'Salve o documento antes de renomear.': 'Guarde el documento antes de renombrarlo.',
     'Sem pasta de referencia para resolver o link.':
       'No hay carpeta de referencia para resolver el enlace.',

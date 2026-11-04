@@ -3842,7 +3842,12 @@
     if (!matches.length) return;
 
     var hit = matches[Math.min(app.find.index, matches.length - 1)];
-    replaceRange(hit.start, hit.end, $('replaceInput').value);
+    // No modo regex o texto de substituicao entende $1, $&, $<nome> e \n;
+    // casando de novo na posicao, com o documento inteiro como contexto.
+    var troca = window.MarkPadTextOps.replacementAt(tab.content, buildFindRegex(), hit.start,
+      $('replaceInput').value, app.find.regex);
+    if (!troca) return;
+    replaceRange(troca.start, troca.end, troca.text);
     setTimeout(function () { runFind(0); }, 0);
   }
 
@@ -3853,13 +3858,11 @@
     var re = buildFindRegex();
     if (!re) return;
 
-    var replacement = $('replaceInput').value;
-    var count = 0;
-    var next = tab.content.replace(re, function () { count++; return replacement; });
-    if (!count) { toast(t('Nada para substituir.'), 'warn'); return; }
+    var feito = window.MarkPadTextOps.replaceAll(tab.content, re, $('replaceInput').value, app.find.regex);
+    if (!feito.count) { toast(t('Nada para substituir.'), 'warn'); return; }
 
-    replaceRange(0, tab.content.length, next);
-    toast(count + ' substituicoes.', 'ok');
+    replaceRange(0, tab.content.length, feito.text);
+    toast(feito.count === 1 ? t('1 substituição.') : t('{n} substituições.', { n: feito.count }), 'ok');
     setTimeout(function () { runFind(0); }, 0);
   }
 
