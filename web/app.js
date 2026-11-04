@@ -1093,12 +1093,86 @@
     if (current && current.id !== id) stashScroll(current);
 
     app.activeId = id;
+    app.usoAbas = [id].concat((app.usoAbas || []).filter(function (x) { return x !== id; }));
     app.find.index = 0;
     renderAll();
 
     var tab = activeTab();
     if (tab && !tab.locked) restoreScroll(tab);
     persist();
+  }
+
+  /*
+   * Ctrl+Tab pela ordem de uso, como no Notepad++ e no VS Code: um toque
+   * alterna entre as duas ultimas abas; com o Ctrl seguro, cada Tab desce na
+   * lista (Shift sobe) e soltar o Ctrl abre a escolhida. A lista so aparece
+   * a partir do segundo Tab — o toque rapido nao pisca nada na tela.
+   */
+  function trocaPorUso(passo) {
+    var vivas = app.tabs.map(function (t) { return t.id; });
+    var ordem = (app.usoAbas || []).filter(function (id) { return vivas.indexOf(id) >= 0; });
+    vivas.forEach(function (id) { if (ordem.indexOf(id) < 0) ordem.push(id); });
+    if (ordem.length < 2) return;
+
+    if (!app.trocaUso) app.trocaUso = { ordem: ordem, pos: 0, toques: 0, el: null };
+    var tu = app.trocaUso;
+    tu.pos = (tu.pos + passo + tu.ordem.length) % tu.ordem.length;
+    tu.toques++;
+    if (tu.toques > 1 || tu.el) desenhaTrocaUso();
+  }
+
+  function desenhaTrocaUso() {
+    var tu = app.trocaUso;
+    if (!tu.el) {
+      tu.el = document.createElement('div');
+      tu.el.className = 'palette troca-uso';
+      tu.el.setAttribute('role', 'listbox');
+      document.body.appendChild(tu.el);
+    }
+    tu.el.textContent = '';
+    var lista = document.createElement('div');
+    lista.className = 'palette-list';
+    tu.ordem.forEach(function (id, i) {
+      var tab = tabById(id);
+      if (!tab) return;
+      var el = document.createElement('div');
+      el.className = 'palette-item' + (i === tu.pos ? ' is-active' : '');
+      var nome = document.createElement('span');
+      nome.textContent = tab.name;
+      el.appendChild(nome);
+      // a pasta relativa a aberta; na raiz dela, nada
+      var rel = relNaPasta(tab.path || '');
+      var pasta = rel.indexOf('/') >= 0 ? rel.slice(0, rel.lastIndexOf('/')) : '';
+      if (pasta) {
+        var sub = document.createElement('span');
+        sub.className = 'pal-sub';
+        sub.textContent = pasta;
+        el.appendChild(sub);
+      }
+      if (tab.content !== tab.savedContent) {
+        var sujo = document.createElement('span');
+        sujo.className = 'dirty-dot';
+        el.appendChild(sujo);
+      }
+      el.onmousedown = function (e) { e.preventDefault(); tu.pos = i; concluiTrocaUso(); };
+      lista.appendChild(el);
+    });
+    tu.el.appendChild(lista);
+    var ativo = lista.children[tu.pos];
+    if (ativo) ativo.scrollIntoView({ block: 'nearest' });
+  }
+
+  function concluiTrocaUso(cancelar) {
+    var tu = app.trocaUso;
+    if (!tu) return;
+    app.trocaUso = null;
+    if (tu.el && tu.el.parentNode) tu.el.parentNode.removeChild(tu.el);
+    if (!cancelar && tabById(tu.ordem[tu.pos])) selectTab(tu.ordem[tu.pos]);
+  }
+
+  function tabById(id) {
+    for (var i = 0; i < app.tabs.length; i++) if (app.tabs[i].id === id) return app.tabs[i];
+    return null;
   }
 
   function stashScroll(tab) {
@@ -2047,7 +2121,15 @@
           soltas.conta(n, achados.truncado, ocorrencias(n, achados.length));
           corpo.textContent = '';
           if (!achados.length) return vazio(corpo, t('Nenhuma outra nota cita este nome sem link.'));
-          achados.forEach(function (f) { corpo.appendChild(grupoDeOcorrencias(f.path, f.relative, f.hits)); });
+          // Como o link vai escrito: o nome, ou o caminho se ha homonimo.
+          var nomeNota = semExtensao(baseName(tab.path));
+          var alvo = eu && (idx.porNomeNota[nomeNota.toLowerCase()] || []).length > 1
+            ? LI.semExtNota(eu.rel) : nomeNota;
+          achados.forEach(function (f) {
+            corpo.appendChild(grupoDeOcorrencias(f.path, f.relative, f.hits, function (hit, row) {
+              ligaMencaoNoArquivo(f.path, f.relative, hit, alvo, row);
+            }));
+          });
         });
       });
     }).catch(function () { ligadas.conta(null); saida.conta(null); });
@@ -2111,8 +2193,11 @@
     corpo.appendChild(p);
   }
 
-  /* O mesmo desenho dos resultados da busca na pasta. */
-  function grupoDeOcorrencias(caminho, rel, hits) {
+  /*
+   * O mesmo desenho dos resultados da busca na pasta. `acao` (opcional)
+   * poe o botao "Ligar" em cada linha — so as mencoes nao ligadas usam.
+   */
+  function grupoDeOcorrencias(caminho, rel, hits, acao) {
     var grupo = document.createElement('div');
     grupo.className = 'search-file';
 
@@ -2138,9 +2223,64 @@
       row.appendChild(ln);
       row.appendChild(document.createTextNode(String(hit.text).trim()));
       row.onclick = function () { openPath(caminho, { line: hit.line }); };
+      if (acao) {
+        var botao = document.createElement('button');
+        botao.className = 'hit-acao';
+        botao.textContent = t('Ligar');
+        botao.title = t('Trocar esta mencao por um link para a nota');
+        botao.onclick = function (ev) { ev.stopPropagation(); acao(hit, row); };
+        row.classList.add('tem-acao');
+        row.appendChild(botao);
+      }
       grupo.appendChild(row);
     });
     return grupo;
+  }
+
+  /*
+   * Grava o link no lugar da mencao, na linha que o grep achou. A linha e
+   * relida na hora: se ja nao tem a mencao solta (alguem editou), nada muda.
+   * Aba com alteracao nao salva recebe a troca so na memoria, como no
+   * renomear.
+   */
+  function ligaMencaoNoArquivo(caminho, rel, hit, alvo, row) {
+    var LI = window.MarkPadLinkIndex;
+    var tab = tabByPath(caminho);
+    var suja = !!(tab && tab.content !== tab.savedContent);
+    var leitura = suja ? Promise.resolve({ content: tab.content }) : bridge.call('readFile', { path: caminho });
+
+    function pronto() {
+      row.classList.add('is-ligada');
+      var b = row.querySelector('.hit-acao');
+      if (b) { b.disabled = true; b.textContent = t('Ligada'); }
+      invalidaLinks();
+      toast(t('Link criado em {arquivo}.', { arquivo: rel }), 'ok', 2200);
+    }
+
+    return leitura.then(function (data) {
+      var linhas = data.content.split('\n');
+      var nova = LI.ligaMencao(linhas[hit.line - 1], hit.termo, alvo);
+      if (nova === null) { toast(t('A mencao nao esta mais nessa linha.'), 'warn', 3600); return null; }
+      linhas[hit.line - 1] = nova;
+      var texto = linhas.join('\n');
+      if (suja) {
+        tab.content = texto;
+        invalidateLineStatus(tab);
+        renderTabs();
+        pronto();
+        return null;
+      }
+      return bridge.call('writeFile', { path: caminho, content: texto, encoding: data.encoding, eol: data.eol })
+        .then(function (res) {
+          if (tab) {
+            tab.content = texto;
+            tab.savedContent = texto;
+            tab.mtime = res.mtime;
+            invalidateLineStatus(tab);
+          }
+          pronto();
+        });
+    }).catch(function (err) { toast(t('Nao consegui ligar: ') + err.message, 'error', 6000); });
   }
 
   /*
@@ -2205,7 +2345,7 @@
             if (!g) { g = porArquivo[k] = { path: f.path, relative: f.relative, hits: [], linhas: {} }; ordem.push(g); }
             if (g.linhas[h.line]) return;
             g.linhas[h.line] = 1;
-            g.hits.push(h);
+            g.hits.push({ line: h.line, text: h.text, termo: nome });
           });
         });
       }).catch(function () { truncado = true; });
@@ -3670,7 +3810,7 @@
         nome.appendChild(marcaFuzzy(f.name, input.value.trim()));
         el.appendChild(nome);
 
-        var pasta = pastaDe(f);
+        var pasta = f.apelidoDe ? '→ ' + f.apelidoDe : pastaDe(f);
         if (pasta) {
           var sub = document.createElement('span');
           sub.className = 'pal-sub';
@@ -3740,6 +3880,21 @@
       fonte = arquivos;
       filtrados = linhas(input.value.trim());
       draw();
+      return app.folder ? indiceLinks() : null;
+    }).then(function (idx) {
+      // Os apelidos do frontmatter (aliases:) tambem acham a nota, como no
+      // Obsidian. Vao no fim da fonte: so aparecem quando se digita.
+      if (!idx || box.hidden) return;
+      var apelidos = [];
+      idx.arquivos.forEach(function (a) {
+        if (!a.analise) return;
+        a.analise.apelidos.forEach(function (ap) {
+          apelidos.push({ name: ap, rel: ap, path: a.path, markdown: true, apelidoDe: baseName(a.path) });
+        });
+      });
+      if (!apelidos.length) return;
+      fonte = fonte.concat(apelidos);
+      if (input.value.trim()) { filtrados = linhas(input.value.trim()); draw(); }
     });
   }
 
@@ -6446,6 +6601,13 @@
   document.addEventListener('focusout', function (e) {
     if (sugestao && e.target === sugestao.ta) fechaSugestao();
   }, true);
+
+  // Soltar o Ctrl conclui o Ctrl+Tab; a janela perder o foco tambem (o
+  // keyup do Ctrl nunca chegaria).
+  document.addEventListener('keyup', function (e) {
+    if (app.trocaUso && (e.key === 'Control' || e.key === 'Meta')) concluiTrocaUso();
+  }, true);
+  window.addEventListener('blur', function () { if (app.trocaUso) concluiTrocaUso(); });
   // O editor rola sozinho quando se digita perto da borda: a lista segue o
   // cursor em vez de sumir.
   document.addEventListener('scroll', function (e) {
@@ -6470,6 +6632,20 @@
     var ctrl = e.ctrlKey || e.metaKey;
     var tab = activeTab();
     var inEditor = e.target === $('editorInput');
+
+    // ---- Ctrl+Tab: abas pela ordem de uso (antes de tudo: no editor o Tab
+    // sozinho recua a linha, e o Ctrl+Tab caia ali).
+    if (ctrl && !e.altKey && e.key === 'Tab') {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      trocaPorUso(e.shiftKey ? -1 : 1);
+      return;
+    }
+    if (app.trocaUso && e.key === 'Escape') {
+      e.preventDefault();
+      concluiTrocaUso(true);
+      return;
+    }
 
     // ---- voltar/avancar: Ctrl+Alt+setas em qualquer lugar; Alt+setas so fora
     // de campo de texto (no editor elas ficam com o editor).

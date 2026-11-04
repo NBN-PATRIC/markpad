@@ -103,6 +103,13 @@ igual('tag nao e mencao', L.mencionaSemLink('alem de #projeto/api e #api', 'api'
 igual('pedaco de caminho nao e mencao', L.mencionaSemLink('tags: [projeto/api]', 'api'), false);
 igual('fim de frase e mencao', L.mencionaSemLink('Falta documentar a api.', 'api'), true);
 
+// ------------------------------------------------------------ ligar
+igual('ligar com o nome exato', L.ligaMencao('Falei da Nota A ontem', 'Nota A', 'Nota A'), 'Falei da [[Nota A]] ontem');
+igual('ligar com outra caixa vira apelido', L.ligaMencao('a nota a e boa', 'Nota A', 'Nota A'), 'a [[Nota A|nota a]] e boa');
+igual('ligar apelido', L.ligaMencao('Ver a Interface', 'Interface', 'api'), 'Ver a [[api|Interface]]');
+igual('ligar pula a que ja e link', L.ligaMencao('[[Nota A]] e Nota A', 'Nota A', 'Nota A'), '[[Nota A]] e [[Nota A]]');
+igual('ligar sem mencao solta', L.ligaMencao('`Nota A` e [[Nota A]]', 'Nota A', 'Nota A'), null);
+
 // ----------------------------------------------------------- reescrever
 let r = L.reescreve(p, 'Ver [[Nota A]], [[Nota A#Topo|t]] e [rel](Nota%20A.md#Topo) e [[sub/Nota A]]',
   { origem: 'Inicio.md', de: 'Nota A.md', para: 'Nota Nova.md' });

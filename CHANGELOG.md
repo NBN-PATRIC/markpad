@@ -18,6 +18,15 @@ Versionamento [SemVer](https://semver.org/lang/pt-BR/).
   marcam os que não têm destino na pasta; clicar num desses leva à linha
   dele. O índice relê só as notas que mudaram, e a primeira varredura de uma
   pasta grande vem em lotes, sem congelar a janela.
+- **"Ligar" nas menções não ligadas.** Pairar a linha mostra o botão, que
+  troca a menção por `[[Nota]]` no outro arquivo (ou `[[Nota|como estava
+  escrito]]` quando era um apelido ou outra caixa de letra). A linha é relida
+  na hora; se a menção mudou de lugar, nada é gravado.
+- **Ctrl+Tab pela ordem de uso.** Um toque alterna entre as duas últimas abas;
+  com o Ctrl seguro, cada Tab desce na lista das abas (Shift sobe) e soltar o
+  Ctrl abre a escolhida. No editor, Ctrl+Tab não recua mais a linha.
+- **Ctrl+P acha a nota pelo apelido** do frontmatter (`aliases:`), com
+  "→ nota.md" ao lado.
 - **Autocompletar `[[` no editor.** Digitar `[[` no código-fonte ou num bloco
   da edição ao vivo abre a lista das notas da pasta, filtrada pelo que vem
   depois (letras na ordem, como no Ctrl+P; sem nada digitado, as recentes

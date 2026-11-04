@@ -476,6 +476,31 @@
     return new RegExp('(^|[^\\p{L}\\p{N}_#/\\\\])' + esc + '(?![\\p{L}\\p{N}_/\\\\])', 'iu').test(limpa);
   }
 
+  /*
+   * O botao "Ligar" das mencoes nao ligadas: troca a primeira mencao solta
+   * de `termo` na linha por [[alvo]] — ou [[alvo|como estava escrito]],
+   * quando o texto da linha nao e o nome da nota (apelido, outra caixa).
+   * Devolve a linha nova, ou null se a mencao ja nao esta la.
+   */
+  function ligaMencao(linha, termo, alvo) {
+    linha = String(linha || '');
+    termo = String(termo || '').trim();
+    if (!termo) return null;
+    var links = linksDaLinha(linha, 0, 1);
+    var fora = trechosDeCodigo(linha).concat(links.outros, links.map(function (l) { return [l.ini, l.fim]; }));
+    var esc = termo.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    var re = new RegExp('(^|[^\\p{L}\\p{N}_#/\\\\])(' + esc + ')(?![\\p{L}\\p{N}_/\\\\])', 'giu');
+    var m;
+    while ((m = re.exec(linha))) {
+      var ini = m.index + m[1].length;
+      if (dentro(fora, ini)) continue;
+      var escrito = m[2];
+      var link = escrito === alvo ? '[[' + alvo + ']]' : '[[' + alvo + '|' + escrito + ']]';
+      return linha.slice(0, ini) + link + linha.slice(ini + escrito.length);
+    }
+    return null;
+  }
+
   // ----------------------------------------------- reescrever ao mover
 
   /*
@@ -600,6 +625,7 @@
     backlinks: backlinks,
     saidas: saidas,
     mencionaSemLink: mencionaSemLink,
+    ligaMencao: ligaMencao,
     reescreve: reescreve,
     relativo: relativo,
     junta: junta,

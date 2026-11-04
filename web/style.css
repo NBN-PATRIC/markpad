@@ -1058,6 +1058,33 @@ body.wide-lines .markdown-preview { max-width: none; }
 .link-saida.is-unresolved .link-saida-nome { color: var(--text-faint); text-decoration: line-through dashed; }
 .link-saida.is-unresolved svg { color: var(--color-orange); }
 
+/* "Ligar" das mencoes nao ligadas: aparece ao pairar a linha */
+.search-hit.tem-acao { display: flex; align-items: center; gap: 0; }
+.search-hit.tem-acao .hit-line { flex-shrink: 0; }
+.hit-acao {
+  margin-left: auto;
+  flex-shrink: 0;
+  padding: 1px 8px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  background: var(--background-secondary);
+  color: var(--text-muted);
+  font: inherit;
+  font-family: var(--font-interface, inherit);
+  font-size: 11px;
+  cursor: pointer;
+  opacity: 0;
+}
+.search-hit:hover .hit-acao, .hit-acao:focus-visible { opacity: 1; }
+.hit-acao:hover { color: var(--text-normal); border-color: var(--text-faint); }
+.search-hit.is-ligada { opacity: 0.55; }
+.search-hit.is-ligada .hit-acao { opacity: 1; cursor: default; }
+
+/* Ctrl+Tab: a lista das abas por ordem de uso, enquanto o Ctrl esta seguro */
+.troca-uso { top: 18vh; width: min(460px, 90vw); }
+.troca-uso .palette-item { gap: 10px; }
+.troca-uso .dirty-dot { margin-left: auto; }
+
 /* ------------------------------------------------- previa ao pairar */
 .hover-popup {
   position: fixed;
