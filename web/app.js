@@ -5786,6 +5786,23 @@
     renderRecent();
   }
 
+  /*
+   * Renomeou ou moveu: o voltar/avancar de todas as abas (e das fechadas, que
+   * o Ctrl+Shift+T traz de volta) segue o arquivo. Sem isso, "avancar" levava
+   * ao nome velho, que nao existe mais.
+   */
+  function historicoSegue(antigo, info) {
+    app.tabs.concat(app.fechadas || []).forEach(function (a) {
+      var h = a.historico;
+      if (!h) return;
+      h.voltar.concat(h.avancar).forEach(function (f) {
+        if (mesmoArquivo(f.path, antigo)) { f.path = info.path; f.name = info.name; }
+      });
+      if (!a.id && mesmoArquivo(a.path, antigo)) { a.path = info.path; a.name = info.name; }
+    });
+    renderNavegacao();
+  }
+
   /* Depois de renomear ou mover, a aba, a arvore e os recentes seguem o arquivo. */
   function adotarCaminho(tab, info, antigo) {
     if (antigo) bridge.call('unwatchFile', { path: antigo }).catch(function () {});
@@ -5810,6 +5827,108 @@
     };
   }
 
+  /*
+   * Depois de renomear ou mover: os links das outras notas que apontavam
+   * para o arquivo — e os links relativos da propria nota, quando ela mudou
+   * de pasta — passam a apontar para o lugar novo, como no Obsidian. `idx` e
+   * o indice de ANTES da troca: e ele que sabe para onde cada link apontava.
+   *
+   * Pergunta antes, com a conta na mao: e gravar em arquivo que o usuario
+   * nao abriu. Aba com alteracao nao salva recebe a troca so na memoria (o
+   * disco dela fica para quando ela salvar); o resto vai para o disco com a
+   * mesma codificacao e a mesma quebra de linha.
+   */
+  function atualizaLinksDepoisDeMover(idx, antigo, novo) {
+    var LI = window.MarkPadLinkIndex;
+    var arq = idx && LI ? LI.arquivoDe(idx, antigo) : null;
+    if (!arq) return Promise.resolve();
+    if (live) live.commit();   // o bloco em edicao entra no texto antes da troca
+
+    var relNovo = relNaPasta(novo);
+    var foraDaPasta = /^[a-zA-Z]:\//.test(relNovo);
+    var mudouDePasta = arq.rel.replace(/[^\/]*$/, '').toLowerCase() !== relNovo.replace(/[^\/]*$/, '').toLowerCase();
+
+    var origens = [];
+    (idx.entradas[arq.rel.toLowerCase()] || []).forEach(function (e) {
+      if (origens.indexOf(e.de) < 0) origens.push(e.de);
+    });
+    if (foraDaPasta) {
+      if (origens.length) toast(t('O arquivo saiu da pasta aberta; os links para ele nao foram atualizados.'), 'warn', 5000);
+      return Promise.resolve();
+    }
+    // A propria nota: links relativos dela quebram quando ela troca de pasta.
+    if (arq.md && mudouDePasta && origens.indexOf(arq) < 0) origens.push(arq);
+    if (!origens.length) return Promise.resolve();
+
+    // Le cada origem (a aba suja vale mais que o disco) e calcula a troca.
+    return Promise.all(origens.map(function (o) {
+      var caminho = o === arq ? novo : o.path;
+      var opts = o === arq
+        ? { origem: arq.rel, origemNova: relNovo, de: arq.rel, para: relNovo }
+        : { origem: o.rel, de: arq.rel, para: relNovo };
+      var tab = tabByPath(caminho);
+      var suja = !!(tab && tab.content !== tab.savedContent);
+      var leitura = suja
+        ? Promise.resolve({ content: tab.content })
+        : bridge.call('readFile', { path: caminho });
+      return leitura.then(function (data) {
+        var r = LI.reescreve(idx, data.content, opts);
+        return r.trocas ? { caminho: caminho, rel: o === arq ? relNovo : o.rel, data: data, tab: tab, suja: suja, texto: r.texto, trocas: r.trocas } : null;
+      }).catch(function () { return null; });
+    })).then(function (planos) {
+      planos = planos.filter(Boolean);
+      if (!planos.length) return null;
+      var total = planos.reduce(function (n, p) { return n + p.trocas; }, 0);
+      var lista = planos.slice(0, 8).map(function (p) { return '<li>' + escapeText(p.rel) + '</li>'; }).join('') +
+        (planos.length > 8 ? '<li>…</li>' : '');
+
+      var partes = {
+        n: total === 1 ? t('1 link') : t('{n} links', { n: total }),
+        a: planos.length === 1 ? t('1 arquivo') : t('{n} arquivos', { n: planos.length }),
+        nome: escapeText(baseName(antigo))
+      };
+      return dialog(t('Atualizar os links?'),
+        (total === 1
+          ? t('{n} em {a} aponta para <strong>{nome}</strong>. Atualizar para o caminho novo?', partes)
+          : t('{n} em {a} apontam para <strong>{nome}</strong>. Atualizar para o caminho novo?', partes)) +
+        '<ul class="dialog-lista">' + lista + '</ul>',
+        [{ label: t('Agora nao'), value: false },
+         { label: t('Atualizar'), value: true, cls: 'primary' }]
+      ).then(function (sim) {
+        if (!sim) return null;
+        return aplicaPlanos(planos, total);
+      });
+    });
+  }
+
+  function aplicaPlanos(planos, total) {
+    var falhas = [];
+    return Promise.all(planos.map(function (p) {
+      if (p.suja) {
+        p.tab.content = p.texto;
+        invalidateLineStatus(p.tab);
+        return null;
+      }
+      return bridge.call('writeFile', {
+        path: p.caminho, content: p.texto, encoding: p.data.encoding, eol: p.data.eol
+      }).then(function (res) {
+        if (!p.tab) return;
+        p.tab.content = p.texto;
+        p.tab.savedContent = p.texto;
+        p.tab.mtime = res.mtime;
+        invalidateLineStatus(p.tab);
+      }).catch(function (err) { falhas.push(p.rel + ': ' + err.message); });
+    })).then(function () {
+      invalidaLinks();
+      renderAll();
+      if (falhas.length) {
+        toast(t('Nao consegui atualizar: ') + falhas.join('; '), 'error', 8000);
+      } else {
+        toast(total === 1 ? t('1 link atualizado.') : t('{n} links atualizados.', { n: total }), 'ok', 2600);
+      }
+    });
+  }
+
   function renameDoc(path) {
     if (!path) return Promise.resolve();
 
@@ -5828,11 +5947,16 @@
       }
     }).then(function (novo) {
       if (!novo || novo === nome) return null;
-      return bridge.call('renameFile', { path: path, name: novo }).then(function (info) {
-        var tab = tabByPath(path);
-        if (tab) adotarCaminho(tab, info, path);
-        else { dropRecent(path); arvoreMudou(); }
-        toast(t('Agora se chama ') + info.name, 'ok');
+      // O indice de ANTES da troca: e ele que sabe quem apontava para o nome velho.
+      return indiceLinks().then(function (idx) {
+        return bridge.call('renameFile', { path: path, name: novo }).then(function (info) {
+          var tab = tabByPath(path);
+          if (tab) adotarCaminho(tab, info, path);
+          else { dropRecent(path); arvoreMudou(); }
+          historicoSegue(path, info);
+          toast(t('Agora se chama ') + info.name, 'ok');
+          return atualizaLinksDepoisDeMover(idx, path, info.path);
+        });
       });
     }).catch(falhaDoc('renomear'));
   }
@@ -5842,11 +5966,15 @@
 
     return bridge.call('openFolderDialog', {}).then(function (dir) {
       if (!dir) return null;
-      return bridge.call('moveFile', { path: path, dir: dir }).then(function (info) {
-        var tab = tabByPath(path);
-        if (tab) adotarCaminho(tab, info, path);
-        else { dropRecent(path); arvoreMudou(); }
-        toast(t('Movido para ') + info.dir, 'ok', 3200);
+      return indiceLinks().then(function (idx) {
+        return bridge.call('moveFile', { path: path, dir: dir }).then(function (info) {
+          var tab = tabByPath(path);
+          if (tab) adotarCaminho(tab, info, path);
+          else { dropRecent(path); arvoreMudou(); }
+          historicoSegue(path, info);
+          toast(t('Movido para ') + info.dir, 'ok', 3200);
+          return atualizaLinksDepoisDeMover(idx, path, info.path);
+        });
       });
     }).catch(falhaDoc('mover'));
   }

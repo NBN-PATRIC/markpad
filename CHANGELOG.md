@@ -18,6 +18,16 @@ Versionamento [SemVer](https://semver.org/lang/pt-BR/).
   marcam os que não têm destino na pasta; clicar num desses leva à linha
   dele. O índice relê só as notas que mudaram, e a primeira varredura de uma
   pasta grande vem em lotes, sem congelar a janela.
+- **Renomear ou mover atualiza os links.** Depois de renomear (F2) ou mover
+  um arquivo, o MarkPad conta quantos links da pasta apontavam para ele,
+  mostra os arquivos e pergunta se atualiza. `[[Nome]]` continua só com o
+  nome (ganha o caminho se o nome novo ficar ambíguo), `[[pasta/Nome]]` ganha
+  o caminho novo, `#seção` e `|apelido` ficam, e link markdown vira o caminho
+  relativo novo no mesmo formato. Quando a própria nota muda de pasta, os
+  links relativos dela também são corrigidos. Aba com alteração não salva
+  recebe a troca só na memória; as outras são gravadas com a mesma
+  codificação e quebra de linha. Código entre crases e blocos de código não
+  são tocados. O voltar e avançar das abas também segue o arquivo.
 - **Link sem destino aparece apagado na leitura**, tracejado, como no
   Obsidian, e a dica diz que a nota não existe na pasta aberta.
 - **Operadores na busca da pasta:** `file:nome`, `path:pasta` e
