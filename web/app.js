@@ -111,7 +111,8 @@
     lastUpdateCheck: 0,
     recent: [],
     lastFolder: null,
-    session: []
+    session: [],
+    sessionFixadas: []
   };
 
   // Copia funda: DEFAULTS tem arrays (quickBar, recent, session) e o editor
@@ -223,7 +224,7 @@
           // por engano num lugar que o usuário já removeu.
           var solto = makeTab({ name: b.name, content: b.content });
           solto.locked = false;
-          app.tabs.push(solto);
+          insereAba(solto);
           return;
         }
         return doOpenPath(b.path, {}).then(function (tab) {
@@ -246,6 +247,7 @@
     clearTimeout(saveTimer);
     saveTimer = setTimeout(function () {
       settings.session = app.tabs.filter(function (t) { return t.path; }).map(function (t) { return t.path; });
+      settings.sessionFixadas = app.tabs.filter(function (t) { return t.path && t.fixada; }).map(function (t) { return t.path; });
       settings.lastFolder = app.folder;
       bridge.call('saveSettings', { json: JSON.stringify(settings) }).catch(function () {});
     }, 400);
@@ -602,7 +604,7 @@
   function doOpenPath(path, opts) {
     return bridge.call('readFile', { path: path }).then(function (data) {
       var tab = makeTab(data);
-      app.tabs.push(tab);
+      insereAba(tab);
       // A pasta entra ANTES da primeira pintura: quem desenha a leitura
       // (mencoes ligadas, wikilinks por indice) ja precisa saber onde esta.
       if (!app.folder && data.dir) setFolder(data.dir, true);
@@ -635,7 +637,7 @@
   function newTab() {
     var tab = makeTab({ name: t('sem titulo.md'), content: '' });
     tab.locked = false; // nota nova ja nasce editavel: e o unico caso obvio
-    app.tabs.push(tab);
+    insereAba(tab);
     selectTab(tab.id);
     setTimeout(function () { $('editorInput').focus(); }, 30);
   }
@@ -777,8 +779,77 @@
     tab.originContent = snap.originContent;
     tab.locked = snap.locked;
     tab.showSource = snap.showSource;
-    app.tabs.push(tab);
+    insereAba(tab);
     selectTab(tab.id);
+  }
+
+  // ==================================================== abas: ordem e fixacao
+  //
+  // Aba fixada mora no comeco da faixa (como no Notepad++), mostra um alfinete
+  // no lugar do X, nao e trocada quando se segue um link e "fechar as outras"
+  // passa por cima dela (como no Obsidian). Aba nova entra logo depois da
+  // ativa, e nunca no meio das fixadas.
+
+  function quantasFixadas() {
+    var n = 0;
+    app.tabs.forEach(function (t) { if (t.fixada) n++; });
+    return n;
+  }
+
+  function insereAba(tab) {
+    var ativa = activeTab();
+    var idx = ativa ? app.tabs.indexOf(ativa) + 1 : app.tabs.length;
+    if (idx <= 0) idx = app.tabs.length;
+    app.tabs.splice(Math.max(idx, quantasFixadas()), 0, tab);
+  }
+
+  function alternaFixacao(tab) {
+    var idx = app.tabs.indexOf(tab);
+    if (idx === -1) return;
+    app.tabs.splice(idx, 1);
+    tab.fixada = !tab.fixada;
+    // Fixada vai para o fim do bloco das fixadas; solta, para logo depois dele.
+    app.tabs.splice(quantasFixadas(), 0, tab);
+    renderTabs();
+    persist();
+  }
+
+  /** Leva a aba para a posicao final `para`, sem cruzar a fronteira das fixadas. */
+  function moveAba(tab, para) {
+    var de = app.tabs.indexOf(tab);
+    if (de === -1) return;
+    var n = quantasFixadas();
+    var min = tab.fixada ? 0 : n;
+    var max = tab.fixada ? n - 1 : app.tabs.length - 1;
+    para = Math.max(min, Math.min(max, para));
+    if (para === de) return;
+    app.tabs.splice(de, 1);
+    app.tabs.splice(para, 0, tab);
+    renderTabs();
+    persist();
+  }
+
+  /** Fecha as abas da lista, uma a uma (cada uma pode perguntar sobre salvar). */
+  function fechaAbas(lista) {
+    var cadeia = Promise.resolve(true);
+    lista.forEach(function (t) {
+      cadeia = cadeia.then(function (seguir) { return seguir === false ? false : closeTab(t.id); });
+    });
+    return cadeia;
+  }
+
+  function restauraFixadas() {
+    (settings.sessionFixadas || []).forEach(function (p) {
+      var aba = tabByPath(p);
+      if (aba && !aba.fixada) alternaFixacao(aba);
+    });
+  }
+
+  var arrastoAba = null;
+
+  function limpaMarcasDeArrasto() {
+    var marcadas = $('tabList').querySelectorAll('.drop-antes, .drop-depois, .is-dragging');
+    for (var i = 0; i < marcadas.length; i++) marcadas[i].classList.remove('drop-antes', 'drop-depois', 'is-dragging');
   }
 
   // ======================================================= voltar e avancar
@@ -1106,7 +1177,8 @@
       var el = document.createElement('div');
       el.className = 'tab' +
         (tab.id === app.activeId ? ' is-active' : '') +
-        (!tab.locked ? ' is-unlocked' : '');
+        (!tab.locked ? ' is-unlocked' : '') +
+        (tab.fixada ? ' is-pinned' : '');
       el.title = tab.path || tab.name;
 
       var name = document.createElement('span');
@@ -1121,17 +1193,57 @@
       }
 
       var close = document.createElement('button');
-      close.className = 'tab-close';
-      var x = window.MarkPadIcons.build('x', 12);
-      if (x) close.appendChild(x);
-      close.onclick = function (e) { e.stopPropagation(); closeTab(tab.id); };
+      if (tab.fixada) {
+        // Fixada: alfinete no lugar do X, e clicar nele desafixa.
+        close.className = 'tab-pin';
+        close.title = t('Aba fixada: clique para desafixar');
+        var pino = window.MarkPadIcons.build('pin', 12);
+        if (pino) close.appendChild(pino);
+        close.onclick = function (e) { e.stopPropagation(); alternaFixacao(tab); };
+      } else {
+        close.className = 'tab-close';
+        var x = window.MarkPadIcons.build('x', 12);
+        if (x) close.appendChild(x);
+        close.onclick = function (e) { e.stopPropagation(); closeTab(tab.id); };
+      }
       el.appendChild(close);
 
       el.onclick = function () { selectTab(tab.id); };
-      el.onmousedown = function (e) { if (e.button === 1) { e.preventDefault(); closeTab(tab.id); } };
+      // Botao do meio fecha, menos a fixada (fechar fixada e so de proposito).
+      el.onmousedown = function (e) { if (e.button === 1) { e.preventDefault(); if (!tab.fixada) closeTab(tab.id); } };
       el.oncontextmenu = function (e) {
         e.preventDefault();
         showMenu(tabContextMenu(tab), e.clientX, e.clientY);
+      };
+
+      // Arrastar para reordenar. A marca mostra de que lado a aba vai cair.
+      el.draggable = true;
+      el.ondragstart = function (e) {
+        arrastoAba = tab;
+        e.dataTransfer.effectAllowed = 'move';
+        try { e.dataTransfer.setData('text/plain', tab.name); } catch (err) {}
+        el.classList.add('is-dragging');
+      };
+      el.ondragend = function () { arrastoAba = null; limpaMarcasDeArrasto(); };
+      el.ondragover = function (e) {
+        if (!arrastoAba || arrastoAba === tab) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        var r = el.getBoundingClientRect();
+        var depois = e.clientX > r.left + r.width / 2;
+        el.classList.toggle('drop-depois', depois);
+        el.classList.toggle('drop-antes', !depois);
+      };
+      el.ondragleave = function () { el.classList.remove('drop-antes', 'drop-depois'); };
+      el.ondrop = function (e) {
+        if (!arrastoAba || arrastoAba === tab) return;
+        e.preventDefault();
+        var r = el.getBoundingClientRect();
+        var alvo = app.tabs.indexOf(tab) + (e.clientX > r.left + r.width / 2 ? 1 : 0);
+        var movida = arrastoAba;
+        if (app.tabs.indexOf(movida) < alvo) alvo--; // tirar a aba desloca o alvo
+        arrastoAba = null;
+        moveAba(movida, alvo);
       };
 
       list.appendChild(el);
@@ -4191,6 +4303,7 @@
       { id: 'saveAs', label: t('Salvar como...'), key: 'Ctrl+Shift+S', icon: 'save', enabled: !!tab, action: function () { saveTab(activeTab(), true); } },
       { id: 'close', label: t('Fechar aba'), key: 'Ctrl+W', icon: 'x', enabled: !!tab, action: function () { closeTab(app.activeId); } },
       { id: 'reopen', label: t('Reabrir aba fechada'), key: 'Ctrl+Shift+T', icon: 'refresh', enabled: !!app.fechadas.length, action: reabrirAba },
+      { id: 'pin', label: tab && tab.fixada ? t('Desafixar aba') : t('Fixar aba'), icon: 'pin', enabled: !!tab, action: function () { alternaFixacao(activeTab()); } },
       { id: 'back', label: t('Voltar'), key: 'Alt+←', icon: 'arrow-left', enabled: !!(tab && tab.historico && tab.historico.voltar.length), action: function () { navega(-1); } },
       { id: 'forward', label: t('Avançar'), key: 'Alt+→', icon: 'arrow-right', enabled: !!(tab && tab.historico && tab.historico.avancar.length), action: function () { navega(1); } },
       { id: 'lock', label: unlocked ? t('Travar edicao') : t('Liberar edicao'), key: 'Ctrl+E', icon: unlocked ? 'lock' : 'unlock', enabled: !!tab, action: toggleLock },
@@ -5242,9 +5355,18 @@
   function tabContextMenu(tab) {
     return [
       { label: t('Salvar'), icon: 'save', disabled: tab.locked, action: function () { saveTab(tab); } },
+      { label: tab.fixada ? t('Desafixar aba') : t('Fixar aba'), icon: 'pin', action: function () { alternaFixacao(tab); } },
+      '-',
       { label: t('Fechar'), icon: 'x', action: function () { closeTab(tab.id); } },
+      // As tres abaixo passam por cima das fixadas, como no Obsidian.
       { label: t('Fechar as outras'), action: function () {
-          app.tabs.slice().forEach(function (t) { if (t.id !== tab.id) closeTab(t.id); });
+          fechaAbas(app.tabs.filter(function (o) { return o !== tab && !o.fixada; }));
+        } },
+      { label: t('Fechar à direita'), disabled: app.tabs.indexOf(tab) === app.tabs.length - 1, action: function () {
+          fechaAbas(app.tabs.slice(app.tabs.indexOf(tab) + 1).filter(function (o) { return !o.fixada; }));
+        } },
+      { label: t('Fechar as não modificadas'), action: function () {
+          fechaAbas(app.tabs.filter(function (o) { return !o.fixada && o.content === o.savedContent; }));
         } },
       '-',
       { label: t('Renomear...'), icon: 'text', key: 'F2', disabled: !tab.path, action: function () { renameDoc(tab.path); } },
@@ -5599,6 +5721,17 @@
           e.shiftKey ? openFolderSearch() : openFind();
           return;
         case 'g': e.preventDefault(); promptGoToLine(); return;
+        case 'pageup':
+        case 'pagedown': {
+          // Ctrl+PgUp/PgDn troca de aba; com Shift, move a aba (Notepad++).
+          e.preventDefault();
+          if (!tab) return;
+          var passoAba = e.key.toLowerCase() === 'pageup' ? -1 : 1;
+          var iAba = app.tabs.indexOf(tab);
+          if (e.shiftKey) moveAba(tab, iAba + passoAba);
+          else if (app.tabs.length > 1) selectTab(app.tabs[(iAba + passoAba + app.tabs.length) % app.tabs.length].id);
+          return;
+        }
         case 'h': e.preventDefault(); openReplace(); return;
         case 'p':
           // Ctrl+P abre arquivo pelo nome, como em qualquer editor. Imprimir
@@ -6607,7 +6740,7 @@
       if (settings.lastFolder) setFolder(settings.lastFolder, true);
 
       renderAll();
-      return openPaths(toOpen);
+      return openPaths(toOpen).then(restauraFixadas);
     }).then(function () {
       // Depois de restaurar a sessão, para o diálogo não competir com a
       // abertura dos arquivos.

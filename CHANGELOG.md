@@ -17,6 +17,13 @@ Versionamento [SemVer](https://semver.org/lang/pt-BR/).
   aba nova), e se o destino já está aberto em outra aba o MarkPad vai para ela
   em vez de abrir o mesmo arquivo duas vezes. Reabrir aba fechada
   (Ctrl+Shift+T) traz o histórico junto.
+- **Abas fixadas, arrastar para reordenar e mais do menu da aba.** Fixar
+  (botão direito na aba) leva a aba para o início da faixa com um alfinete no
+  lugar do X; ela não é trocada quando se segue um link, o botão do meio não a
+  fecha, "Fechar as outras" passa por cima dela, e ela volta fixada na próxima
+  sessão. As abas se reordenam arrastando. Aba nova entra logo depois da ativa,
+  não mais no fim. Ctrl+PgUp/PgDn trocam de aba e Ctrl+Shift+PgUp/PgDn movem a
+  aba. O menu da aba ganhou "Fechar à direita" e "Fechar as não modificadas".
 - **`[[Nota#Seção]]` abre a nota já na seção.** Antes a seção era descartada e
   a nota abria no topo. Vale também para `[texto](nota.md#Seção)`.
 

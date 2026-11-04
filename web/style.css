@@ -360,6 +360,33 @@ body.sidebar-hidden .main { border-left: none; border-radius: var(--radius-m) va
 .tab:hover .tab-close, .tab.is-active .tab-close { opacity: 1; }
 .tab-close:hover { background: var(--background-modifier-border-hover); color: var(--text-normal); }
 
+/* aba fixada: alfinete sempre visivel no lugar do X */
+.tab-pin {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px; height: 16px;
+  border-radius: 3px;
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+.tab-pin:hover { background: var(--background-modifier-border-hover); color: var(--text-normal); }
+
+/* arrastar para reordenar: a aba arrastada esmaece e uma barra mostra onde cai */
+.tab { position: relative; }
+.tab.is-dragging { opacity: 0.45; }
+.tab.drop-antes::before,
+.tab.drop-depois::after {
+  content: '';
+  position: absolute;
+  top: 3px; bottom: 3px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--color-accent);
+}
+.tab.drop-antes::before { left: -2px; }
+.tab.drop-depois::after { right: -2px; }
+
 /* ============================================================ botoes */
 
 .icon-btn {
