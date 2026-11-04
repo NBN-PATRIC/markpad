@@ -504,11 +504,10 @@ public partial class MainWindow : Window
                 return true;
 
             case "loadSettings":
-                return File.Exists(_settingsPath) ? File.ReadAllText(_settingsPath, Encoding.UTF8) : null;
+                return LoadSettingsFile();
 
             case "saveSettings":
-                Directory.CreateDirectory(Path.GetDirectoryName(_settingsPath)!);
-                File.WriteAllText(_settingsPath, Str(args, "json", "{}"), new UTF8Encoding(false));
+                SaveSettingsFile(Str(args, "json", "{}"));
                 return true;
 
             case "print":
@@ -784,7 +783,17 @@ public partial class MainWindow : Window
         Directory.CreateDirectory(dir);
         var temp = Path.Combine(dir, "." + Path.GetFileName(full) + ".markpad-tmp");
 
-        File.WriteAllText(temp, normalized, encoding);
+        try
+        {
+            File.WriteAllText(temp, normalized, encoding);
+        }
+        catch (EncoderFallbackException)
+        {
+            try { File.Delete(temp); } catch { }
+            throw new InvalidOperationException(
+                "o texto tem caracteres que nao existem em " + encodingName.ToUpperInvariant() +
+                ". Troque a codificacao para UTF-8 no rodape e salve de novo; nada foi gravado.");
+        }
 
         if (File.Exists(full))
         {
@@ -805,6 +814,61 @@ public partial class MainWindow : Window
             size = info.Length,
             mtime = new DateTimeOffset(info.LastWriteTimeUtc).ToUnixTimeMilliseconds()
         };
+    }
+
+    // ------------------------------------------------------- configuracoes
+    //
+    // O settings.json guarda as preferencias E a sessao (abas abertas). Era
+    // gravado direto por cima: uma queda de energia ou disco cheio no meio
+    // deixava o arquivo pela metade, o JSON invalido era descartado na leitura
+    // e tudo voltava ao padrao sem aviso. Agora: so grava JSON valido, grava
+    // em temporario e troca, guardando a versao anterior em settings.json.bak;
+    // e a leitura cai para o .bak quando o principal nao abre.
+
+    private string SettingsBackupPath => _settingsPath + ".bak";
+
+    private static bool IsValidJson(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return false;
+        try { using var _ = JsonDocument.Parse(text); return true; }
+        catch (JsonException) { return false; }
+    }
+
+    private string? LoadSettingsFile()
+    {
+        foreach (var path in new[] { _settingsPath, SettingsBackupPath })
+        {
+            try
+            {
+                if (!File.Exists(path)) continue;
+                var text = File.ReadAllText(path, Encoding.UTF8);
+                if (IsValidJson(text)) return text;
+            }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+        return null;
+    }
+
+    private void SaveSettingsFile(string json)
+    {
+        if (!IsValidJson(json))
+            throw new InvalidDataException("configuracao invalida: nada foi gravado.");
+
+        Directory.CreateDirectory(Path.GetDirectoryName(_settingsPath)!);
+        var temp = _settingsPath + ".tmp";
+        File.WriteAllText(temp, json, new UTF8Encoding(false));
+
+        // So guarda como .bak uma versao que ainda abre: se o principal ja
+        // estava estragado, o .bak bom continua onde esta.
+        string? current = null;
+        try { if (File.Exists(_settingsPath)) current = File.ReadAllText(_settingsPath, Encoding.UTF8); }
+        catch (IOException) { }
+
+        if (current != null && IsValidJson(current))
+            File.Replace(temp, _settingsPath, SettingsBackupPath, true);
+        else
+            File.Move(temp, _settingsPath, overwrite: true);
     }
 
     // Nao escreve bytes nem arquivo cru: escreve texto UTF-8 e so aceita
@@ -1343,18 +1407,34 @@ public partial class MainWindow : Window
         }
         catch (DecoderFallbackException)
         {
-            // Arquivo antigo em ANSI: Latin-1 preserva os bytes 1:1 na ida e na volta.
-            return (Encoding.Latin1.GetString(bytes), "latin1");
+            // Arquivo antigo em ANSI. Era lido como Latin-1, que preserva os
+            // bytes mas troca o que o Windows grava de 0x80 a 0x9F: o euro, as
+            // aspas curvas e o travessao viravam caracteres de controle. O
+            // Windows-1252 le esses certo e tambem devolve os 256 bytes iguais
+            // ao gravar (os 5 sem definicao passam como controle; medido no
+            // .NET 9 em 04/11/2026).
+            return (Windows1252.GetString(bytes), "windows-1252");
         }
     }
 
+    private static readonly Encoding Windows1252 = CreateWindows1252();
+
+    private static Encoding CreateWindows1252()
+    {
+        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+        return Encoding.GetEncoding(1252, EncoderFallback.ExceptionFallback, DecoderFallback.ReplacementFallback);
+    }
+
+    // As codificacoes de um byte recusam caractere que nao cabe nelas, em vez
+    // de gravar '?' calado no lugar (um emoji num arquivo ANSI sumia ao salvar).
     private static Encoding EncodingFromName(string name) => name switch
     {
         "utf-8-bom" => new UTF8Encoding(true),
         "utf-16le" => new UnicodeEncoding(false, true),
         "utf-16be" => new UnicodeEncoding(true, true),
         "utf-32le" => new UTF32Encoding(false, true),
-        "latin1" => Encoding.Latin1,
+        "windows-1252" => Windows1252,
+        "latin1" => Encoding.GetEncoding("iso-8859-1", EncoderFallback.ExceptionFallback, DecoderFallback.ReplacementFallback),
         _ => new UTF8Encoding(false)
     };
 

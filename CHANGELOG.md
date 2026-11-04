@@ -3,6 +3,30 @@
 Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 Versionamento [SemVer](https://semver.org/lang/pt-BR/).
 
+## [Não lançado]
+
+### Corrigido
+- **O modo código-fonte desalinhava o cursor do texto.** Duas causas, medidas
+  no navegador: os títulos cresciam só na camada colorida (cada um empurrava o
+  resto alguns pixels para baixo), e uma citação com `código` mostrava as
+  próprias tags como texto. No fim do guia de exemplo o texto ficava 11 linhas
+  abaixo de onde o cursor e a seleção de fato estavam. Agora fica alinhado do
+  início ao fim. Teste novo, `dev/test-highlight.js`, prende a regra: tirando as
+  cores, cada linha da camada é igual à do arquivo.
+- **Linha de tabela no modo código-fonte** não escapava o texto: um `<c>` da
+  célula sumia e HTML do arquivo virava HTML de verdade na tela do editor.
+- **Configurações e sessão não se perdem mais numa queda.** O `settings.json`
+  era gravado por cima, direto; uma queda no meio deixava o arquivo pela metade
+  e tudo voltava ao padrão sem aviso. Agora só grava JSON válido, por arquivo
+  temporário, guardando a versão anterior em `settings.json.bak`, e a leitura
+  usa o `.bak` quando o principal não abre.
+- **Arquivo ANSI com €, aspas curvas ou travessão** aparecia com lixo no lugar
+  desses caracteres: era lido como Latin-1. Agora é lido como Windows-1252 (o
+  ANSI do Windows em português), que devolve os mesmos bytes ao salvar.
+- **Salvar em codificação de um byte não troca mais caractere por `?` calado.**
+  Um emoji num arquivo ANSI sumia ao salvar; agora o MarkPad recusa e explica
+  que é preciso trocar para UTF-8 no rodapé.
+
 ## [1.3.0] — 2026-09-16
 
 Aparência e idioma: o tema deixou de ser só claro/escuro, e a interface deixou

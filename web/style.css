@@ -1326,6 +1326,10 @@ body.no-gutter .editor-input { padding-left: 16px; }
   background: transparent;
 }
 .editor-highlight::-webkit-scrollbar-thumb { background: transparent; }
+/* Dentro da camada nada pode mudar de tamanho: o textarea por cima nao muda.
+   Os titulos (.tok-md-h1..3) cresciam aqui e cada um empurrava o resto do
+   texto alguns pixels para baixo do cursor de verdade. Cor e peso podem. */
+.editor-highlight .ed-row * { font-size: inherit; }
 
 .editor-input {
   z-index: 3;

@@ -19,6 +19,13 @@
     return '<span class="tok-' + cls + '">' + esc(text) + '</span>';
   }
 
+  // Para HTML que ja saiu escapado de outra funcao (inlineMd). Passar isso
+  // por span() escapava de novo: a citacao com `codigo` mostrava
+  // <span class="tok-md-code"> como texto e empurrava o resto do editor.
+  function wrap(cls, html) {
+    return '<span class="tok-' + cls + '">' + html + '</span>';
+  }
+
   function words(str) {
     var set = Object.create(null);
     str.split(/\s+/).forEach(function (w) { if (w) set[w] = true; });
@@ -469,13 +476,15 @@
       var q = /^(\s{0,3}>+\s?)(.*)$/.exec(line);
       if (q) {
         var callout = /^(\[!\w+\][+-]?)(.*)$/.exec(q[2]);
-        if (callout) return span('md-quote', q[1]) + span('kw', callout[1]) + span('md-quote', inlineMd(callout[2]));
-        return span('md-quote', q[1]) + span('md-quote', inlineMd(q[2]));
+        if (callout) return span('md-quote', q[1]) + span('kw', callout[1]) + wrap('md-quote', inlineMd(callout[2]));
+        return span('md-quote', q[1]) + wrap('md-quote', inlineMd(q[2]));
       }
 
       // tabela
       if (/^\s*\|.*\|\s*$/.test(line) || /^\s*\|?[\s:-]+\|[\s:|-]*$/.test(line)) {
-        return line.replace(/\|/g, span('punc', '|'));
+        // Escapa antes de pintar as barras: sem isso um <c> da celula sumia da
+        // camada (desalinhando o cursor) e HTML do arquivo virava HTML de verdade.
+        return esc(line).replace(/\|/g, span('punc', '|'));
       }
 
       // lista

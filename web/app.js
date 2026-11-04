@@ -6027,7 +6027,9 @@
     $('statusEncoding').onclick = function () {
       var tab = activeTab();
       if (!tab) return;
-      var options = ['utf-8', 'utf-8-bom', 'utf-16le', 'latin1'];
+      // windows-1252 e o "ANSI" do Windows em portugues; latin1 fica para
+      // quem precisa de ISO-8859-1 de verdade.
+      var options = ['utf-8', 'utf-8-bom', 'utf-16le', 'windows-1252', 'latin1'];
       showMenu(options.map(function (enc) {
         return {
           label: enc.toUpperCase(),
