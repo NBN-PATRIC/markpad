@@ -71,6 +71,24 @@ Versionamento [SemVer](https://semver.org/lang/pt-BR/).
   link (era tratado como bloco HTML). Um `%` solto num caminho de imagem
   derrubava o documento inteiro em "Falha ao renderizar"; não derruba mais.
   Conferido contra 800 notas reais: 789 iguais, 11 diferentes, todas correções.
+- **Digitar na busca não escreve mais no documento.** No modo código-fonte o
+  foco pulava para o editor na primeira letra achada: o resto do que se
+  digitava ia para dentro do texto, e um segundo Enter trocava a ocorrência
+  por uma quebra de linha. Agora o foco fica na busca, a ocorrência fica
+  selecionada no editor, e Esc fecha a busca devolvendo o foco a ele.
+- **Nota nova também tem cópia de segurança.** Só arquivo já salvo tinha: uma
+  nota nunca salva se perdia inteira numa queda de energia. Agora volta como
+  aba sem título na próxima abertura.
+- **"Sair sem salvar" descarta de verdade.** As cópias de segurança das abas
+  descartadas ficavam, e a próxima abertura oferecia restaurar justamente o
+  que se mandou jogar fora.
+- **Texto restaurado de um arquivo que sumiu volta como não salvo.** Voltava
+  marcado como salvo: fechar a aba perdia o texto sem perguntar, e a cópia
+  reaparecia a cada abertura.
+- **Abrir pela linha de comando com o MarkPad já aberto** resolvia caminho
+  relativo (`markpad nota.md`) na pasta da janela aberta, não na de quem
+  chamou. Agora a segunda instância manda o caminho completo.
+- **Salvar em codificação de um byte não troca mais caractere por `?` calado.**
   Um emoji num arquivo ANSI sumia ao salvar; agora o MarkPad recusa e explica
   que é preciso trocar para UTF-8 no rodapé.
 
