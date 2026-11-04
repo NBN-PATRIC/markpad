@@ -6,6 +6,27 @@ Versionamento [SemVer](https://semver.org/lang/pt-BR/).
 ## [Não lançado]
 
 ### Adicionado
+- **Índice de links da pasta: menções ligadas exatas, menções não ligadas e
+  links de saída.** O pé da leitura agora tem três seções recolhíveis, e o
+  aberto ou fechado de cada uma vale para todos os documentos. As **menções
+  ligadas** saem do índice e não mais de um grep pelo nome: entram
+  `[[pasta/Nota]]`, `[[Nota|apelido]]`, embeds e links markdown relativos
+  (`../nota.md`), e não entra mais o nome solto que só parecia link. As
+  **menções não ligadas** mostram quem cita o nome da nota (ou um apelido do
+  frontmatter) sem link, fora de código, tag e caminho. Os **links de saída**
+  listam para onde o documento aponta, já com o texto ainda não salvo, e
+  marcam os que não têm destino na pasta; clicar num desses leva à linha
+  dele. O índice relê só as notas que mudaram, e a primeira varredura de uma
+  pasta grande vem em lotes, sem congelar a janela.
+- **Link sem destino aparece apagado na leitura**, tracejado, como no
+  Obsidian, e a dica diz que a nota não existe na pasta aberta.
+- **Operadores na busca da pasta:** `file:nome`, `path:pasta` e
+  `tag:#projeto` (que pega também `#projeto/sub`), com `-` na frente para
+  excluir e aspas para valor com espaço. Sem texto, a busca lista os arquivos
+  que passam nos filtros; com texto, procura só dentro deles.
+- **Imagem embutida pelo nome é achada em qualquer pasta.** `![[capa.png]]`
+  com a imagem em `midia/` mostrava "imagem não encontrada"; agora, se não
+  está ao lado da nota, a leitura procura pelo nome na pasta aberta.
 - **Voltar e avançar, como no navegador.** Seguir um link agora troca a nota
   na própria aba e guarda onde você estava, inclusive a rolagem; antes, todo
   link abria uma aba nova e não havia como voltar. Botões ← → no cabeçalho do
@@ -38,6 +59,8 @@ Versionamento [SemVer](https://semver.org/lang/pt-BR/).
   a nota abria no topo. Vale também para `[texto](nota.md#Seção)`.
 
 ### Corrigido
+- **Âncora de link virava tag.** `[ver](#secao)` aparecia no painel de tags
+  como `#secao`.
 - **O modo código-fonte desalinhava o cursor do texto.** Duas causas, medidas
   no navegador: os títulos cresciam só na camada colorida (cada um empurrava o
   resto alguns pixels para baixo), e uma citação com `código` mostrava as

@@ -388,6 +388,18 @@ public partial class MainWindow : Window
             ? v.GetBoolean()
             : fallback;
 
+    /// <summary>Lista de textos; null quando o argumento nao veio (diferente de lista vazia).</summary>
+    private static List<string>? StrList(JsonElement args, string name)
+    {
+        if (args.ValueKind != JsonValueKind.Object || !args.TryGetProperty(name, out var v)
+            || v.ValueKind != JsonValueKind.Array) return null;
+        var lista = new List<string>();
+        foreach (var item in v.EnumerateArray())
+            if (item.ValueKind == JsonValueKind.String && item.GetString() is { Length: > 0 } texto)
+                lista.Add(texto);
+        return lista;
+    }
+
     private static int Int(JsonElement args, string name, int fallback = 0)
         => args.ValueKind == JsonValueKind.Object && args.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number
             ? v.GetInt32()
@@ -440,7 +452,11 @@ public partial class MainWindow : Window
                 return await Task.Run(() => GrepFolder(
                     Str(args, "root"), Str(args, "query"),
                     Bool(args, "caseSensitive"), Bool(args, "regex"),
-                    Int(args, "maxResults", 500)));
+                    Int(args, "maxResults", 500), StrList(args, "paths")));
+
+            case "indexFolder":
+                return await Task.Run(() => IndexFolder(
+                    Str(args, "root"), args, Int(args, "maxNotes", 8000), Int(args, "maxBytes", 4_000_000)));
 
             case "listTags":
                 return await Task.Run(() => CollectTags(
@@ -1095,7 +1111,89 @@ public partial class MainWindow : Window
         return new { root = full, files, truncated };
     }
 
-    private object GrepFolder(string root, string query, bool caseSensitive, bool useRegex, int maxResults)
+    /*
+     * Materia-prima do indice de links (web/linkindex.js): a pasta inteira e
+     * o texto de cada nota que o JS ainda nao analisou. Quem entende o
+     * markdown e o JS, de proposito: e o mesmo parser que le o documento nao
+     * salvo e que reescreve links ao renomear. `known` traz caminho -> mtime
+     * do que ele ja tem; nota com a mesma data volta sem texto.
+     *
+     * O hub inteiro aberto como pasta sao 2.400 notas e 42 MB de texto: numa
+     * resposta so, a janela congelava na primeira varredura. Entao o texto
+     * vem em lotes de `maxBytes`; o que passou do lote volta marcado
+     * `pending` e o JS pede de novo, ja com o `known` maior. Arquivo que nao
+     * e nota volta so com o caminho relativo — sao dezenas de milhares, e o
+     * resto se deriva dele.
+     */
+    private object IndexFolder(string root, JsonElement args, int maxNotes, int maxBytes)
+    {
+        var full = Path.GetFullPath(root);
+        if (!Directory.Exists(full)) throw new DirectoryNotFoundException(full);
+
+        var conhecidos = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+        if (args.ValueKind == JsonValueKind.Object && args.TryGetProperty("known", out var k)
+            && k.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var p in k.EnumerateObject())
+                if (p.Value.ValueKind == JsonValueKind.Number && p.Value.TryGetInt64(out var ms))
+                    conhecidos[p.Name] = ms;
+        }
+
+        var arquivos = new List<object>();
+        int notas = 0, lidas = 0, pendentes = 0;
+        long bytes = 0;
+        var truncated = false;
+
+        foreach (var file in EnumerateTextFiles(full, todos: true))
+        {
+            if (arquivos.Count >= 60000) { truncated = true; break; }
+
+            var nome = Path.GetFileName(file);
+            if (nome.StartsWith('.')) continue;   // .x.markpad-tmp e afins
+            var rel = Path.GetRelativePath(full, file).Replace('\\', '/');
+
+            if (!MarkdownExtensions.Contains(Path.GetExtension(file)) || ++notas > maxNotes)
+            {
+                if (notas > maxNotes) truncated = true;
+                arquivos.Add(new { rel });
+                continue;
+            }
+
+            FileInfo f;
+            try { f = new FileInfo(file); } catch { continue; }
+            var mtime = new DateTimeOffset(f.LastWriteTimeUtc).ToUnixTimeMilliseconds();
+            string? texto = null;
+            var grande = f.Length > 2 * 1024 * 1024;
+            var pendente = false;
+
+            if (!grande && !(conhecidos.TryGetValue(f.FullName, out var visto) && visto == mtime))
+            {
+                if (bytes >= maxBytes) { pendente = true; pendentes++; }
+                else
+                {
+                    try
+                    {
+                        texto = DecodeText(File.ReadAllBytes(f.FullName)).Item1
+                            .Replace("\r\n", "\n").Replace('\r', '\n');
+                        bytes += texto.Length;
+                        lidas++;
+                    }
+                    catch { /* sumiu ou esta travado: vai sem texto */ }
+                }
+            }
+
+            arquivos.Add(new { rel, md = true, mtime, big = grande, pending = pendente, text = texto });
+        }
+
+        return new { root = full, files = arquivos, read = lidas, pending = pendentes, truncated };
+    }
+
+    /// <param name="paths">
+    /// Quando vem, a busca fica restrita a estes arquivos (o que sobrou dos
+    /// operadores file:, path: e tag:); so os de texto dentro da raiz contam.
+    /// </param>
+    private object GrepFolder(string root, string query, bool caseSensitive, bool useRegex, int maxResults,
+        List<string>? paths = null)
     {
         var full = Path.GetFullPath(root);
         if (!Directory.Exists(full)) throw new DirectoryNotFoundException(full);
@@ -1113,7 +1211,14 @@ public partial class MainWindow : Window
         var results = new List<object>();
         var truncated = false;
 
-        foreach (var file in EnumerateTextFiles(full))
+        var prefixo = full.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        var arquivos = paths is null
+            ? EnumerateTextFiles(full)
+            : paths.Select(Path.GetFullPath)
+                .Where(p => p.StartsWith(prefixo, StringComparison.OrdinalIgnoreCase)
+                         && TextExtensions.Contains(Path.GetExtension(p)) && File.Exists(p));
+
+        foreach (var file in arquivos)
         {
             if (results.Count >= maxResults) { truncated = true; break; }
 
@@ -1266,7 +1371,7 @@ public partial class MainWindow : Window
     }
 
     private static readonly System.Text.RegularExpressions.Regex RE_TAG =
-        new(@"(?:^|[\s(\[])#([A-Za-z\u00C0-\u024F][\w\u00C0-\u024F/-]*)",
+        new(@"(?:^|[\s\[]|(?<!\])\()#([A-Za-z\u00C0-\u024F][\w\u00C0-\u024F/-]*)",
             System.Text.RegularExpressions.RegexOptions.Compiled);
 
     private static readonly System.Text.RegularExpressions.Regex RE_TAG_NAME =
@@ -1289,7 +1394,7 @@ public partial class MainWindow : Window
     private static readonly System.Text.RegularExpressions.Regex RE_YAML_KEY =
         new(@"^[A-Za-z_][\w\u00C0-\u024F -]*:", System.Text.RegularExpressions.RegexOptions.Compiled);
 
-    private static IEnumerable<string> EnumerateTextFiles(string root)
+    private static IEnumerable<string> EnumerateTextFiles(string root, bool todos = false)
     {
         var stack = new Stack<string>();
         stack.Push(root);
@@ -1315,7 +1420,7 @@ public partial class MainWindow : Window
             catch { continue; }
 
             foreach (var f in files)
-                if (TextExtensions.Contains(Path.GetExtension(f)))
+                if (todos || TextExtensions.Contains(Path.GetExtension(f)))
                     yield return f;
         }
     }

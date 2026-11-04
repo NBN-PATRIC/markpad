@@ -832,6 +832,13 @@ body.wide-lines .markdown-preview { max-width: none; }
 .markdown-preview a { color: var(--text-accent); text-decoration: none; cursor: pointer; }
 .markdown-preview a:hover { text-decoration: underline; }
 .markdown-preview a.internal-link { color: var(--text-accent); }
+/* Sem destino na pasta: apagado e tracejado, como no Obsidian — o buraco
+   aparece antes do clique. */
+.markdown-preview a.internal-link.is-unresolved {
+  opacity: 0.6;
+  text-decoration: underline dashed;
+  text-underline-offset: 3px;
+}
 .markdown-preview .blocked-link { color: var(--text-faint); text-decoration: line-through dotted; cursor: not-allowed; }
 .markdown-preview .tag {
   background: hsla(var(--interactive-accent-hsl), 0.12);
@@ -1024,6 +1031,22 @@ body.wide-lines .markdown-preview { max-width: none; }
 }
 .backlinks-body { padding: 4px 2px 9px; font-size: var(--font-ui-small); }
 .backlinks-body .pane-empty { padding: 6px 8px; }
+.backlinks-head + .backlinks-body + .backlinks-head { margin-top: 2px; }
+
+/* links de saida: um destino por linha, fonte da interface e nao mono */
+.link-saida {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding-left: 12px;
+  font-family: inherit;
+  font-size: var(--font-ui-smaller);
+}
+.link-saida svg { flex-shrink: 0; color: var(--text-faint); }
+.link-saida-nome { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.link-saida .hit-line { margin: 0 0 0 auto; font-size: 11px; }
+.link-saida.is-unresolved .link-saida-nome { color: var(--text-faint); text-decoration: line-through dashed; }
+.link-saida.is-unresolved svg { color: var(--color-orange); }
 
 /* ------------------------------------------------- previa ao pairar */
 .hover-popup {

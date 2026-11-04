@@ -101,6 +101,8 @@
     animations: true,
     showProperties: true,
     showBacklinks: true,
+    // secoes do pe da leitura abertas ou recolhidas: vale para todo documento
+    peLinks: { ligadas: false, soltas: false, saidas: false },
     hoverPreview: true,
     quickBarVisible: true,
     quickBarLabels: false,
@@ -698,6 +700,7 @@
         tab.staleOnDisk = false;
         invalidateLineStatus(tab);   // o que era laranja vira verde
         dropBackup(tab);
+        invalidaLinks();   // os links desta nota mudaram no disco
         bridge.call('watchFile', { path: res.path }).catch(function () {});
         addRecent(res.path);
         if (renamed) arvoreMudou();
@@ -1534,6 +1537,7 @@
     resolveLocalImages(container, tab);
     resolveNoteEmbeds(container, tab, [String(tab.path || '').toLowerCase()]);
     wirePreviewClicks(container, tab);
+    marcaLinksQuebrados(container, tab);
     if (container.id === 'preview') renderBacklinks(container, tab);
 
     if (container.id === 'preview' && app.find.open && app.find.query) applyFindHighlights();
@@ -1739,7 +1743,24 @@
 
     for (var i = 0; i < imgs.length; i++) {
       (function (img) {
-        bridge.call('resolveAsset', { basePath: base, src: img.getAttribute('data-src') })
+        var src = img.getAttribute('data-src');
+        // Nao achou ao lado da nota: procura pelo nome na pasta aberta, como
+        // o Obsidian faz com anexo (![[capa.png]] com a imagem em midia/).
+        // So vale o que o indice achou DENTRO da pasta, e so pelo nome.
+        var peloIndice = function () {
+          if (!app.folder || !alvoAutoSeguro(src)) return Promise.resolve(null);
+          return indiceLinks().then(function (idx) {
+            if (!idx) return null;
+            var achado = window.MarkPadLinkIndex.resolve(idx, { tipo: 'wiki', alvo: src }, relNaPasta(tab.path || ''));
+            if (!achado) return null;
+            return bridge.call('resolveAsset', {
+              basePath: achado.path.replace(/[\\/][^\\/]*$/, ''), src: baseName(achado.path)
+            });
+          });
+        };
+        bridge.call('resolveAsset', { basePath: base, src: src })
+          .then(function (res) { return res && res.url ? res : peloIndice(); })
+          .catch(peloIndice)
           .then(function (res) {
             if (res && res.url) img.src = res.url;
             else showBrokenImage(img);
@@ -1973,152 +1994,265 @@
   // ---------------------------------------------------- mencoes ligadas
 
   /*
-   * O verso dos wikilinks, como no Obsidian: quem, na pasta aberta, aponta
-   * para o documento em foco — um bloco discreto no fim da leitura. A
-   * varredura e o mesmo grep da busca na pasta; barato, mas nao gratis,
-   * entao o resultado vive um minuto na aba (o prazo do indice de arquivos).
-   * O grep acha o nome ate em prosa solta — quem decide se ha mencao de
-   * verdade e mencionaNota, olhando o texto da linha.
+   * O pe da leitura, como os paineis de links do Obsidian: quem aponta para
+   * este documento (mencoes ligadas), quem cita o nome dele sem link
+   * (mencoes nao ligadas) e para onde ele aponta (links de saida). Tudo sai
+   * do indice da pasta (indiceLinks, web/linkindex.js) — menos as mencoes
+   * soltas, que precisam do texto inteiro das outras notas e por isso so
+   * rodam o grep quando alguem abre a secao.
    */
-  var BACKLINKS_VALIDADE_MS = 60000;
-
   function renderBacklinks(container, tab) {
     if (settings.showBacklinks === false || !app.folder || !tab.path) return;
 
     var bloco = document.createElement('div');
     bloco.className = 'backlinks-block';
+    container.appendChild(bloco);
 
+    var ligadas = secaoDeLinks(bloco, 'ligadas', t('Mencoes ligadas'));
+    var soltas = secaoDeLinks(bloco, 'soltas', t('Mencoes nao ligadas'));
+    var saida = secaoDeLinks(bloco, 'saidas', t('Links de saida'));
+
+    indiceLinks().then(function (idx) {
+      if (!bloco.isConnected) return;   // a leitura ja foi redesenhada
+      if (!idx) { ligadas.conta(null); saida.conta(null); soltas.conta(null); return; }
+      var LI = window.MarkPadLinkIndex;
+
+      var itens = LI.backlinks(idx, tab.path);
+      var total = itens.reduce(function (n, f) { return n + f.hits.length; }, 0);
+      ligadas.conta(total, idx.truncado, ocorrencias(total, itens.length));
+      ligadas.preenche(function (corpo) {
+        if (!itens.length) return vazio(corpo, t('Nenhum arquivo da pasta aponta para este.'));
+        itens.forEach(function (f) { corpo.appendChild(grupoDeOcorrencias(f.path, f.rel, f.hits)); });
+      });
+
+      var lista = LI.saidas(idx, tab.content, relNaPasta(tab.path));
+      var quebrados = lista.filter(function (s) { return !s.para; }).length;
+      saida.conta(lista.length, false, (lista.length === 1 ? t('1 link') : t('{n} links', { n: lista.length })) +
+        (quebrados ? t(', {q} sem destino na pasta', { q: quebrados }) : ''));
+      saida.preenche(function (corpo) {
+        if (!lista.length) return vazio(corpo, t('Este documento nao tem links internos.'));
+        lista.forEach(function (s) { corpo.appendChild(linhaDeSaida(s, tab)); });
+      });
+
+      var eu = idx && LI.arquivoDe(idx, tab.path);
+      var nomes = [semExtensao(baseName(tab.path))]
+        .concat(eu && eu.analise ? eu.analise.apelidos : [])
+        .filter(function (n, i, todos) { return n && todos.indexOf(n) === i; })
+        .slice(0, 5);
+      soltas.aoAbrir(function (corpo) {
+        vazio(corpo, t('buscando...'));
+        return buscaMencoesSoltas(tab, nomes).then(function (achados) {
+          if (!bloco.isConnected) return;
+          var n = achados.reduce(function (s, f) { return s + f.hits.length; }, 0);
+          soltas.conta(n, achados.truncado, ocorrencias(n, achados.length));
+          corpo.textContent = '';
+          if (!achados.length) return vazio(corpo, t('Nenhuma outra nota cita este nome sem link.'));
+          achados.forEach(function (f) { corpo.appendChild(grupoDeOcorrencias(f.path, f.relative, f.hits)); });
+        });
+      });
+    }).catch(function () { ligadas.conta(null); saida.conta(null); });
+  }
+
+  /*
+   * Uma secao recolhivel do pe da leitura. Aberta ou fechada e preferencia,
+   * nao estado da aba: quem abriu os links de saida quer ve-los no proximo
+   * documento tambem, como os paineis do Obsidian.
+   */
+  function secaoDeLinks(bloco, qual, titulo) {
+    var estado = settings.peLinks || (settings.peLinks = {});
     var cab = document.createElement('button');
     cab.className = 'backlinks-head';
     var chev = window.MarkPadIcons.build('chevron-down', 13);
     if (chev) cab.appendChild(chev);
-    cab.appendChild(document.createTextNode(t('Mencoes ligadas')));
-    var conta = document.createElement('span');
-    conta.className = 'backlinks-count';
-    conta.textContent = '…';
-    cab.appendChild(conta);
+    cab.appendChild(document.createTextNode(titulo));
+    var pilula = document.createElement('span');
+    pilula.className = 'backlinks-count';
+    pilula.textContent = '…';
+    cab.appendChild(pilula);
     bloco.appendChild(cab);
 
     var corpo = document.createElement('div');
     corpo.className = 'backlinks-body';
-    corpo.hidden = !tab.backlinksOpen;
     bloco.appendChild(corpo);
-    cab.classList.toggle('is-collapsed', !tab.backlinksOpen);
 
-    cab.onclick = function () {
-      tab.backlinksOpen = !tab.backlinksOpen;
-      corpo.hidden = !tab.backlinksOpen;
-      cab.classList.toggle('is-collapsed', !tab.backlinksOpen);
+    var preenchedor = null, carregou = false;
+    function mostra() {
+      var aberta = !!estado[qual];
+      corpo.hidden = !aberta;
+      cab.classList.toggle('is-collapsed', !aberta);
+      cab.setAttribute('aria-expanded', aberta ? 'true' : 'false');
+      if (aberta && preenchedor && !carregou) { carregou = true; preenchedor(corpo); }
+    }
+    cab.onclick = function () { estado[qual] = !estado[qual]; mostra(); persist(); };
+    mostra();
+
+    return {
+      conta: function (n, mais, dica) {
+        pilula.hidden = n === null;
+        pilula.textContent = n === null ? '' : n + (mais ? '+' : '');
+        if (dica) cab.title = dica;
+      },
+      preenche: function (fn) { corpo.textContent = ''; fn(corpo); },
+      aoAbrir: function (fn) { preenchedor = fn; pilula.hidden = true; mostra(); }
     };
-
-    container.appendChild(bloco);
-
-    buscaBacklinks(tab).then(function (itens) {
-      if (!bloco.isConnected) return; // a leitura ja foi redesenhada
-
-      var total = itens.reduce(function (n, f) { return n + f.hits.length; }, 0);
-      conta.textContent = total
-        ? total + (itens.truncado ? '+' : '') + ' em ' + itens.length + ' arquivo' + (itens.length > 1 ? 's' : '')
-        : (itens.truncado ? '?' : 'nenhuma');
-
-      corpo.textContent = '';
-      if (!itens.length) {
-        var vazio = document.createElement('p');
-        vazio.className = 'pane-empty';
-        vazio.textContent = t('Nenhum arquivo da pasta aponta para este.');
-        corpo.appendChild(vazio);
-        return;
-      }
-
-      // O mesmo desenho dos resultados da busca na pasta.
-      itens.forEach(function (f) {
-        var grupo = document.createElement('div');
-        grupo.className = 'search-file';
-
-        var h = document.createElement('div');
-        h.className = 'search-file-head';
-        h.title = f.path;
-        var nm = document.createElement('span');
-        nm.textContent = f.relative;
-        var ct = document.createElement('span');
-        ct.className = 'search-file-count';
-        ct.textContent = f.hits.length;
-        h.appendChild(nm); h.appendChild(ct);
-        h.onclick = function () { openPath(f.path); };
-        grupo.appendChild(h);
-
-        f.hits.forEach(function (hit) {
-          var row = document.createElement('div');
-          row.className = 'search-hit';
-          row.title = hit.text;
-          var ln = document.createElement('span');
-          ln.className = 'hit-line';
-          ln.textContent = hit.line;
-          row.appendChild(ln);
-          row.appendChild(document.createTextNode(hit.text.trim()));
-          row.onclick = function () { openPath(f.path, { line: hit.line }); };
-          grupo.appendChild(row);
-        });
-
-        corpo.appendChild(grupo);
-      });
-    }).catch(function () { conta.textContent = '?'; });
   }
 
-  function buscaBacklinks(tab) {
-    var cache = tab.backlinksCache;
-    if (cache && cache.para === tab.path && cache.pasta === app.folder &&
-        Date.now() - cache.em < BACKLINKS_VALIDADE_MS) {
-      return Promise.resolve(cache.itens);
-    }
+  function ocorrencias(n, arquivos) {
+    if (!n) return t('Nenhuma ocorrencia');
+    return (n === 1 ? t('1 ocorrencia') : t('{n} ocorrencias', { n: n })) + ' ' +
+      (arquivos === 1 ? t('em 1 arquivo') : t('em {a} arquivos', { a: arquivos }));
+  }
 
-    var nome = String(tab.path).split(/[\\/]/).pop().replace(/\.[^.]+$/, '');
-    if (!nome) return Promise.resolve([]);
+  function vazio(corpo, texto) {
+    var p = document.createElement('p');
+    p.className = 'pane-empty';
+    p.textContent = texto;
+    corpo.textContent = '';
+    corpo.appendChild(p);
+  }
 
-    return bridge.call('grepFolder', {
-      root: app.folder, query: nome, caseSensitive: false, regex: false, maxResults: 400
-    }).then(function (res) {
-      var meu = String(tab.path).toLowerCase();
-      var itens = [];
-      ((res && res.results) || []).forEach(function (f) {
-        if (String(f.path).toLowerCase() === meu) return;
-        var hits = f.hits.filter(function (h) { return mencionaNota(h.text, nome); });
-        if (hits.length) itens.push({ path: f.path, relative: f.relative, hits: hits });
-      });
-      // Pasta grande demais para o teto do grep: a contagem e um piso, e o
-      // titulo do bloco avisa em vez de fingir que cobriu tudo.
-      itens.truncado = !!(res && res.truncated);
-      tab.backlinksCache = { para: tab.path, pasta: app.folder, em: Date.now(), itens: itens };
-      return itens;
+  /* O mesmo desenho dos resultados da busca na pasta. */
+  function grupoDeOcorrencias(caminho, rel, hits) {
+    var grupo = document.createElement('div');
+    grupo.className = 'search-file';
+
+    var h = document.createElement('div');
+    h.className = 'search-file-head';
+    h.title = caminho;
+    var nm = document.createElement('span');
+    nm.textContent = rel;
+    var ct = document.createElement('span');
+    ct.className = 'search-file-count';
+    ct.textContent = hits.length;
+    h.appendChild(nm); h.appendChild(ct);
+    h.onclick = function () { openPath(caminho); };
+    grupo.appendChild(h);
+
+    hits.forEach(function (hit) {
+      var row = document.createElement('div');
+      row.className = 'search-hit';
+      row.title = hit.text;
+      var ln = document.createElement('span');
+      ln.className = 'hit-line';
+      ln.textContent = hit.line;
+      row.appendChild(ln);
+      row.appendChild(document.createTextNode(String(hit.text).trim()));
+      row.onclick = function () { openPath(caminho, { line: hit.line }); };
+      grupo.appendChild(row);
+    });
+    return grupo;
+  }
+
+  /*
+   * Um destino dos links de saida. Com arquivo na pasta, o clique navega
+   * como um link do texto (na mesma aba, Ctrl abre outra); sem destino, o
+   * clique leva a linha do link, que e onde se conserta.
+   */
+  function linhaDeSaida(s, tab) {
+    var row = document.createElement('div');
+    row.className = 'search-hit link-saida' + (s.para ? '' : ' is-unresolved');
+
+    var ic = window.MarkPadIcons.build(s.para ? (s.embed ? 'eye' : 'link') : 'warning', 13);
+    if (ic) row.appendChild(ic);
+
+    var nome = document.createElement('span');
+    nome.className = 'link-saida-nome';
+    nome.textContent = s.para ? s.para.rel : s.alvo;
+    row.appendChild(nome);
+
+    var linhas = document.createElement('span');
+    linhas.className = 'hit-line';
+    linhas.textContent = s.linhas.length > 1 ? t('{n} vezes', { n: s.linhas.length }) : t('linha {n}', { n: s.linhas[0] });
+    row.appendChild(linhas);
+
+    row.title = s.para
+      ? s.para.path
+      : t('Nao existe na pasta. Clique para ir a linha {n}.', { n: s.linhas[0] });
+
+    row.onclick = function (ev) {
+      if (s.para) {
+        abreDestino(s.para.path, { origem: tab, novaAba: ev.ctrlKey || ev.metaKey });
+      } else {
+        goToLine(s.linhas[0]);
+      }
+    };
+    return row;
+  }
+
+  /*
+   * Mencao nao ligada: o grep acha o nome em qualquer canto, e quem decide e
+   * mencionaSemLink, que tira da linha os links e o codigo e exige palavra
+   * inteira. Cada nome (o do arquivo e os apelidos do frontmatter) e um grep.
+   */
+  function buscaMencoesSoltas(tab, nomes) {
+    var meu = String(tab.path).toLowerCase();
+    var LI = window.MarkPadLinkIndex;
+    var porArquivo = {};
+    var ordem = [];
+    var truncado = false;
+
+    return Promise.all(nomes.map(function (nome) {
+      return bridge.call('grepFolder', {
+        root: app.folder, query: nome, caseSensitive: false, regex: false, maxResults: 300
+      }).then(function (res) {
+        if (res && res.truncated) truncado = true;
+        ((res && res.results) || []).forEach(function (f) {
+          if (String(f.path).toLowerCase() === meu) return;
+          f.hits.forEach(function (h) {
+            if (!LI.mencionaSemLink(h.text, nome)) return;
+            var k = String(f.path).toLowerCase();
+            var g = porArquivo[k];
+            if (!g) { g = porArquivo[k] = { path: f.path, relative: f.relative, hits: [], linhas: {} }; ordem.push(g); }
+            if (g.linhas[h.line]) return;
+            g.linhas[h.line] = 1;
+            g.hits.push(h);
+          });
+        });
+      }).catch(function () { truncado = true; });
+    })).then(function () {
+      ordem.sort(function (a, b) { return a.relative.toLowerCase() < b.relative.toLowerCase() ? -1 : 1; });
+      ordem.forEach(function (g) { g.hits.sort(function (a, b) { return a.line - b.line; }); });
+      ordem.truncado = truncado;
+      return ordem;
     });
   }
 
   /*
-   * Mencao mesmo e so link: wikilink cujo alvo (sem pasta, sem .md, sem
-   * #secao ou |apelido) e o nome do documento, ou link markdown apontando
-   * para nome.md.
+   * Wikilink e link interno sem destino na pasta ficam apagados na leitura,
+   * como no Obsidian: da para ver o buraco antes de clicar nele.
    */
-  function mencionaNota(texto, nome) {
-    // '[[nota]]' dentro de crases e exemplo de sintaxe, nao link.
-    texto = texto.replace(/`[^`]*`/g, '');
-    nome = nome.toLowerCase();
-    var m;
+  function marcaLinksQuebrados(container, tab) {
+    if (!app.folder || !window.MarkPadLinkIndex) return;
+    var links = container.querySelectorAll('a.internal-link[data-wikilink], a.internal-link[data-file]');
+    if (!links.length) return;
 
-    var wl = /\[\[([^\]#|]+)/g;
-    while ((m = wl.exec(texto))) {
-      var alvo = m[1].trim().replace(/\\/g, '/').split('/').pop().replace(/\.md$/i, '').toLowerCase();
-      if (alvo === nome) return true;
-    }
+    indiceLinks().then(function (idx) {
+      if (!idx || !container.isConnected) return;
+      var LI = window.MarkPadLinkIndex;
+      var origem = relNaPasta(tab.path || joinPath(app.folder, 'sem titulo.md'));
+      for (var i = 0; i < links.length; i++) {
+        var a = links[i];
+        var wiki = a.getAttribute('data-wikilink');
+        var bruto = wiki !== null ? wiki : a.getAttribute('data-file');
+        var alvo = String(bruto || '').split('#')[0].trim();
+        if (!alvo) continue;   // [[#Secao]]
+        var para = LI.resolve(idx, { tipo: wiki !== null ? 'wiki' : 'md', alvo: alvo }, origem);
+        a.classList.toggle('is-unresolved', !para);
+        if (!para) a.title = t('Nao existe na pasta aberta.');
+      }
+    });
+  }
 
-    var md = /\]\(([^)#\s]+)/g;
-    while ((m = md.exec(texto))) {
-      var p = m[1];
-      try { p = decodeURIComponent(p); } catch (e) { /* %-solto: fica como esta */ }
-      p = p.replace(/\\/g, '/').split('/').pop().toLowerCase();
-      if (p === nome + '.md' || p === nome + '.markdown') return true;
-    }
+  function semExtensao(nome) {
+    return String(nome || '').replace(/\.[^.]+$/, '');
+  }
 
-    return false;
+  /* Caminho relativo a pasta aberta, com '/'; fora dela, o caminho inteiro. */
+  function relNaPasta(caminho) {
+    var p = String(caminho || '').replace(/\\/g, '/');
+    var raiz = String(app.folder || '').replace(/\\/g, '/').replace(/\/+$/, '');
+    if (raiz && p.toLowerCase().indexOf(raiz.toLowerCase() + '/') === 0) return p.slice(raiz.length + 1);
+    return p;
   }
 
   // --------------------------------------------------- previa ao pairar
@@ -3210,7 +3344,80 @@
     return app.indice;
   }
 
+  /*
+   * O indice de links (web/linkindex.js): quem aponta para quem na pasta.
+   * O C# devolve a lista da pasta com o texto so das notas que mudaram desde
+   * a ultima vez (`known` = caminho -> mtime do que ja foi analisado aqui),
+   * em lotes: nota que nao coube volta `pending` e a volta seguinte pede de
+   * novo, com a janela livre entre um lote e outro. A analise de cada nota
+   * fica guardada entre varreduras. Vale o mesmo minuto do indice de
+   * arquivos; salvar, renomear, mover ou o disco mudar por fora derrubam antes.
+   */
+  var LINKS_VALIDADE_MS = 60000;
+
+  function indiceLinks() {
+    if (!app.folder || !window.MarkPadLinkIndex) return Promise.resolve(null);
+    var fresco = (Date.now() - (app.linksEm || 0)) < LINKS_VALIDADE_MS;
+    if (app.linksDe === app.folder && app.links && fresco) return app.links;
+
+    var LI = window.MarkPadLinkIndex;
+    var pasta = app.folder;
+    var antigo = app.linkCache && app.linkCache.raiz === pasta ? app.linkCache.notas : {};
+    var notas = {};
+
+    function caminhoDe(raiz, rel) {
+      return String(raiz).replace(/[\\/]+$/, '') + '\\' + String(rel).replace(/\//g, '\\');
+    }
+
+    function volta(n) {
+      var known = {};
+      Object.keys(antigo).forEach(function (k) { if (!notas[k]) known[antigo[k].path] = antigo[k].mtime; });
+      Object.keys(notas).forEach(function (k) { known[notas[k].path] = notas[k].mtime; });
+
+      return bridge.call('indexFolder', { root: pasta, known: known }).then(function (res) {
+        var arquivos = ((res && res.files) || []).map(function (f) {
+          var caminho = caminhoDe(res.root, f.rel);
+          var k = caminho.toLowerCase();
+          var analise = null;
+          if (f.md) {
+            if (typeof f.text === 'string') analise = LI.analisa(f.text);
+            else if (notas[k] && notas[k].mtime === f.mtime) analise = notas[k].analise;
+            else if (antigo[k] && antigo[k].mtime === f.mtime) analise = antigo[k].analise;
+            if (analise) notas[k] = { path: caminho, mtime: f.mtime, analise: analise };
+          }
+          return { path: caminho, rel: f.rel, md: !!f.md, analise: analise };
+        });
+
+        // Ainda tem nota esperando lote: solta a janela um instante e pede de
+        // novo. O teto de voltas so existe para nao girar para sempre se o
+        // disco mudar mais depressa do que se le.
+        if (res && res.pending > 0 && n < 40) {
+          return new Promise(function (ok) { setTimeout(ok, 0); }).then(function () { return volta(n + 1); });
+        }
+
+        app.linkCache = { raiz: pasta, notas: notas };
+        var idx = LI.cria(arquivos);
+        idx.truncado = !!(res && (res.truncated || res.pending > 0));
+        return idx;
+      });
+    }
+
+    app.linksDe = pasta;
+    app.linksEm = Date.now();
+    app.links = volta(0).catch(function () {
+      app.links = null;   // a proxima pergunta tenta de novo
+      return null;
+    });
+    return app.links;
+  }
+
+  function invalidaLinks() {
+    app.links = null;
+    app.linksEm = 0;
+  }
+
   function invalidateFileIndex() {
+    invalidaLinks();
     app.indice = null;
     app.indiceDe = null;
     app.indiceEm = 0;
@@ -4033,81 +4240,118 @@
 
   var tagFilterTimer = null;
   var folderSearchTimer = null;
+  /*
+   * Busca na pasta com os operadores do Obsidian: file:, path: e tag: (com
+   * '-' para excluir) escolhem os arquivos pelo indice de links, e o texto
+   * que sobra vai para o grep so dentro deles. Sem texto, a resposta e a
+   * propria lista de arquivos — "tag:projeto" sozinho e uma pergunta valida.
+   */
   function runFolderSearch() {
     var query = $('folderSearchInput').value;
     var box = $('searchResults');
-
-    if (!app.folder) {
-      box.innerHTML = '<p class="pane-empty">Abra uma pasta primeiro.</p>';
-      return;
-    }
-    if (!query) {
-      box.innerHTML = '<p class="pane-empty">Digite para buscar em todos os arquivos da pasta.</p>';
-      return;
-    }
-
-    box.innerHTML = '<p class="pane-empty">buscando...</p>';
-
-    bridge.call('grepFolder', {
-      root: app.folder,
-      query: query,
-      caseSensitive: app.folderSearch.caseSensitive,
-      regex: app.folderSearch.regex,
-      maxResults: 300
-    }).then(function (res) {
+    var pedido = (app.buscaPedido = (app.buscaPedido || 0) + 1);
+    var aviso = function (texto) {
       box.textContent = '';
-
-      if (!res.results.length) {
-        box.innerHTML = '<p class="pane-empty">Nenhum resultado.</p>';
-        return;
-      }
-
-      var total = res.results.reduce(function (n, f) { return n + f.hits.length; }, 0);
-      var head = document.createElement('p');
-      head.className = 'pane-empty';
-      head.textContent = total + ' ocorrencias em ' + res.results.length + ' arquivos' +
-        (res.truncated ? ' (lista truncada)' : '');
-      box.appendChild(head);
-
-      res.results.forEach(function (file) {
-        var group = document.createElement('div');
-        group.className = 'search-file';
-
-        var h = document.createElement('div');
-        h.className = 'search-file-head';
-        h.title = file.path;
-        var nm = document.createElement('span');
-        nm.textContent = file.relative;
-        var ct = document.createElement('span');
-        ct.className = 'search-file-count';
-        ct.textContent = file.hits.length;
-        h.appendChild(nm); h.appendChild(ct);
-        h.onclick = function () { openPath(file.path); };
-        group.appendChild(h);
-
-        file.hits.forEach(function (hit) {
-          var row = document.createElement('div');
-          row.className = 'search-hit';
-          row.title = hit.text;
-
-          var ln = document.createElement('span');
-          ln.className = 'hit-line';
-          ln.textContent = hit.line;
-          row.appendChild(ln);
-          row.appendChild(document.createTextNode(hit.text.trim()));
-
-          row.onclick = function () { openPath(file.path, { line: hit.line }); };
-          group.appendChild(row);
-        });
-
-        box.appendChild(group);
-      });
-    }).catch(function (err) {
-      box.innerHTML = '';
       var p = document.createElement('p');
       p.className = 'pane-empty';
-      p.textContent = t('Busca falhou: ') + err.message;
+      p.textContent = texto;
       box.appendChild(p);
+      return p;
+    };
+
+    if (!app.folder) { aviso(t('Abra uma pasta primeiro.')); return; }
+    if (!query) { dicaDaBusca(box); return; }
+
+    aviso(t('buscando...'));
+
+    var consulta = window.MarkPadLinkIndex
+      ? window.MarkPadLinkIndex.analisaConsulta(query)
+      : { texto: query, filtros: [] };
+
+    var escolhidos = consulta.filtros.length
+      ? indiceLinks().then(function (idx) {
+          if (!idx) throw new Error(t('o indice da pasta nao carregou.'));
+          return window.MarkPadLinkIndex.filtra(idx, consulta.filtros);
+        })
+      : Promise.resolve(null);
+
+    escolhidos.then(function (arquivos) {
+      if (pedido !== app.buscaPedido) return null;   // ja digitaram outra coisa
+
+      if (arquivos && !consulta.texto) {
+        desenhaSoArquivos(box, arquivos);
+        return null;
+      }
+      if (arquivos && !arquivos.length) { aviso(t('Nenhum resultado.')); return null; }
+
+      return bridge.call('grepFolder', {
+        root: app.folder,
+        query: consulta.texto,
+        caseSensitive: app.folderSearch.caseSensitive,
+        regex: app.folderSearch.regex,
+        maxResults: 300,
+        paths: arquivos ? arquivos.map(function (a) { return a.path; }) : undefined
+      }).then(function (res) {
+        if (pedido !== app.buscaPedido) return;
+        desenhaOcorrencias(box, res);
+      });
+    }).catch(function (err) {
+      if (pedido !== app.buscaPedido) return;
+      aviso(t('Busca falhou: ') + err.message);
+    });
+  }
+
+  function dicaDaBusca(box) {
+    box.textContent = '';
+    [t('Digite para buscar em todos os arquivos da pasta.'),
+     t('file:nome e path:pasta escolhem os arquivos; tag:#projeto, os que tem a tag. Um - na frente exclui.')
+    ].forEach(function (texto) {
+      var p = document.createElement('p');
+      p.className = 'pane-empty';
+      p.textContent = texto;
+      box.appendChild(p);
+    });
+  }
+
+  function desenhaSoArquivos(box, arquivos) {
+    box.textContent = '';
+    var head = document.createElement('p');
+    head.className = 'pane-empty';
+    head.textContent = arquivos.length === 1 ? t('1 arquivo') : t('{n} arquivos', { n: arquivos.length });
+    box.appendChild(head);
+
+    arquivos.slice().sort(function (a, b) {
+      return a.rel.toLowerCase() < b.rel.toLowerCase() ? -1 : 1;
+    }).slice(0, 500).forEach(function (a) {
+      var h = document.createElement('div');
+      h.className = 'search-file-head';
+      h.title = a.path;
+      var nm = document.createElement('span');
+      nm.textContent = a.rel;
+      h.appendChild(nm);
+      h.onclick = function () { openPath(a.path); };
+      box.appendChild(h);
+    });
+  }
+
+  function desenhaOcorrencias(box, res) {
+    box.textContent = '';
+    if (!res.results.length) {
+      var nada = document.createElement('p');
+      nada.className = 'pane-empty';
+      nada.textContent = t('Nenhum resultado.');
+      box.appendChild(nada);
+      return;
+    }
+
+    var total = res.results.reduce(function (n, f) { return n + f.hits.length; }, 0);
+    var head = document.createElement('p');
+    head.className = 'pane-empty';
+    head.textContent = ocorrencias(total, res.results.length) + (res.truncated ? t(' (lista truncada)') : '');
+    box.appendChild(head);
+
+    res.results.forEach(function (file) {
+      box.appendChild(grupoDeOcorrencias(file.path, file.relative, file.hits));
     });
   }
 
@@ -6849,6 +7093,7 @@
     bridge.on('openPaths', function (paths) { openPaths(paths); });
 
     bridge.on('fileChanged', function (data) {
+      invalidaLinks();
       var tab = tabByPath(data.path);
       if (!tab) return;
 

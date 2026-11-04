@@ -100,8 +100,14 @@
 
   var FILES = {
     'C:\\notas\\guia.md': SAMPLE,
-    'C:\\notas\\leiame.md': '---\ntags:\n  - ideia\n  - projeto/api\n---\n\n# Leiame\n\nArquivo curto de teste com #ideia, que aponta de volta para o [[guia]].\n\n- um\n- dois ^dois\n\n## Historico\n\nSo esta secao aparece em `![[leiame#Historico]]`.\n'
+    'C:\\notas\\leiame.md': '---\ntags:\n  - ideia\n  - projeto/api\n---\n\n# Leiame\n\nArquivo curto de teste com #ideia, que aponta de volta para o [[guia]].\n\n- um\n- dois ^dois\n\n## Historico\n\nSo esta secao aparece em `![[leiame#Historico]]`.\n',
+    // Subpasta, link markdown relativo, link quebrado e mencao sem link:
+    // o que o indice de links (web/linkindex.js) precisa para aparecer.
+    'C:\\notas\\projeto\\api.md': '---\ntags: [projeto/api, rascunho]\naliases: [Interface]\n---\n\n# API\n\nVolta para o [guia](../guia.md) e para o [[leiame#Historico]].\n\nAinda falta escrever a [[Nota que nao existe]].\n\nO leiame explica o resto, mas sem link.\n'
   };
+  // mtime fingido por arquivo: o indexFolder so manda texto do que mudou.
+  var MTIMES = {};
+  function mtimeDe(k) { return MTIMES[k] || (MTIMES[k] = 1000); }
 
   /* Fora do WebView nao ha rede nem instalador. Abra o preview com
      ?update=1 para o atualizador encenar o fluxo inteiro: aviso, download
@@ -136,12 +142,33 @@
             case 'watchFile': case 'unwatchFile': result = true; break;
             case 'readFile':
               var p = msg.args.path;
-              if (!FILES[p]) throw new Error('nao encontrado');
+              if (FILES[p] === undefined) throw new Error('nao encontrado');
               result = {
-                path: p, name: p.split('\\').pop(), dir: 'C:\\notas',
+                path: p, name: p.split('\\').pop(), dir: p.replace(/\\[^\\]*$/, ''),
                 content: FILES[p], encoding: 'utf-8', eol: '\r\n',
-                size: FILES[p].length, mtime: Date.now(), readOnlyOnDisk: false
+                size: FILES[p].length, mtime: mtimeDe(p), readOnlyOnDisk: false
               };
+              break;
+            case 'writeFile':
+              FILES[msg.args.path] = msg.args.content;
+              MTIMES[msg.args.path] = mtimeDe(msg.args.path) + 1;
+              result = { path: msg.args.path, mtime: MTIMES[msg.args.path] };
+              break;
+            case 'indexFolder':
+              // Mesmo contrato do C#, com lote minusculo (1 KB) para o preview
+              // exercitar as voltas de `pending` que o hub inteiro provoca.
+              var conhecidos = msg.args.known || {};
+              var usados = 0, pendentes = 0;
+              result = { root: 'C:\\notas', read: 0, truncated: false, files: Object.keys(FILES).map(function (k) {
+                var rel = k.slice('C:\\notas\\'.length).replace(/\\/g, '/');
+                if (!/\.md$/i.test(k)) return { rel: rel };
+                var muda = conhecidos[k] !== mtimeDe(k);
+                var vai = muda && usados < 1024;
+                if (vai) usados += FILES[k].length;
+                if (muda && !vai) pendentes++;
+                return { rel: rel, md: true, mtime: mtimeDe(k), big: false, pending: muda && !vai, text: vai ? FILES[k] : null };
+              }) };
+              result.pending = pendentes;
               break;
             case 'listDir':
               result = { path: 'C:\\notas', name: 'notas', entries: [
@@ -181,12 +208,12 @@
               break;
             case 'openFolderDialog': result = 'C:\\notas'; break;
             case 'renameFile':
-              var deR = msg.args.path, paraR = 'C:\\notas\\' + msg.args.name;
+              var deR = msg.args.path, paraR = deR.replace(/[^\\]*$/, '') + msg.args.name;
               if (!FILES[deR]) throw new Error('o arquivo nao esta mais no disco.');
               if (paraR !== deR && FILES[paraR]) throw new Error('ja existe um arquivo com esse nome nesta pasta.');
               FILES[paraR] = FILES[deR];
               if (paraR !== deR) delete FILES[deR];
-              result = { path: paraR, name: msg.args.name, dir: 'C:\\notas', size: FILES[paraR].length, mtime: Date.now() };
+              result = { path: paraR, name: msg.args.name, dir: paraR.replace(/\\[^\\]*$/, ''), size: FILES[paraR].length, mtime: Date.now() };
               break;
             case 'moveFile':
               var deM = msg.args.path, nomeM = deM.split('\\').pop();
@@ -226,7 +253,9 @@
               var agulha = String(msg.args.query || '');
               if (!msg.args.caseSensitive) agulha = agulha.toLowerCase();
               var grupos = [];
+              var so = msg.args.paths && msg.args.paths.map(function (x) { return x.toLowerCase(); });
               Object.keys(FILES).forEach(function (k) {
+                if (so && so.indexOf(k.toLowerCase()) < 0) return;   // filtros file:, path:, tag:
                 var hits = [];
                 FILES[k].split('\n').forEach(function (linha, idx) {
                   var palheiro = msg.args.caseSensitive ? linha : linha.toLowerCase();
