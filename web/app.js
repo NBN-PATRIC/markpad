@@ -1609,6 +1609,7 @@
     applyFolding(container, tab);
     marcaBlocosAlterados(container, tab);
     resolveLocalImages(container, tab);
+    resolveMidia(container, tab);
     resolveNoteEmbeds(container, tab, [String(tab.path || '').toLowerCase()]);
     wirePreviewClicks(container, tab);
     marcaLinksQuebrados(container, tab);
@@ -1842,6 +1843,106 @@
           .catch(function () { showBrokenImage(img); });
       })(imgs[i]);
     }
+  }
+
+  /*
+   * O casulo de audio/video/PDF do parser vira o player: o arquivo e achado
+   * pelo indice (pelo nome, em qualquer pasta, como o anexo do Obsidian; ou
+   * pelo caminho relativo, no ![](...)) e servido pelo endereco que o C#
+   * mapeia para a pasta aberta. Arquivo fora da pasta fica com o nome e um
+   * aviso — sem mapeamento nao ha URL.
+   */
+  function pastaMapeada() {
+    if (!app.folder) return Promise.resolve(null);
+    if (app.mapa && app.mapa.pasta === app.folder) return app.mapa.promessa;
+    var pasta = app.folder;
+    app.mapa = {
+      pasta: pasta,
+      promessa: bridge.call('mapFolder', { path: pasta })
+        .then(function (r) { return (r && r.host) || null; })
+        .catch(function () { return null; })
+    };
+    return app.mapa.promessa;
+  }
+
+  function resolveMidia(container, tab) {
+    var casulos = container.querySelectorAll('.media-embed');
+    if (!casulos.length) return;
+
+    Promise.all([pastaMapeada(), indiceLinks()]).then(function (r) {
+      var host = r[0], idx = r[1];
+      var LI = window.MarkPadLinkIndex;
+      Array.prototype.forEach.call(casulos, function (c) {
+        if (!c.isConnected || c.getAttribute('data-pronto')) return;
+        var wiki = c.hasAttribute('data-embed');
+        var bruto = c.getAttribute(wiki ? 'data-embed' : 'data-file') || '';
+        var hash = bruto.indexOf('#');
+        var alvo = hash < 0 ? bruto : bruto.slice(0, hash);
+        var arq = host && idx ? LI.resolve(idx, { tipo: wiki ? 'wiki' : 'md', alvo: alvo }, relNaPasta(tab.path || '')) : null;
+        if (!arq) {
+          c.classList.add('is-missing');
+          c.title = t('Arquivo nao encontrado na pasta aberta.');
+          return;
+        }
+
+        var url = host + arq.rel.split('/').map(encodeURIComponent).join('/');
+        var tipo = c.getAttribute('data-media');
+        var el;
+        if (tipo === 'audio' || tipo === 'video') {
+          el = document.createElement(tipo);
+          el.controls = true;
+          el.preload = 'metadata';
+          // Formato que o WebView2 nao toca (ou arquivo que sumiu): diz, em
+          // vez de deixar um player mudo em 0:00.
+          el.addEventListener('error', function () {
+            c.classList.add('is-missing');
+            c.textContent = t('Nao consegui tocar {arquivo} aqui.', { arquivo: arq.rel });
+          });
+          el.addEventListener('loadedmetadata', function () { c.setAttribute('data-duracao', String(el.duration)); });
+          el.src = url;
+        } else {
+          // O leitor de PDF do proprio WebView2; #page=3 funciona nele.
+          el = document.createElement('iframe');
+          el.src = url + (hash < 0 ? '' : bruto.slice(hash));
+          el.title = arq.rel;
+          el.className = 'pdf-embed';
+        }
+        // Com o player no lugar, o casulo deixa de ser link: o clique e do player.
+        c.removeAttribute('data-file');
+        c.setAttribute('data-pronto', '1');
+        c.textContent = '';
+        c.appendChild(el);
+      });
+    });
+  }
+
+  /* Imagem da leitura em tela cheia: clique amplia ao tamanho real, Esc fecha. */
+  function abreImagem(img) {
+    var fundo = document.createElement('div');
+    fundo.className = 'visor-imagem';
+    fundo.setAttribute('role', 'dialog');
+    fundo.setAttribute('aria-label', img.alt || t('Imagem'));
+    var foto = document.createElement('img');
+    foto.src = img.src;
+    foto.alt = img.alt || '';
+    fundo.appendChild(foto);
+    var legenda = document.createElement('div');
+    legenda.className = 'visor-legenda';
+    legenda.textContent = (img.getAttribute('data-src') || img.alt || '') + '  ·  ' +
+      t('clique na imagem para ver no tamanho real; Esc fecha');
+    fundo.appendChild(legenda);
+
+    function fecha() {
+      fundo.remove();
+      document.removeEventListener('keydown', onKey, true);
+    }
+    function onKey(e) {
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); fecha(); }
+    }
+    foto.onclick = function (e) { e.stopPropagation(); fundo.classList.toggle('is-real'); };
+    fundo.onclick = fecha;
+    document.addEventListener('keydown', onKey, true);
+    document.body.appendChild(fundo);
   }
 
   function showBrokenImage(img) {
@@ -2738,6 +2839,15 @@
         }
 
         toggleTask(tab, parseInt(linha, 10), caixa);
+        return;
+      }
+
+      // Imagem na leitura abre em tela cheia — so travada: na edicao ao vivo o
+      // clique e do editor de bloco, e imagem dentro de link segue o link.
+      if (caixa && caixa.tagName === 'IMG' && caixa.src && tab.locked &&
+          !caixa.closest('a,[data-file],[data-wikilink],[data-external]')) {
+        e.preventDefault();
+        abreImagem(caixa);
         return;
       }
 

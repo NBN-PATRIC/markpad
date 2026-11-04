@@ -1085,6 +1085,62 @@ body.wide-lines .markdown-preview { max-width: none; }
 .troca-uso .palette-item { gap: 10px; }
 .troca-uso .dirty-dot { margin-left: auto; }
 
+/* ------------------------------------------- audio, video e PDF embutidos */
+.media-embed { display: block; margin: 0.8em 0; }
+.media-embed video { display: block; max-width: 100%; border-radius: var(--radius-m); background: var(--background-secondary); }
+.media-embed audio { display: block; width: min(100%, 520px); }
+.media-embed .pdf-embed {
+  display: block;
+  width: 100%;
+  height: 72vh;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+}
+.media-embed.is-missing {
+  display: inline-block;
+  padding: 6px 12px;
+  border: 1px dashed var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  color: var(--text-faint);
+  font-size: var(--font-ui-small);
+}
+
+/* imagem em tela cheia, a partir da leitura */
+.markdown-preview img.local-image[src] { cursor: zoom-in; }
+.visor-imagem {
+  position: fixed;
+  inset: 0;
+  z-index: var(--layer-modal);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+  background: color-mix(in srgb, var(--background-primary) 90%, transparent);
+  animation: fade-in var(--anim-fast) var(--anim-ease-out);
+}
+.visor-imagem img {
+  max-width: 94vw;
+  max-height: 88vh;
+  object-fit: contain;
+  border-radius: var(--radius-s);
+  box-shadow: var(--shadow-l);
+  cursor: zoom-in;
+}
+.visor-imagem.is-real { align-items: flex-start; justify-content: flex-start; }
+.visor-imagem.is-real img { max-width: none; max-height: none; margin: auto; cursor: zoom-out; }
+.visor-legenda {
+  position: fixed;
+  bottom: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: var(--background-secondary);
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  pointer-events: none;
+}
+
 /* ------------------------------------------------- previa ao pairar */
 .hover-popup {
   position: fixed;

@@ -103,7 +103,7 @@
     'C:\\notas\\leiame.md': '---\ntags:\n  - ideia\n  - projeto/api\n---\n\n# Leiame\n\nArquivo curto de teste com #ideia, que aponta de volta para o [[guia]].\n\n- um\n- dois ^dois\n\n## Historico\n\nSo esta secao aparece em `![[leiame#Historico]]`.\n',
     // Subpasta, link markdown relativo, link quebrado e mencao sem link:
     // o que o indice de links (web/linkindex.js) precisa para aparecer.
-    'C:\\notas\\projeto\\api.md': '---\ntags: [projeto/api, rascunho]\naliases: [Interface]\n---\n\n# API\n\nVolta para o [guia](../guia.md) e para o [[leiame#Historico]].\n\nAinda falta escrever a [[Nota que nao existe]].\n\nO leiame explica o resto, mas sem link.\n'
+    'C:\\notas\\projeto\\api.md': '---\ntags: [projeto/api, rascunho]\naliases: [Interface]\n---\n\n# API\n\nVolta para o [guia](../guia.md) e para o [[leiame#Historico]].\n\nAinda falta escrever a [[Nota que nao existe]].\n\nO leiame explica o resto, mas sem link.\n\n![[capa.png|200]]\n\n![[aula.mp4]]\n'
   };
   // mtime fingido por arquivo: o indexFolder so manda texto do que mudou.
   var MTIMES = {};
@@ -169,6 +169,10 @@
               FILES[msg.args.path] = msg.args.content;
               MTIMES[msg.args.path] = mtimeDe(msg.args.path) + 1;
               result = { path: msg.args.path, mtime: MTIMES[msg.args.path] };
+              break;
+            case 'mapFolder':
+              // Sem disco de verdade no preview: sem URL, o casulo mostra o nome.
+              result = { host: null };
               break;
             case 'listVersions':
               result = { versions: (VERSOES[msg.args.path] || []).slice().reverse().map(function (v) {
@@ -274,7 +278,9 @@
                 ? { path: achadoPI, kind: 'file', exists: true }
                 : { path: msg.args.path, kind: 'none', exists: false };
               break;
-            case 'resolveAsset': result = null; break;
+            // Qualquer imagem local vira o mesmo retangulo: o visor e o tamanho
+            // tem o que mostrar sem disco de verdade.
+            case 'resolveAsset': result = { url: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI2NDAiIGhlaWdodD0iMzYwIj48cmVjdCB3aWR0aD0iNjQwIiBoZWlnaHQ9IjM2MCIgZmlsbD0iIzNjNWFhMCIvPjxyZWN0IHg9IjQwIiB5PSI0MCIgd2lkdGg9IjU2MCIgaGVpZ2h0PSIyODAiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI2ZmZiIgc3Ryb2tlLXdpZHRoPSI2Ii8+PC9zdmc+', path: msg.args.src }; break;
             case 'grepFolder':
               var agulha = String(msg.args.query || '');
               if (!msg.args.caseSensitive) agulha = agulha.toLowerCase();

@@ -215,6 +215,13 @@ public partial class MainWindow : Window
                 core.WebResourceRequested += OnWebResourceRequested;
             }
 
+            // A pasta aberta, servida pelo proprio app (audio, video e PDF
+            // embutidos). Registrado aqui, antes da primeira navegacao: um
+            // mapeamento de pasta feito depois da pagina carregada so valia
+            // para navegacao (o PDF no iframe abria, o <video> nao).
+            core.AddWebResourceRequestedFilter($"https://{PastaHost}/*", CoreWebView2WebResourceContext.All);
+            core.WebResourceRequested += OnPastaRequested;
+
             core.WebMessageReceived += OnWebMessageReceived;
             core.NavigationStarting += OnNavigationStarting;
             core.NewWindowRequested += OnNewWindowRequested;
@@ -229,6 +236,152 @@ public partial class MainWindow : Window
                 "Nao foi possivel iniciar o WebView2.\n\n" + ex.Message +
                 "\n\nInstale o 'Microsoft Edge WebView2 Runtime' e abra de novo.";
         }
+    }
+
+    /*
+     * Audio, video e PDF embutidos precisam de URL de verdade: data: em
+     * base64 (o caminho das imagens) nao serve para um video de 300 MB. A
+     * pasta aberta vira https://pasta.markpad.local/, um endereco que so esta
+     * pagina enxerga e que o proprio app serve (OnPastaRequested). Uma pasta
+     * por vez: trocar de pasta troca a raiz, e arquivo fora dela fica sem URL.
+     *
+     * Nao e SetVirtualHostNameToFolderMapping de proposito: chamado depois da
+     * pagina carregada, ele so valia para navegacao — o PDF no iframe abria e
+     * o <video> falhava, com qualquer modo de acesso (medido no exe).
+     */
+    private const string PastaHost = "pasta.markpad.local";
+    private volatile string? _pastaMapeada;
+
+    private object MapFolder(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return new { host = (string?)null };
+        var full = Path.GetFullPath(path);
+        if (!Directory.Exists(full)) return new { host = (string?)null };
+        _pastaMapeada = full;
+        return new { host = $"https://{PastaHost}/" };
+    }
+
+    private static string? TipoServivel(string arquivo) => Path.GetExtension(arquivo).ToLowerInvariant() switch
+    {
+        ".mp3" => "audio/mpeg",
+        ".wav" => "audio/wav",
+        ".m4a" => "audio/mp4",
+        ".ogg" or ".oga" or ".opus" => "audio/ogg",
+        ".flac" => "audio/flac",
+        ".mp4" or ".m4v" => "video/mp4",
+        ".webm" => "video/webm",
+        ".mov" => "video/quicktime",
+        ".ogv" => "video/ogg",
+        ".pdf" => "application/pdf",
+        ".png" => "image/png",
+        ".jpg" or ".jpeg" => "image/jpeg",
+        ".gif" => "image/gif",
+        ".webp" => "image/webp",
+        ".avif" => "image/avif",
+        ".bmp" => "image/bmp",
+        ".svg" => "image/svg+xml",
+        _ => null
+    };
+
+    /*
+     * Serve um arquivo da pasta aberta. So tipos de midia, PDF e imagem (uma
+     * nota .md ou um .env da pasta nao saem por aqui), so dentro da raiz, e com
+     * pedido de trecho (Range) — e assim que o <video> busca e avanca sem baixar
+     * o arquivo inteiro. O arquivo abre compartilhado: quem estiver gravando
+     * nele nao trava.
+     */
+    private void OnPastaRequested(object? sender, CoreWebView2WebResourceRequestedEventArgs e)
+    {
+        if (_environment is null) return;
+        Uri uri;
+        try { uri = new Uri(e.Request.Uri); } catch { return; }
+        if (!uri.Host.Equals(PastaHost, StringComparison.OrdinalIgnoreCase)) return;
+
+        var env = _environment;
+        CoreWebView2WebResourceResponse Vazio(int codigo, string motivo, string cabecalhos = "") =>
+            env.CreateWebResourceResponse(null, codigo, motivo, cabecalhos);
+
+        var raiz = _pastaMapeada;
+        if (raiz is null) { e.Response = Vazio(404, "Not Found"); return; }
+
+        string full;
+        try
+        {
+            var rel = Uri.UnescapeDataString(uri.AbsolutePath.TrimStart('/')).Replace('/', Path.DirectorySeparatorChar);
+            full = Path.GetFullPath(Path.Combine(raiz, rel));
+        }
+        catch { e.Response = Vazio(400, "Bad Request"); return; }
+
+        var prefixo = raiz.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        if (!full.StartsWith(prefixo, StringComparison.OrdinalIgnoreCase)) { e.Response = Vazio(403, "Forbidden"); return; }
+        var tipo = TipoServivel(full);
+        if (tipo is null) { e.Response = Vazio(403, "Forbidden"); return; }
+        if (!File.Exists(full)) { e.Response = Vazio(404, "Not Found"); return; }
+
+        FileStream fs;
+        try { fs = new FileStream(full, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete); }
+        catch { e.Response = Vazio(404, "Not Found"); return; }
+
+        var total = fs.Length;
+        var comuns = $"Content-Type: {tipo}\r\nAccept-Ranges: bytes\r\nCache-Control: no-cache";
+        var pedido = e.Request.Headers.Contains("Range") ? e.Request.Headers.GetHeader("Range") : null;
+        var m = pedido is null ? null : System.Text.RegularExpressions.Regex.Match(pedido, @"^bytes=(\d*)-(\d*)$");
+
+        if (m is null || !m.Success || (m.Groups[1].Value.Length == 0 && m.Groups[2].Value.Length == 0))
+        {
+            e.Response = env.CreateWebResourceResponse(fs, 200, "OK", $"{comuns}\r\nContent-Length: {total}");
+            return;
+        }
+
+        long ini, fim;
+        if (m.Groups[1].Value.Length == 0)
+        {
+            // "bytes=-500": os ultimos 500
+            var ultimos = Math.Min(long.Parse(m.Groups[2].Value), total);
+            ini = total - ultimos; fim = total - 1;
+        }
+        else
+        {
+            ini = long.Parse(m.Groups[1].Value);
+            fim = m.Groups[2].Value.Length == 0 ? total - 1 : Math.Min(long.Parse(m.Groups[2].Value), total - 1);
+        }
+
+        if (ini >= total || ini > fim)
+        {
+            fs.Dispose();
+            e.Response = Vazio(416, "Range Not Satisfiable", $"Content-Range: bytes */{total}");
+            return;
+        }
+
+        fs.Position = ini;
+        var tamanho = fim - ini + 1;
+        e.Response = env.CreateWebResourceResponse(new Trecho(fs, tamanho), 206, "Partial Content",
+            $"{comuns}\r\nContent-Length: {tamanho}\r\nContent-Range: bytes {ini}-{fim}/{total}");
+    }
+
+    /// <summary>Le no maximo `restante` bytes do stream de dentro: a resposta 206 de um Range.</summary>
+    private sealed class Trecho : Stream
+    {
+        private readonly Stream _dentro;
+        private long _restante;
+        public Trecho(Stream dentro, long tamanho) { _dentro = dentro; _restante = tamanho; }
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            if (_restante <= 0) return 0;
+            var n = _dentro.Read(buffer, offset, (int)Math.Min(count, _restante));
+            _restante -= n;
+            return n;
+        }
+        public override void Flush() { }
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        protected override void Dispose(bool disposing) { if (disposing) _dentro.Dispose(); base.Dispose(disposing); }
     }
 
     private void OnNavigationStarting(object? sender, CoreWebView2NavigationStartingEventArgs e)
@@ -255,6 +408,7 @@ public partial class MainWindow : Window
         if (_environment is null) return;
 
         var uri = new Uri(e.Request.Uri);
+        if (!uri.Host.Equals(VirtualHost, StringComparison.OrdinalIgnoreCase)) return;   // a pasta e com OnPastaRequested
         var relative = uri.AbsolutePath.TrimStart('/');
         if (string.IsNullOrEmpty(relative)) relative = "index.html";
 
@@ -525,6 +679,9 @@ public partial class MainWindow : Window
             case "dropBackup":
                 DropBackup(Str(args, "path"));
                 return true;
+
+            case "mapFolder":
+                return MapFolder(Str(args, "path"));
 
             case "listVersions":
                 return ListVersions(Str(args, "path"));

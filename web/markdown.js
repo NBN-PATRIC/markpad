@@ -327,10 +327,37 @@
     }
     if (/^[a-z][a-z0-9+.-]*:/i.test(raw)) return '<span class="blocked-link">imagem bloqueada</span>';
 
+    var midia = tipoDeMidia(raw);
+    if (midia) return casuloDeMidia(midia, decodeSeguro(raw), 'data-file');
+
     return '<img class="local-image" data-src="' + escapeAttr(decodeSeguro(raw)) + '"' + a + t + style + '>';
   };
 
+  /*
+   * Audio, video e PDF embutidos (![[aula.mp4]], ![](som.mp3), ![[a.pdf#page=3]]).
+   * O parser nao le disco nem sabe onde a pasta esta: deixa um casulo com o
+   * nome do arquivo, que o app troca pelo player (resolveMidia) quando acha
+   * o arquivo na pasta aberta. Fora do app o casulo fica como o nome.
+   */
+  var MIDIA = {
+    mp3: 'audio', wav: 'audio', m4a: 'audio', ogg: 'audio', oga: 'audio', flac: 'audio', opus: 'audio',
+    mp4: 'video', m4v: 'video', webm: 'video', mov: 'video', ogv: 'video',
+    pdf: 'pdf'
+  };
+
+  function tipoDeMidia(alvo) {
+    var m = /\.([a-z0-9]+)$/i.exec(String(alvo).split('#')[0]);
+    return m ? MIDIA[m[1].toLowerCase()] || null : null;
+  }
+
+  function casuloDeMidia(tipo, alvo, attr, size) {
+    return '<span class="media-embed" data-media="' + tipo + '" ' + attr + '="' + escapeAttr(alvo) + '"' +
+      estiloDeTamanho(size) + '>' + escapeHtml(alvo) + '</span>';
+  }
+
   Inline.prototype.embed = function (target, size) {
+    var midia = tipoDeMidia(target);
+    if (midia) return casuloDeMidia(midia, target, 'data-embed', size);
     if (/\.(png|jpe?g|gif|webp|bmp|svg|avif|ico)$/i.test(target)) {
       var style = estiloDeTamanho(size);
       return '<img class="local-image" data-src="' + escapeAttr(target) + '" alt="' + escapeAttr(target) + '"' + style + '>';
@@ -886,7 +913,7 @@
   var ALLOWED_ATTRS = {};
   ('class id href src alt title colspan rowspan start type checked disabled style ' +
    'data-line data-line-end data-task data-task-line data-icon data-callout data-wikilink data-file data-anchor data-external ' +
-   'data-tag data-src data-remote data-copy data-lang data-embed data-alias open rel loading'
+   'data-tag data-src data-remote data-copy data-lang data-embed data-alias data-media open rel loading'
   ).split(' ').forEach(function (a) { ALLOWED_ATTRS[a] = true; });
 
   /**

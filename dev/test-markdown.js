@@ -261,7 +261,14 @@ const checks = [
   ['% codificado continua decodificado', /data-file="minha nota\.md"/.test(r('[n](minha%20nota.md)\n').html)],
   ['URL com parenteses (Wikipedia)', /data-external="https:\/\/pt\.wikipedia\.org\/wiki\/Fulano_\(cantor\)"/.test(r('[f](https://pt.wikipedia.org/wiki/Fulano_(cantor))\n').html)],
   ['imagem dentro de link', /<a class="external-link"[^>]*><img class="local-image" data-src="i\.png"/.test(r('[![x](i.png)](https://x.com)\n').html)],
-  ['& no rotulo do link aparece uma vez', />a &amp; b<\/a>/.test(r('[a & b](https://x.com)\n').html)]
+  ['& no rotulo do link aparece uma vez', />a &amp; b<\/a>/.test(r('[a & b](https://x.com)\n').html)],
+  // audio, video e PDF: casulo que o app troca pelo player
+  ['![[x.mp4]] vira casulo de video', /<span class="media-embed" data-media="video" data-embed="aula\.mp4">aula\.mp4<\/span>/.test(r('![[aula.mp4]]\n').html)],
+  ['![[x.mp3]] vira casulo de audio', /data-media="audio" data-embed="som\.mp3"/.test(r('![[som.mp3]]\n').html)],
+  ['![[x.pdf#page=3]] guarda a pagina', /data-media="pdf" data-embed="a\.pdf#page=3"/.test(r('![[a.pdf#page=3]]\n').html)],
+  ['![](clip.webm) tambem', /data-media="video" data-file="midia\/clip\.webm"/.test(r('![c](midia/clip.webm)\n').html)],
+  ['tamanho no video', /data-media="video"[^>]*style="width:400px"/.test(r('![[v.mp4|400]]\n').html)],
+  ['video remoto continua bloqueado', !/media-embed/.test(r('![v](https://x.com/v.mp4)\n').html)]
 ];
 
 /** Render curto para os casos acima — sem mapa de linha, so o HTML. */

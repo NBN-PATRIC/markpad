@@ -18,6 +18,15 @@ Versionamento [SemVer](https://semver.org/lang/pt-BR/).
   marcam os que não têm destino na pasta; clicar num desses leva à linha
   dele. O índice relê só as notas que mudaram, e a primeira varredura de uma
   pasta grande vem em lotes, sem congelar a janela.
+- **Áudio, vídeo e PDF embutidos.** `![[aula.mp4]]`, `![[som.mp3]]`,
+  `![[manual.pdf#page=3]]` (e `![](midia/clip.webm)`) viram player e leitor
+  de PDF na leitura, com o arquivo achado pelo nome em qualquer pasta, como
+  as imagens. O app serve a pasta aberta num endereço próprio, só para mídia,
+  PDF e imagem, com pedido de trecho (o vídeo avança sem carregar inteiro).
+  Arquivo que não está na pasta, ou num formato que o WebView2 não toca,
+  aparece com um aviso em vez de um player mudo.
+- **Imagem em tela cheia.** Na leitura, clicar numa imagem a abre por cima de
+  tudo; clicar de novo mostra no tamanho real, Esc fecha.
 - **Histórico local de versões.** Antes de gravar por cima de um arquivo, o
   MarkPad guarda o que estava no disco (uma cópia a cada 5 minutos por
   arquivo, até 100 cópias e por 30 dias, na pasta de dados do app). "Histórico
