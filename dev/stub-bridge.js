@@ -103,6 +103,9 @@
     'C:\\notas\\leiame.md': '---\ntags:\n  - ideia\n  - projeto/api\n---\n\n# Leiame\n\nArquivo curto de teste com #ideia, que aponta de volta para o [[guia]].\n\n- um\n- dois ^dois\n\n## Historico\n\nSo esta secao aparece em `![[leiame#Historico]]`.\n',
     // Subpasta, link markdown relativo, link quebrado e mencao sem link:
     // o que o indice de links (web/linkindex.js) precisa para aparecer.
+    // Regras de leitura do Obsidian: tag, estado de tarefa, callout, bloco
+    // HTML e nota de rodape de varios paragrafos.
+    'C:\\notas\\sintaxe.md': "# Sintaxe\n\nTags: #2026-q4 #revisão #✅ok, mas (#nao) e a#nao e #1984 nao.\n\n- [ ] aberta\n- [x] feita\n- [?] duvida\n- [/] andando\n\n> [!warning]- Janela de manutencao\n> Corte das 02:00 as 04:00.\n> > [!meu-tipo]\n> > Tipo livre.\n\n> [!FAQ|largo]\n> Titulo padrao.\n\n<details><summary>Configuracao completa</summary>\n\n```sh\n/ip address print\n```\n\n</details>\n\n<div align=\"center\"><kbd>Ctrl</kbd>+<kbd>C</kbd> e H<sub>2</sub>O</div>\n\n<!-- isto nao aparece -->\n\nAtraso medido[^lat] e de novo[^LAT], e o backup^[via [[leiame]] e [site](https://e.com)].\n\n[^lat]: Medicao de 03/11.\n\n    Segundo paragrafo da mesma nota.\n",
     'C:\\notas\\projeto\\api.md': '---\ntags: [projeto/api, rascunho]\naliases: [Interface]\n---\n\n# API\n\nVolta para o [guia](../guia.md) e para o [[leiame#Historico]].\n\nAinda falta escrever a [[Nota que nao existe]].\n\nO leiame explica o resto, mas sem link.\n\n![[capa.png|200]]\n\n![[aula.mp4]]\n'
   };
   // mtime fingido por arquivo: o indexFolder so manda texto do que mudou.
@@ -219,7 +222,8 @@
               Object.keys(FILES).forEach(function (k) {
                 if (!/\.md$/i.test(k)) return;
                 var vistas = Object.create(null);
-                var re = /(?:^|[\s(\[])#([A-Za-z\u00C0-\u024F][\w\u00C0-\u024F/-]*)/g;
+                // A mesma regra do leitor e do C# (Obsidian).
+                var re = /(?:^|\s)#(?!\d+(?:[\s!"#$%&'()*+,.:;<=>?@^`{|}~\[\]\\\u2000-\u206F\u2E00-\u2E7F]|$))([^\s!"#$%&'()*+,.:;<=>?@^`{|}~\[\]\\\u2000-\u206F\u2E00-\u2E7F]+)/g;
                 var m;
                 while ((m = re.exec(FILES[k]))) {
                   var t = m[1].replace(/\/+$/, '');

@@ -26,7 +26,9 @@
   // equilibrados, titulo opcional.
   var RE_MD = /(!?)\[((?:[^\[\]\n]|\[[^\[\]\n]*\])*)\]\(\s*(<[^<>\n]*>|[^\s()<>]*(?:\([^\s()]*\)[^\s()<>]*)*)(?:\s+(?:"[^"\n]*"|'[^'\n]*'|\([^()\n]*\)))?\s*\)/g;
   var RE_TITULO = /^ {0,3}(#{1,6})[ \t]+(.*?)(?:[ \t]+#+)?[ \t]*$/;
-  var RE_TAG = /(?:^|[\s(\[])#([A-Za-z\u00C0-\u024F][\w\u00C0-\u024F\/-]*)/g;
+  // Regra do Obsidian, a mesma do leitor (markdown.js, passo 14).
+  var RE_TAG = /(?:^|\s)#(?!\d+(?:[\s!"#$%&'()*+,.:;<=>?@^`{|}~\[\]\\\u2000-\u206F\u2E00-\u2E7F]|$))([^\s!"#$%&'()*+,.:;<=>?@^`{|}~\[\]\\\u2000-\u206F\u2E00-\u2E7F]+)/g;
+  var RE_TAG_NOME = /^(?!\d+$)[^\s!"#$%&'()*+,.:;<=>?@^`{|}~\[\]\\\u2000-\u206F\u2E00-\u2E7F]+$/;
   // Duas letras ou mais antes do ':' — "C:/notas/x.md" continua caminho.
   var RE_ESQUEMA = /^[a-z][a-z0-9+.\-]+:/i;
   var RE_YAML_CHAVE = /^([A-Za-z_][\w\u00C0-\u024F -]*):(.*)$/;
@@ -251,7 +253,10 @@
     var partes = tipo === 'tag' ? valor.split(/[,\s]+/) : valor.split(',');
     partes.forEach(function (p) {
       var v = p.trim().replace(/^["']|["']$/g, '').trim();
-      if (tipo === 'tag') v = v.replace(/^#/, '').replace(/\/+$/, '');
+      if (tipo === 'tag') {
+        v = v.replace(/^#/, '').replace(/\/+$/, '');
+        if (!RE_TAG_NOME.test(v)) return;
+      }
       if (v && !/^\[\[/.test(v)) cb(tipo, v);
     });
   }

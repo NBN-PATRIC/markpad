@@ -1534,12 +1534,16 @@ public partial class MainWindow : Window
         }
     }
 
+    // Regra do Obsidian, a mesma do leitor (web/markdown.js, passo 14): '#' no
+    // comeco ou depois de espaco ((#x), [#x] e a#x nao sao tag), nome sem
+    // espaco nem pontuacao (letras de qualquer escrita, digitos, _ - / e
+    // emoji passam) e so digitos nao vale (#1984).
     private static readonly System.Text.RegularExpressions.Regex RE_TAG =
-        new(@"(?:^|[\s\[]|(?<!\])\()#([A-Za-z\u00C0-\u024F][\w\u00C0-\u024F/-]*)",
+        new(@"(?:^|\s)#(?!\d+(?:[\s!""#$%&'()*+,.:;<=>?@^`{|}~\[\]\\\u2000-\u206F\u2E00-\u2E7F]|$))([^\s!""#$%&'()*+,.:;<=>?@^`{|}~\[\]\\\u2000-\u206F\u2E00-\u2E7F]+)",
             System.Text.RegularExpressions.RegexOptions.Compiled);
 
     private static readonly System.Text.RegularExpressions.Regex RE_TAG_NAME =
-        new(@"^[A-Za-z\u00C0-\u024F][\w\u00C0-\u024F/-]*$",
+        new(@"^(?!\d+$)[^\s!""#$%&'()*+,.:;<=>?@^`{|}~\[\]\\\u2000-\u206F\u2E00-\u2E7F]+$",
             System.Text.RegularExpressions.RegexOptions.Compiled);
 
     private static readonly System.Text.RegularExpressions.Regex RE_FENCE =

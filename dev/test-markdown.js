@@ -124,7 +124,10 @@ console.log('\n=== VERIFICACOES ===');
 const checks = [
   ['sem <script>', !/<script/i.test(out.html)],
   ['nenhum atributo on* vivo', !/<[^>]*\son[a-z]+\s*=/i.test(out.html)],
-  ['html perigoso virou texto', /<pre class="raw-html"[^>]*><code>&lt;img src=x onerror/.test(out.html)],
+  // Bloco HTML agora aparece renderizado, mas pela peneira: sem on*, sem
+  // script, e a imagem vai pelo mesmo caminho do ![](...).
+  ['bloco html: img sem onerror', /<div class="html-block"[^>]*><img class="local-image" data-src="x" alt=""><\/div>/.test(out.html)],
+  ['bloco html: div sem onclick', /<div class="html-block"[^>]*><div>bloco html<\/div><\/div>/.test(out.html)],
   ['link javascript: bloqueado', /<span class="blocked-link"[^>]*>clique<\/span>/.test(out.html)],
   ['sem href=javascript', !/javascript:/i.test(out.html)],
   ['negrito', /<strong>negrito<\/strong>/.test(out.html)],
@@ -154,7 +157,7 @@ const checks = [
   ['data-line presente', /data-line="/.test(out.html)],
   ['paragrafo iniciado por tag inline', /<b>Paragrafo<\/b> que comeca com tag inline/.test(out.html)],
   ['segundo paragrafo inline', /<em>Outro<\/em> desses/.test(out.html)],
-  ['tarefa com data-task-line', /class="task-item" data-task-line="\d+"/.test(out.html)],
+  ['tarefa com data-task-line', /class="task-item"[^>]*data-task-line="\d+"/.test(out.html)],
   ['tarefa marcada com data-task-line', /class="task-item is-checked" data-task="x" data-task-line="\d+"/.test(out.html)],
   ['data-task-line aponta a linha certa', conferaLinhasDeTarefa(SAMPLE, out.html)],
   ['data-task-line desliga sem lineMap', !/data-task-line/.test(semMapa.html)],
@@ -173,7 +176,7 @@ const checks = [
   ['crase protege o %%', /<code>%%isto%%<\/code>/.test(r('`%%isto%%`\n').html)],
 
   ['nota inline ^[] vira referencia', /<sup class="footnote-ref">/.test(r('texto^[a nota]\n').html)],
-  ['nota inline ^[] rende o corpo', /<li id="fn-mp-inline-1">a <strong>nota<\/strong>/
+  ['nota inline ^[] rende o corpo', /<li id="fn-mp-inline-1"[^>]*><p>a <strong>nota<\/strong>/
     .test(r('texto^[a **nota**]\n').html)],
   ['nota inline ^[] numera junto das outras',
     (r('a^[um] b^[dois]\n').html.match(/footnote-ref/g) || []).length === 2],
@@ -185,17 +188,92 @@ const checks = [
     /alt="foto \| do gato"/.test(r('![foto | do gato](f.png)\n').html)],
   ['embed ![[x|300]] continua funcionando', /style="width:300px"/.test(r('![[f.png|300]]\n').html)],
 
-  ['estado custom de tarefa vira caixa', /class="task-item" data-task="&gt;"/.test(r('- [>] adiada\n').html)],
-  ['estado custom nao conta como feita', !/is-checked/.test(r('- [>] adiada\n').html)],
-  ['tarefa aberta segue sem data-task', !/data-task=/.test(r('- [ ] aberta\n').html)],
+  // Como no Obsidian: todo estado que nao e espaco marca a caixa; so x/X
+  // riscam o texto, e isso e do CSS.
+  ['estado custom de tarefa marca a caixa', /class="task-item is-checked" data-task="&gt;"/.test(r('- [>] adiada\n').html)],
+  ['estado custom desenha o caractere', /<input type="checkbox" disabled checked data-task="&gt;">/.test(r('- [>] adiada\n').html)],
+  ['[x] marca sem desenho proprio', /<input type="checkbox" disabled checked>/.test(r('- [x] feita\n').html)],
+  ['tarefa aberta leva data-task de espaco', /class="task-item" data-task=" "/.test(r('- [ ] aberta\n').html)],
+  ['tarefa aberta desmarcada', !/checked/.test(r('- [ ] aberta\n').html)],
+  ['[ ] colado ao fim nao e tarefa', !/task-item/.test(r('- [ ]\n').html)],
   ['link no comeco do item nao vira tarefa', /<a /.test(r('- [x](http://e.com) nao\n').html)],
 
   // --- backlog de baixo risco
-  // O painel de tags conta '#' depois de espaco, '(' ou '['; o leitor tinha
-  // ficado so no espaco, entao a arvore mostrava tag que o texto nao pintava.
-  ['tag depois de parentese', /data-tag="outra"/.test(r('x (#outra) y\n').html)],
-  ['tag depois de colchete', /data-tag="terceira"/.test(r('x [#terceira] y\n').html)],
-  ['parentese sobrevive a tag', /\(<a class="tag"/.test(r('x (#outra) y\n').html)],
+  // Regra de tag do Obsidian (a mesma do painel, do indice e do C#): '#' no
+  // comeco ou depois de espaco; qualquer escrita, digito, _ - / e emoji;
+  // pontuacao encerra; so digitos nao vale.
+  ['(#x) nao e tag', !/data-tag/.test(r('x (#outra) y\n').html)],
+  ['[#x] nao e tag', !/data-tag/.test(r('x [#terceira] y\n').html)],
+  ['a#x nao e tag', !/data-tag/.test(r('a#nada\n').html)],
+  ['#1984 nao e tag', !/data-tag/.test(r('ano #1984\n').html)],
+  ['#1984a e tag', /data-tag="1984a"/.test(r('ano #1984a\n').html)],
+  ['#2026-q4 e tag', /data-tag="2026-q4"/.test(r('#2026-q4 no comeco\n').html)],
+  ['tag com acento inteiro', /data-tag="revisão"/.test(r('em #revisão hoje\n').html)],
+  ['tag em outra escrita', /data-tag="日本"/.test(r('x #日本 y\n').html)],
+  ['tag com emoji', /data-tag="✅revisado"/.test(r('x #✅revisado\n').html)],
+  ['pontuacao encerra a tag', /data-tag="fim"[^>]*>#fim<\/a>\./.test(r('ate o #fim.\n').html)],
+  ['tag aninhada', /data-tag="pop\/manaus"/.test(r('#pop/manaus\n').html)],
+  ['tag depois de quebra de linha', /data-tag="dois"/.test(r('um\n#dois\n').html)],
+
+  // Callouts como no Obsidian.
+  ['callout: tipo com hifen', /class="callout callout-note" data-callout="meu-tipo"/.test(r('> [!meu-tipo] T\n> corpo\n').html)],
+  ['callout: espaco no tipo vira hifen', /data-callout="meu-tipo"/.test(r('> [!Meu Tipo]\n').html)],
+  ['callout: metadado depois de |', /data-callout="note" data-callout-metadata="largo"/.test(r('> [!note|largo] T\n').html)],
+  ['callout: titulo colado nao e callout', /<blockquote/.test(r('> [!note]Titulo\n').html)],
+  ['callout: titulo padrao e o tipo', /callout-title-inner">Faq<\/span>/.test(r('> [!FAQ]\n> x\n').html)],
+  ['callout: titulo padrao com hifen', /callout-title-inner">Meu tipo<\/span>/.test(r('> [!meu-tipo]\n').html)],
+  ['callout: apelido guarda o nome escrito', /class="callout callout-abstract" data-callout="tldr"/.test(r('> [!tldr]\n').html)],
+  ['callout: nome do prototipo nao quebra', /class="callout callout-note" data-callout="constructor"/.test(r('> [!constructor]\n').html)],
+  ['callout: dobra marcada', /data-callout-fold="-"/.test(r('> [!tip]- X\n> y\n').html)],
+
+  // Notas de rodape.
+  ['nota: numero entre colchetes', /data-anchor="fn-1">\[1\]<\/a>/.test(r('a[^1]\n\n[^1]: n\n').html)],
+  ['nota: rotulo sem maiusculas', /footnote-ref/.test(r('x[^B]\n\n[^b]: nota\n').html)],
+  ['nota: segundo paragrafo pela indentacao', (function () {
+    var h = r('x[^a]\n\n[^a]: um\n\n    dois\n\nfora\n').html;
+    return /<li id="fn-a"[^>]*><p>um<\/p>\n<p>dois <a class="footnote-backref"/.test(h) && /<p>fora<\/p>/.test(h);
+  })()],
+  ['nota: lista dentro da nota', /<li id="fn-a"[^>]*><p>um<\/p>\n<ul>/.test(r('x[^a]\n\n[^a]: um\n\n    - item\n').html)],
+  ['nota: citada duas vezes, ids proprios', (function () {
+    var h = r('a[^1] b[^1]\n\n[^1]: n\n').html;
+    return /id="fnref-1"/.test(h) && /id="fnref-1-1"/.test(h) && (h.match(/footnote-backref/g) || []).length === 2;
+  })()],
+  ['nota inline com colchetes dentro', (function () {
+    var h = r('x^[veja [site](https://e.com) e mais] y\n').html;
+    return (h.match(/footnote-ref/g) || []).length === 1 && /data-external="https:\/\/e\.com"/.test(h) && /<\/sup> y<\/p>/.test(h);
+  })()],
+  ['nota inline com ] em codigo', /<code>a]b<\/code>/.test(r('x^[o `a]b` dentro]\n').html)],
+  ['^[ dentro de crase nao e nota', !/footnote-ref/.test(r('`^[x]` y\n').html)],
+  ['definicao dentro de cerca nao e nota', !/footnote-ref/.test(r('```\n[^1]: nao\n```\nx[^1]\n').html)],
+  ['rotulo do prototipo nao quebra', !/footnote-ref/.test(r('x[^constructor]\n').html)],
+
+  // Bloco HTML renderizado pela peneira.
+  ['html: details com markdown no miolo', /<div class="html-block"[^>]*><details><summary>Ver<\/summary><p[^>]*><strong>negrito<\/strong><\/p><\/details><\/div>/
+    .test(r('<details><summary>Ver</summary>\n\n**negrito**\n\n</details>\n').html)],
+  ['html: details fechado no mesmo bloco', /<details open><summary>a<\/summary>\nb\n<\/details>/.test(r('<details open><summary>a</summary>\nb\n</details>\n').html)],
+  ['html: imagem remota continua barrada', (function () {
+    var h = r('<img src="https://e.com/x.png">\n').html;
+    return /data-remote="https:\/\/e\.com\/x\.png"/.test(h) && !/src="https/.test(h);
+  })()],
+  ['html: largura da imagem', /data-src="f\.png"[^>]*style="width:120px"/.test(r('<img src="f.png" width="120">\n').html)],
+  ['html: video vira casulo', /data-media="video" data-file="clip\.mp4"/.test(r('<video controls>\n<source src="clip.mp4">\n</video>\n').html)],
+  ['html: link externo pelo app', /<a class="external-link" data-external="https:\/\/e\.com"[^>]*>site<\/a>/.test(r('<p><a href="https://e.com">site</a></p>\n').html)],
+  ['html: javascript: barrado', /<span class="blocked-link"[^>]*>x<\/span>/.test(r('<div><a href="javascript:alert(1)">x</a></div>\n').html)],
+  ['html: style some com o conteudo', !/display/.test(r('<style>body{display:none}</style>\n').html)],
+  ['html: script some com o conteudo', !/alert/.test(r('<div>\n<script>alert(1)</script>\n</div>\n').html)],
+  ['html: tag desconhecida some, texto fica', (function () {
+    var h = r('<center>meio</center>\n').html;
+    return /meio/.test(h) && !/<center/.test(h);
+  })()],
+  ['html: align passa', /<div align="center">x<\/div>/.test(r('<div align="center">x</div>\n').html)],
+  ['html: atributo qualquer some', !/data-x|onmouseover/.test(r('<div data-x="1" onmouseover="y()">x</div>\n').html)],
+  ['html: texto com < solto escapado', /a &lt; b/.test(r('<div>a < b</div>\n').html)],
+  ['comentario html em bloco some', (function () {
+    var h = r('<!-- oculto\nainda oculto -->\n\nfim\n').html;
+    return !/oculto/.test(h) && /<p[^>]*>fim<\/p>/.test(h);
+  })()],
+  ['comentario html no meio do texto some', !/escondido/.test(r('a <!-- escondido --> c\n').html)],
+  ['comentario html em crase aparece', /<code>&lt;!-- x --&gt;<\/code>/.test(r('`<!-- x -->`\n').html)],
 
   // O rotulo do wikilink mostra o caminho inteiro, como no Obsidian.
   ['wikilink com secao mostra a secao', />Nota &gt; Secao</.test(r('[[Nota#Secao]]\n').html)],

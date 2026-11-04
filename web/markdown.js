@@ -16,6 +16,9 @@
   var PH_A = '';
   var PH_B = '';
 
+  // Ver o passo 14 do Inline.render. \uE000 e \uE001 sao PH_A e PH_B.
+  var RE_TAG_LEITURA = /(^|\s)#(?!\d+(?:[\s!"#$%&'()*+,.:;<=>?@^`{|}~\[\]\\\u2000-\u206F\u2E00-\u2E7F\uE000\uE001]|$))([^\s!"#$%&'()*+,.:;<=>?@^`{|}~\[\]\\\u2000-\u206F\u2E00-\u2E7F\uE000\uE001]+)/g;
+
   function escapeHtml(s) {
     return String(s)
       .replace(/&/g, '&amp;')
@@ -114,6 +117,55 @@
     try { return decodeURIComponent(s); } catch (e) { return s; }
   }
 
+  /*
+   * ^[nota inline], com colchetes e codigo dentro: o fecho e o ']' que
+   * equilibra a conta, e um ']' dentro de crase nao conta. Codigo fora da
+   * nota e pulado inteiro (`^[x]` entre crases e texto, nao nota), e \^[ nao
+   * abre nota.
+   */
+  function trocaNotasInline(text, cb) {
+    var out = '';
+    var i = 0;
+    var n = text.length;
+    while (i < n) {
+      var c = text.charAt(i);
+      if (c === '\\') { out += text.substr(i, 2); i += 2; continue; }
+      if (c === '`') { var fimC = fimDaCrase(text, i); out += text.slice(i, fimC); i = fimC; continue; }
+      if (c === '^' && text.charAt(i + 1) === '[') {
+        var j = i + 2;
+        var prof = 1;
+        while (j < n) {
+          var d = text.charAt(j);
+          if (d === '\\') { j += 2; continue; }
+          if (d === '`') { j = fimDaCrase(text, j); continue; }
+          if (d === '[') prof++;
+          else if (d === ']' && --prof === 0) break;
+          j++;
+        }
+        if (prof === 0 && j > i + 2) { out += cb(text.slice(i + 2, j)); i = j + 1; continue; }
+      }
+      out += c;
+      i++;
+    }
+    return out;
+  }
+
+  /** Onde acaba o codigo inline que abre em i: a mesma quantidade de crases fecha. Sem fecho, as crases sao texto. */
+  function fimDaCrase(text, i) {
+    var k = i;
+    while (text.charAt(k) === '`') k++;
+    var tam = k - i;
+    var p = k;
+    while (p < text.length) {
+      if (text.charAt(p) !== '`') { p++; continue; }
+      var q = p;
+      while (text.charAt(q) === '`') q++;
+      if (q - p === tam) return q;
+      p = q;
+    }
+    return k;
+  }
+
   function Inline(ctx) {
     this.ctx = ctx;
     this.slots = [];
@@ -144,7 +196,8 @@
     // Precisa vir antes do codigo inline porque o corpo e guardado cru — quem
     // renderiza e o renderFootnotes, com outra instancia, que nao enxerga os
     // slots desta. Vira uma referencia [^id] comum e segue o caminho normal.
-    text = text.replace(/\^\[([^\]\n]+)\]/g, function (_, corpo) {
+    // O fecho e o ']' que equilibra a conta: ^[veja [site](x)] e uma nota so.
+    text = trocaNotasInline(text, function (corpo) {
       var id = 'mp-inline-' + (++self.ctx.inlineFootnoteSeq);
       self.ctx.footnotes[id] = corpo;
       return '[^' + id + ']';
@@ -208,15 +261,22 @@
       );
     });
 
-    // 6. notas de rodape: [^1]
-    text = text.replace(/\[\^([^\]\s]+)\]/g, function (all, id) {
-      if (!self.ctx.footnotes[id]) return all;
+    // 6. notas de rodape: [^1]. Rotulo sem distincao de maiusculas ([^B] acha
+    // [^b]:), numero pela ordem da primeira citacao, entre colchetes como no
+    // Obsidian, e um id por citacao (fnref-x, fnref-x-1...): o mesmo id duas
+    // vezes no HTML mandava todas as setas de volta para a primeira.
+    text = text.replace(/\[\^([^\]\s]+)\]/g, function (all, rotulo) {
+      var id = rotulo.toLowerCase();
+      if (self.ctx.footnotes[id] === undefined) return all;
       var order = self.ctx.footnoteOrder.indexOf(id);
       if (order === -1) { self.ctx.footnoteOrder.push(id); order = self.ctx.footnoteOrder.length - 1; }
+      var vez = self.ctx.footnoteRefs[id] || 0;
+      self.ctx.footnoteRefs[id] = vez + 1;
+      var refId = 'fnref-' + id + (vez ? '-' + vez : '');
       return self.stash(
         '<sup class="footnote-ref"><a href="#fn-' + escapeAttr(id) + '" ' +
-        'id="fnref-' + escapeAttr(id) + '" data-anchor="fn-' + escapeAttr(id) + '">' +
-        (order + 1) + '</a></sup>'
+        'id="' + escapeAttr(refId) + '" data-anchor="fn-' + escapeAttr(id) + '">[' +
+        (order + 1) + ']</a></sup>'
       );
     });
 
@@ -229,6 +289,10 @@
     text = text.replace(/<((?:https?|mailto):[^\s<>]+)>/g, function (_, url) {
       return self.stash(self.link(url, escapeHtml(url), ''));
     });
+
+    // 8a. comentario HTML some, como no Obsidian. Depois do codigo inline:
+    // `<!-- assim -->` entre crases continua aparecendo.
+    text = text.replace(/<!--[\s\S]*?-->/g, '');
 
     // 9. HTML cru permitido (tags inofensivas; o resto vira texto)
     text = text.replace(/<\/?[a-zA-Z][\w-]*(?:\s[^<>]*)?\/?>/g, function (tag) {
@@ -259,11 +323,16 @@
     text = text.replace(/~~(?!\s)([\s\S]+?)(?<!\s)~~/g, '<del>$1</del>');
     text = text.replace(/==(?!\s)([\s\S]+?)(?<!\s)==/g, '<mark>$1</mark>');
 
-    // 14. tags do Obsidian: #assunto/sub
-    // Mesmo '#' que RE_TAG_TEXTO (app.js) e RE_TAG (MainWindow.xaml.cs)
-    // aceitam: espaco, '(' ou '['. Sao tres copias da mesma regra, e uma
-    // divergencia faz o painel contar uma tag que o documento nao pinta.
-    text = text.replace(/(^|[\s(\[])#([A-Za-zÀ-ɏ][\wÀ-ɏ/-]*)/g, function (_, pre, tag) {
+    // 14. tags do Obsidian: #assunto/sub, #2026-q4, #✅revisado
+    // A regra do Obsidian: '#' no comeco do texto ou depois de espaco ((#x),
+    // [#x] e a#x nao sao tag); depois, qualquer coisa que nao seja espaco nem
+    // pontuacao (sobram letras de qualquer escrita, digitos, _ - / e emoji); e
+    // so digitos nao vale (#1984 nao, #1984a sim). A mesma regra mora em
+    // RE_TAG_TEXTO (app.js), RE_TAG (linkindex.js e MainWindow.xaml.cs) e no
+    // realce do modo fonte (highlight.js): uma divergencia faz o painel contar
+    // uma tag que o documento nao pinta. Aqui ainda ficam de fora os
+    // marcadores internos PH_A/PH_B, que guardam link e codigo ja montados.
+    text = text.replace(RE_TAG_LEITURA, function (_, pre, tag) {
       return pre + '<a class="tag" data-tag="' + escapeAttr(tag) + '" href="#">#' + escapeHtml(tag) + '</a>';
     });
 
@@ -388,6 +457,13 @@
   // inicio da linha e autolink, nao bloco HTML.
   var RE_HTML_BLOCK = /^\s{0,3}<(\/?)([a-zA-Z][\w-]*)(?=[\s>]|\/>|$)/;
 
+  // Primeira linha da citacao: [!tipo], dobra opcional (+/-) e, depois, espaco
+  // ou fim da linha ([!note]Titulo colado nao e callout). O tipo e qualquer
+  // texto sem ']'; um '|' separa metadados ([!note|largo]).
+  var RE_CALLOUT = /^\s*\[!([^\]]+)\]([+-]?)(?:[ \t]+(.*))?$/;
+  // Comentario HTML num bloco proprio: some, mesmo atravessando linhas.
+  var RE_HTML_COMENTARIO = /^\s{0,3}<!--/;
+
   var CALLOUT_ALIASES = {
     note: 'note', abstract: 'abstract', summary: 'abstract', tldr: 'abstract',
     info: 'info', todo: 'todo', tip: 'tip', hint: 'tip', important: 'tip',
@@ -402,7 +478,31 @@
   function isBlockStart(line) {
     return RE_FENCE.test(line) || RE_HEADING.test(line) || RE_HR.test(line) ||
       RE_QUOTE.test(line) || RE_UL.test(line) || RE_OL.test(line) ||
-      RE_HTML_BLOCK.test(line);
+      RE_HTML_BLOCK.test(line) || RE_HTML_COMENTARIO.test(line);
+  }
+
+  /*
+   * Onde termina a definicao de nota de rodape que comeca na linha i (indice
+   * da primeira linha DEPOIS dela). Segue nas linhas indentadas com 4 espacos,
+   * tambem depois de linha em branco (segundo paragrafo, lista, codigo), e na
+   * linha preguicosa colada ao texto que nao abra outro bloco.
+   */
+  function fimDaNota(lines, i) {
+    var j = i + 1;
+    var colada = true;
+    while (j < lines.length) {
+      var l = lines[j];
+      if (!l.trim()) {
+        var k = j + 1;
+        while (k < lines.length && !lines[k].trim()) k++;
+        if (k < lines.length && indentOf(lines[k]) >= 4) { j = k; colada = false; continue; }
+        break;
+      }
+      if (indentOf(l) >= 4) { j++; colada = true; continue; }
+      if (colada && !RE_FOOTNOTE.test(l) && !isBlockStart(l)) { j++; continue; }
+      break;
+    }
+    return j;
   }
 
   function indentOf(line) {
@@ -491,14 +591,15 @@
       if (RE_HR.test(line)) { out.push('<hr' + lineAttr(i, i) + '>'); i++; continue; }
 
       // --- definicao de nota de rodape (ja coletada, so consome as linhas)
-      var fn = RE_FOOTNOTE.exec(line);
-      if (fn) {
+      if (RE_FOOTNOTE.test(line)) {
+        i = fimDaNota(lines, i);
+        continue;
+      }
+
+      // --- comentario HTML: some, como no Obsidian. Sem fecho, vai ate o fim.
+      if (RE_HTML_COMENTARIO.test(line)) {
+        while (i < lines.length && lines[i].indexOf('-->') === -1) i++;
         i++;
-        while (i < lines.length && (lines[i].trim() === '' ? false : indentOf(lines[i]) >= 4 || !isBlockStart(lines[i]))) {
-          if (RE_FOOTNOTE.test(lines[i])) break;
-          if (!lines[i].trim()) break;
-          i++;
-        }
         continue;
       }
 
@@ -537,12 +638,29 @@
         continue;
       }
 
-      // --- bloco HTML cru: cai como texto escapado (nao executamos HTML de arquivo)
+      // --- bloco HTML cru: aparece renderizado, pela peneira de htmlDoBloco.
+      // Como no CommonMark, vai ate a linha em branco e o markdown de dentro
+      // nao e lido. Se o bloco deixou um container aberto (<details> com o
+      // conteudo em markdown depois da linha em branco), o miolo ate o fecho
+      // e markdown de novo, e tudo vira um bloco so para o editor ao vivo.
       if (RE_HTML_BLOCK.test(line) && !/^\s{0,3}<(?:b|i|em|strong|u|s|del|ins|mark|small|sub|sup|kbd|code|br|abbr|q|samp|span|cite|dfn|var)\b/i.test(line)) {
-        var rawStart = i;
-        var raw = [];
-        while (i < lines.length && lines[i].trim()) { raw.push(lines[i]); i++; }
-        out.push('<pre class="raw-html"' + lineAttr(rawStart, i - 1) + '><code>' + escapeHtml(raw.join('\n')) + '</code></pre>');
+        var hIni = i;
+        var cru = [];
+        while (i < lines.length && lines[i].trim()) { cru.push(lines[i]); i++; }
+        var abre = htmlDoBloco(cru.join('\n'), ctx);
+        var miolo = '';
+        var fecho = '';
+        if (abre.abertas.length) {
+          var hFim = fechoDoHtml(lines, i, abre.abertas[0]);
+          if (hFim !== -1) {
+            miolo = parseBlocks(lines.slice(i, hFim), ctx, base + i);
+            var fcru = [];
+            i = hFim;
+            while (i < lines.length && lines[i].trim()) { fcru.push(lines[i]); i++; }
+            fecho = htmlDoBloco(fcru.join('\n'), ctx).html;
+          }
+        }
+        out.push('<div class="html-block"' + lineAttr(hIni, i - 1) + '>' + abre.html + miolo + fecho + '</div>');
         continue;
       }
 
@@ -625,27 +743,37 @@
 
   function renderQuote(quoted, ctx, startLine, attr) {
     var first = quoted[0] || '';
-    var co = /^\s*\[!([A-Za-z]+)\]([+-]?)\s*(.*)$/.exec(first);
+    var co = RE_CALLOUT.exec(first);
+    var corte = co ? co[1].indexOf('|') : -1;
+    // Tipo como o Obsidian guarda: aparado, minusculo, hifen no lugar de
+    // espaco ([!Meu Tipo] vira meu-tipo). data-callout leva o tipo assim (e
+    // por ele que um trecho de CSS casa); cor e icone vem do tipo conhecido,
+    // e tipo desconhecido se veste de note.
+    var tipo = co ? (corte === -1 ? co[1] : co[1].slice(0, corte)).trim().toLowerCase().replace(/\s+/g, '-') : '';
 
-    if (co) {
-      var kind = CALLOUT_ALIASES[co[1].toLowerCase()] || 'note';
+    if (co && tipo) {
+      var kind = Object.prototype.hasOwnProperty.call(CALLOUT_ALIASES, tipo) ? CALLOUT_ALIASES[tipo] : 'note';
+      var meta = corte === -1 ? '' : co[1].slice(corte + 1).trim();
       var fold = co[2];
-      var title = co[3].trim();
+      var title = (co[3] || '').trim();
       var bodyLines = quoted.slice(1);
+      var dados = ' data-callout="' + escapeAttr(tipo) + '"' +
+        (meta ? ' data-callout-metadata="' + escapeAttr(meta) + '"' : '') +
+        (fold ? ' data-callout-fold="' + fold + '"' : '');
 
       var titleInline = new Inline(ctx);
-      var titleHtml = title ? titleInline.render(title) : defaultCalloutTitle(kind);
+      var titleHtml = title ? titleInline.render(title) : escapeHtml(tituloDoCallout(tipo));
       var bodyHtml = bodyLines.length ? parseBlocks(bodyLines, ctx, startLine + 1) : '';
 
       if (fold) {
-        return '<details class="callout callout-' + kind + '" data-callout="' + kind + '"' +
+        return '<details class="callout callout-' + kind + '"' + dados +
           (fold === '+' ? ' open' : '') + attr + '>' +
           '<summary class="callout-title"><span class="callout-icon" data-icon="' + kind + '"></span>' +
           '<span class="callout-title-inner">' + titleHtml + '</span></summary>' +
           '<div class="callout-content">' + bodyHtml + '</div></details>';
       }
 
-      return '<div class="callout callout-' + kind + '" data-callout="' + kind + '"' + attr + '>' +
+      return '<div class="callout callout-' + kind + '"' + dados + attr + '>' +
         '<div class="callout-title"><span class="callout-icon" data-icon="' + kind + '"></span>' +
         '<span class="callout-title-inner">' + titleHtml + '</span></div>' +
         (bodyHtml ? '<div class="callout-content">' + bodyHtml + '</div>' : '') + '</div>';
@@ -654,13 +782,164 @@
     return '<blockquote' + attr + '>' + parseBlocks(quoted, ctx, startLine) + '</blockquote>';
   }
 
-  function defaultCalloutTitle(kind) {
-    var titles = {
-      note: 'Nota', abstract: 'Resumo', info: 'Info', todo: 'A fazer', tip: 'Dica',
-      success: 'Sucesso', question: 'Pergunta', warning: 'Atencao', failure: 'Falha',
-      danger: 'Perigo', bug: 'Bug', example: 'Exemplo', quote: 'Citacao'
-    };
-    return titles[kind] || 'Nota';
+  /*
+   * Titulo de callout sem titulo escrito: o proprio tipo, hifen vira espaco e
+   * so a primeira letra maiuscula ([!FAQ] mostra "Faq", [!meu-tipo] mostra
+   * "Meu tipo"). E o que o Obsidian faz, sem traduzir: a mesma nota tem o
+   * mesmo titulo nos dois programas, em qualquer idioma da interface.
+   */
+  function tituloDoCallout(tipo) {
+    var t = String(tipo).replace(/-/g, ' ');
+    return t.charAt(0).toUpperCase() + t.slice(1);
+  }
+
+  // ------------------------------------------------------------ bloco HTML
+
+  /*
+   * Bloco HTML cru (<details>, <div align="center">, <kbd>...) aparece
+   * renderizado, como no Obsidian, mas passa por esta peneira antes da peneira
+   * do DOM: so tags da lista, so atributos inofensivos; <a href> vira link do
+   * app (externo pelo navegador, nota pelo MarkPad); <img>, <video> e <audio>
+   * vao pelo mesmo caminho do ![](...), entao imagem remota continua barrada
+   * ate o clique. Script, estilo, iframe e afins somem com o conteudo; tag
+   * desconhecida (center, font) some e o texto dela fica. Comentario some.
+   */
+  var HTML_SOME_COM_CONTEUDO = /^(?:script|style|iframe|frame|frameset|object|embed|applet|template|noscript|textarea|title|svg|math|select|xmp|noembed|noframes|plaintext|head|canvas)$/;
+  var HTML_VAZIAS = /^(?:br|hr|wbr|col|img|input|source|track|area|base|link|meta|param)$/;
+  var RE_TAG_HTML = /<!--[\s\S]*?(?:-->|$)|<(\/?)([a-zA-Z][\w-]*)((?:\s+[^\s"'=<>\/]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'=<>`]+))?)*)\s*(\/?)>/g;
+
+  function htmlDoBloco(src, ctx) {
+    var inline = new Inline(ctx);
+    var out = '';
+    var abertas = [];
+    var pilhaA = [];
+    var re = new RegExp(RE_TAG_HTML.source, 'g');
+    var ultimo = 0;
+    var m;
+
+    while ((m = re.exec(src))) {
+      out += textoDoHtml(src.slice(ultimo, m.index));
+      ultimo = re.lastIndex;
+      if (m[0].charAt(1) === '!') continue;
+
+      var fecha = m[1];
+      var nome = m[2].toLowerCase();
+      var at = lerAtributos(m[3] || '');
+
+      if (HTML_SOME_COM_CONTEUDO.test(nome)) {
+        if (!fecha && !m[4]) {
+          var fimRe = new RegExp('</' + nome + '\\s*>', 'ig');
+          fimRe.lastIndex = ultimo;
+          ultimo = fimRe.exec(src) ? fimRe.lastIndex : src.length;
+          re.lastIndex = ultimo;
+        }
+        continue;
+      }
+
+      if (nome === 'img' || nome === 'video' || nome === 'audio') {
+        if (fecha) continue;
+        var origem = at.src || '';
+        if (nome !== 'img' && !m[4]) {
+          // O conteudo (<source>, texto para navegador velho) sai junto; o
+          // endereco pode estar no <source>.
+          var fimM = new RegExp('</' + nome + '\\s*>', 'ig');
+          fimM.lastIndex = ultimo;
+          var achouM = fimM.exec(src);
+          var dentro = src.slice(ultimo, achouM ? achouM.index : src.length);
+          ultimo = achouM ? fimM.lastIndex : src.length;
+          re.lastIndex = ultimo;
+          if (!origem) {
+            var fonte = /<source\b[^>]*?\bsrc\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i.exec(dentro);
+            if (fonte) origem = decodificaAtributo(fonte[1] || fonte[2] || fonte[3] || '');
+          }
+        }
+        if (!origem) continue;
+        var w = /^\d+$/.test(at.width || '') ? at.width : '';
+        var h = /^\d+$/.test(at.height || '') ? at.height : '';
+        var medida = w ? '|' + w + (h ? 'x' + h : '') : '';
+        out += inline.image(origem, (at.alt || '') + medida, at.title || '');
+        continue;
+      }
+
+      if (nome === 'a') {
+        if (fecha) { if (pilhaA.length) out += '</' + pilhaA.pop() + '>'; continue; }
+        if (at.href == null) { out += '<span>'; pilhaA.push('span'); continue; }
+        var link = inline.link(at.href, '\uE002', at.title || '');
+        out += link.slice(0, link.lastIndexOf('\uE002'));
+        pilhaA.push(/^<span/.test(link) ? 'span' : 'a');
+        continue;
+      }
+
+      if (nome === 'input' || nome === 'button' || !Object.prototype.hasOwnProperty.call(ALLOWED_TAGS, nome)) continue;
+
+      if (fecha) {
+        out += '</' + nome + '>';
+        var pos = abertas.lastIndexOf(nome);
+        if (pos !== -1) abertas.splice(pos, 1);
+        continue;
+      }
+
+      var extra = '';
+      if (/^(?:left|right|center|justify)$/i.test(at.align || '')) extra += ' align="' + at.align.toLowerCase() + '"';
+      if (at.title) extra += ' title="' + escapeAttr(at.title) + '"';
+      // A peneira do DOM deixa do estilo so medida e alinhamento.
+      if (at.style) extra += ' style="' + escapeAttr(at.style) + '"';
+      if ((nome === 'td' || nome === 'th') && /^\d+$/.test(at.colspan || '')) extra += ' colspan="' + at.colspan + '"';
+      if ((nome === 'td' || nome === 'th') && /^\d+$/.test(at.rowspan || '')) extra += ' rowspan="' + at.rowspan + '"';
+      if (nome === 'ol' && /^\d+$/.test(at.start || '')) extra += ' start="' + at.start + '"';
+      if (nome === 'details' && at.open !== undefined) extra += ' open';
+      out += '<' + nome + extra + '>';
+      if (!m[4] && !HTML_VAZIAS.test(nome)) abertas.push(nome);
+    }
+
+    out += textoDoHtml(src.slice(ultimo));
+    return { html: out, abertas: abertas };
+  }
+
+  /** Texto entre tags: entidade passa (o navegador decodifica), o resto do '<' '>' '&' vira literal. */
+  function textoDoHtml(t) {
+    return t
+      .replace(/&(?!(?:#[0-9]{1,7}|#[xX][0-9a-fA-F]{1,6}|[a-zA-Z][a-zA-Z0-9]{1,31});)/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  }
+
+  function decodificaAtributo(v) {
+    return String(v)
+      .replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'")
+      .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+  }
+
+  function lerAtributos(s) {
+    var at = Object.create(null);
+    var re = /([^\s"'=<>\/]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g;
+    var m;
+    while ((m = re.exec(s))) {
+      var v = m[2] != null ? m[2] : m[3] != null ? m[3] : m[4] != null ? m[4] : '';
+      at[m[1].toLowerCase()] = decodificaAtributo(v);
+    }
+    return at;
+  }
+
+  /*
+   * A linha que fecha o container aberto num bloco HTML (</details> no comeco
+   * da linha), contando os do mesmo nome abertos no meio e pulando cerca de
+   * codigo. -1 se nao fecha: o bloco fica sozinho e o navegador fecha a tag.
+   */
+  function fechoDoHtml(lines, de, tag) {
+    var abre = new RegExp('^\\s{0,3}<' + tag + '(?=[\\s>/]|$)', 'i');
+    var fecha = new RegExp('^\\s{0,3}</' + tag + '\\s*>', 'i');
+    var prof = 0;
+    var cerca = null;
+    for (var k = de; k < lines.length; k++) {
+      var l = lines[k];
+      if (cerca) { if (cerca.test(l)) cerca = null; continue; }
+      var f = RE_FENCE.exec(l);
+      if (f) { cerca = new RegExp('^\\s{0,3}' + f[2][0] + '{' + f[2].length + ',}\\s*$'); continue; }
+      if (fecha.test(l)) { if (!prof) return k; prof--; continue; }
+      if (abre.test(l)) prof++;
+    }
+    return -1;
   }
 
   // --- tabelas
@@ -806,7 +1085,8 @@
       var text = item.lines.join('\n');
       // Qualquer caractere entre colchetes e uma tarefa, como no Obsidian:
       // [x] feita, [ ] aberta, e [>] [?] [!] [/] [-] ... estados que o tema
-      // pinta pelo data-task. So x/X contam como concluida.
+      // pinta pelo data-task. Tambem como no Obsidian, todo estado que nao e
+      // espaco marca a caixa e poe is-checked; so x/X riscam o texto (CSS).
       var task = /^\[(.)\]\s+([\s\S]*)$/.exec(item.lines[0] || '');
       var cls = '';
       var prefix = '';
@@ -814,14 +1094,13 @@
       if (task) {
         hasTasks = true;
         var estado = task[1];
-        var checked = estado.toLowerCase() === 'x';
-        cls = ' class="task-item' + (checked ? ' is-checked' : '') + '"';
-        if (estado !== ' ') cls += ' data-task="' + escapeAttr(estado) + '"';
+        var checked = estado !== ' ';
+        cls = ' class="task-item' + (checked ? ' is-checked' : '') + '" data-task="' + escapeAttr(estado) + '"';
         if (ctx.opts.lineMap) cls += ' data-task-line="' + linhaDe(item) + '"';
-        // O estado tambem vai no input: e dele que o CSS tira o desenho da
-        // caixinha, com content: attr(data-task).
+        // O estado custom tambem vai no input: e dele que o CSS tira o
+        // desenho da caixinha, com content: attr(data-task).
         prefix = '<input type="checkbox" disabled' + (checked ? ' checked' : '') +
-          (estado !== ' ' && !checked ? ' data-task="' + escapeAttr(estado) + '"' : '') + '>';
+          (checked && estado.toLowerCase() !== 'x' ? ' data-task="' + escapeAttr(estado) + '"' : '') + '>';
         item = { lines: [task[2]].concat(item.lines.slice(1)), line: item.line };
         text = item.lines.join('\n');
       }
@@ -850,31 +1129,68 @@
 
   // --- notas de rodape
 
-  function collectFootnotes(src, ctx) {
-    var lines = src.split('\n');
+  /*
+   * Definicoes [^rotulo]: do documento, com o corpo inteiro (varios
+   * paragrafos pela indentacao, ver fimDaNota). Rotulo em minusculas: a
+   * referencia acha a definicao sem olhar maiusculas. Vale a primeira
+   * definicao de cada rotulo, e definicao dentro de cerca de codigo e codigo.
+   */
+  function collectFootnotes(lines, ctx) {
+    var cerca = null;
     for (var i = 0; i < lines.length; i++) {
-      var m = RE_FOOTNOTE.exec(lines[i]);
+      var l = lines[i];
+      if (cerca) { if (cerca.test(l)) cerca = null; continue; }
+      var f = RE_FENCE.exec(l);
+      if (f) { cerca = new RegExp('^\\s{0,3}' + f[2][0] + '{' + f[2].length + ',}\\s*$'); continue; }
+
+      var m = RE_FOOTNOTE.exec(l);
       if (!m) continue;
 
-      var id = m[2];
-      var body = [m[3]];
-      var j = i + 1;
-      while (j < lines.length && lines[j].trim() && !RE_FOOTNOTE.test(lines[j])) { body.push(lines[j].trim()); j++; }
-      ctx.footnotes[id] = body.join('\n');
+      var fim = fimDaNota(lines, i);
+      var corpo = [m[3]];
+      for (var k = i + 1; k < fim; k++) {
+        corpo.push(indentOf(lines[k]) >= 4 ? lines[k].replace(/^ {4}/, '') : lines[k].trim());
+      }
+      var id = m[2].toLowerCase();
+      if (ctx.footnotes[id] === undefined) ctx.footnotes[id] = corpo.join('\n');
+      i = fim - 1;
     }
   }
 
   function renderFootnotes(ctx) {
     if (!ctx.footnoteOrder.length) return '';
 
-    var items = ctx.footnoteOrder.map(function (id) {
-      var inline = new Inline(ctx);
-      return '<li id="fn-' + escapeAttr(id) + '">' + inline.render(ctx.footnotes[id] || '') +
-        ' <a class="footnote-backref" href="#fnref-' + escapeAttr(id) + '" ' +
-        'data-anchor="fnref-' + escapeAttr(id) + '">&#8617;</a></li>';
-    }).join('\n');
+    // O corpo e lido como blocos (paragrafos, lista, codigo), sem mapa de
+    // linha: a nota mora no fim da tela, longe da linha de onde veio, e o
+    // editor ao vivo nao teria como devolve-la ao lugar. Titulo dentro de
+    // nota tambem nao entra no sumario.
+    var opts = ctx.opts;
+    var noSumario = ctx.toc.length;
+    ctx.opts = {};
+    for (var o in opts) if (Object.prototype.hasOwnProperty.call(opts, o)) ctx.opts[o] = opts[o];
+    ctx.opts.lineMap = false;
 
-    return '<hr class="footnotes-sep"><section class="footnotes"><ol>' + items + '</ol></section>';
+    var items = [];
+    // A lista cresce enquanto as notas sao montadas: nota que cita outra nota.
+    for (var n = 0; n < ctx.footnoteOrder.length; n++) {
+      var id = ctx.footnoteOrder[n];
+      var corpo = parseBlocks(String(ctx.footnotes[id] || '').split('\n'), ctx, 0);
+      var voltas = '';
+      var vezes = ctx.footnoteRefs[id] || 1;
+      for (var v = 0; v < vezes; v++) {
+        var alvo = 'fnref-' + id + (v ? '-' + v : '');
+        voltas += ' <a class="footnote-backref" href="#' + escapeAttr(alvo) + '" ' +
+          'data-anchor="' + escapeAttr(alvo) + '">&#8617;&#xFE0E;</a>';
+      }
+      // A seta de volta fica no fim do ultimo paragrafo, nao numa linha sozinha.
+      if (/<\/p>$/.test(corpo)) corpo = corpo.replace(/<\/p>$/, voltas + '</p>');
+      else corpo += '<p>' + voltas.slice(1) + '</p>';
+      items.push('<li id="fn-' + escapeAttr(id) + '" data-footnote-id="fn-' + escapeAttr(id) + '">' + corpo + '</li>');
+    }
+
+    ctx.opts = opts;
+    ctx.toc.length = noSumario;
+    return '<hr class="footnotes-sep"><section class="footnotes"><ol>' + items.join('\n') + '</ol></section>';
   }
 
   // --------------------------------------------------------- API principal
@@ -883,16 +1199,17 @@
     var ctx = {
       toc: [],
       slugs: {},
-      footnotes: {},
+      // Sem prototipo: um rotulo [^constructor] nao pode achar o Object.
+      footnotes: Object.create(null),
+      footnoteRefs: Object.create(null),
       footnoteOrder: [],
       inlineFootnoteSeq: 0,
       opts: opts || {}
     };
 
     var fm = extractFrontmatter(String(src || ''));
-    collectFootnotes(fm.body, ctx);
-
     var lines = fm.body.replace(/\r\n?/g, '\n').replace(/\t/g, '    ').split('\n');
+    collectFootnotes(lines, ctx);
     var html = parseBlocks(lines, ctx, fm.offset);
 
     return {
@@ -913,7 +1230,8 @@
   var ALLOWED_ATTRS = {};
   ('class id href src alt title colspan rowspan start type checked disabled style ' +
    'data-line data-line-end data-task data-task-line data-icon data-callout data-wikilink data-file data-anchor data-external ' +
-   'data-tag data-src data-remote data-copy data-lang data-embed data-alias data-media open rel loading'
+   'data-tag data-src data-remote data-copy data-lang data-embed data-alias data-media open rel loading ' +
+   'align data-callout-metadata data-callout-fold data-footnote-id'
   ).split(' ').forEach(function (a) { ALLOWED_ATTRS[a] = true; });
 
   /**
@@ -928,7 +1246,11 @@
     while ((node = walker.nextNode())) {
       var tag = node.tagName.toLowerCase();
 
-      if (!ALLOWED_TAGS[tag]) { doomed.push(node); continue; }
+      // O botao Copiar do bloco de codigo e o unico <button> que o parser
+      // monta (data-copy); o do texto do usuario nao chega aqui com esse
+      // atributo, as duas peneiras de string tiram todos.
+      var copiar = tag === 'button' && node.hasAttribute('data-copy');
+      if (!ALLOWED_TAGS[tag] && !copiar) { doomed.push(node); continue; }
 
       for (var i = node.attributes.length - 1; i >= 0; i--) {
         var attr = node.attributes[i];
@@ -964,6 +1286,7 @@
         node.setAttribute('disabled', '');
         node.setAttribute('type', 'checkbox');
       }
+      if (copiar) node.setAttribute('type', 'button');
     }
 
     doomed.forEach(function (el) { if (el.parentNode) el.parentNode.removeChild(el); });

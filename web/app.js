@@ -1618,13 +1618,20 @@
     if (container.id === 'preview' && app.find.open && app.find.query) applyFindHighlights();
   }
 
-  // Icones dos callouts: criados por nos, depois da peneira.
+  // Icones dos callouts: criados por nos, depois da peneira. O botao Copiar
+  // dos blocos de codigo ganha aqui o rotulo no idioma da interface (o parser
+  // nao conhece o t()).
   function montaIconesCallout(container) {
     var icons = container.querySelectorAll('.callout-icon[data-icon]');
     for (var i = 0; i < icons.length; i++) {
       var svg = window.MarkPadIcons.build(icons[i].getAttribute('data-icon'), 16);
       icons[i].textContent = '';
       if (svg) icons[i].appendChild(svg);
+    }
+    var copiar = container.querySelectorAll('.code-copy');
+    for (var c = 0; c < copiar.length; c++) {
+      copiar[c].textContent = t('Copiar');
+      copiar[c].title = t('Copiar');
     }
   }
 
@@ -2771,10 +2778,10 @@
     var m = /^(\s*(?:[-*+]|\d+[.)])\s+\[)(.)(\][\s\S]*)$/.exec(linhas[linha]);
     if (!m) return;
 
-    // Estado custom ([>], [?], [/]...) vira [x] no primeiro clique e volta
-    // para [ ] no segundo — o estado original nao sobrevive, e nem no
-    // Obsidian sobrevive. Desmarcar sempre devolve a caixa vazia.
-    var marcado = m[2].toLowerCase() !== 'x';
+    // Regra do Obsidian: caixa vazia vira [x]; qualquer outro estado ([x],
+    // [?], [/], [>]...) volta a ficar vazio. O estado custom nao sobrevive ao
+    // clique, la nem aqui, mas [?] clicado fica [ ], nao vira feita.
+    var marcado = m[2] === ' ';
     linhas[linha] = m[1] + (marcado ? 'x' : ' ') + m[3];
     tab.content = linhas.join('\n');
 
@@ -2784,7 +2791,7 @@
       var li = caixa.parentElement;
       if (li) {
         li.classList.toggle('is-checked', marcado);
-        if (marcado) li.setAttribute('data-task', 'x'); else li.removeAttribute('data-task');
+        li.setAttribute('data-task', marcado ? 'x' : ' ');
       }
     }
 
@@ -4179,8 +4186,10 @@
    * documentos abertos. Lista de tags nao e motivo para inventar cofre.
    */
 
-  var RE_TAG_TEXTO = /(?:^|[\s(\[])#([A-Za-zÀ-ɏ][\wÀ-ɏ/-]*)/g;
-  var RE_TAG_NOME = /^[A-Za-zÀ-ɏ][\wÀ-ɏ/-]*$/;
+  // Regra do Obsidian, a mesma do leitor (markdown.js, passo 14): '#' no
+  // comeco ou depois de espaco, sem pontuacao no nome, e so digitos nao vale.
+  var RE_TAG_TEXTO = /(?:^|\s)#(?!\d+(?:[\s!"#$%&'()*+,.:;<=>?@^`{|}~\[\]\\\u2000-\u206F\u2E00-\u2E7F]|$))([^\s!"#$%&'()*+,.:;<=>?@^`{|}~\[\]\\\u2000-\u206F\u2E00-\u2E7F]+)/g;
+  var RE_TAG_NOME = /^(?!\d+$)[^\s!"#$%&'()*+,.:;<=>?@^`{|}~\[\]\\\u2000-\u206F\u2E00-\u2E7F]+$/;
 
   /** As tags de um texto, com repeticao. Cerca fechada e crase ficam de fora. */
   function tagsDoTexto(texto) {

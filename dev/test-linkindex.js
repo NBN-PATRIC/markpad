@@ -48,6 +48,12 @@ igual('apelidos do frontmatter', a.apelidos, ['Apelido Um', 'Outro']);
 igual('tags do frontmatter', a.tags, ['proj', 'doc']);
 igual('wikilink no frontmatter', a.links.map((l) => l.alvo), ['Nota Front']);
 
+// Regra de tag do Obsidian, a mesma do leitor.
+a = L.analisa('#2026-q4 (#nao) [#nao2] a#nao3 #1984 #1984a #revisão #日本 #✅ok fim #ponto.\n');
+igual('regra de tag do Obsidian', a.tags, ['2026-q4', '1984a', 'revisão', '日本', '✅ok', 'ponto']);
+a = L.analisa('---\ntags: [1984, ok]\n---\n');
+igual('tag so de digitos no frontmatter fica de fora', a.tags, ['ok']);
+
 a = L.analisa('[![capa](img/capa.png)](notas/destino.md)');
 igual('imagem dentro de link', a.links.map((l) => l.alvo).sort(), ['img/capa.png', 'notas/destino.md']);
 

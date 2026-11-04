@@ -6,6 +6,23 @@ Versionamento [SemVer](https://semver.org/lang/pt-BR/).
 ## [Não lançado]
 
 ### Adicionado
+- **Bloco HTML aparece renderizado.** `<details>`, `<div align="center">`,
+  `<kbd>`, `<sub>` e afins deixam de virar uma caixa de código e aparecem como
+  no Obsidian. Um `<details>` com markdown no meio (código, lista) funciona.
+  Passa por uma peneira própria: script, estilo e iframe somem com o conteúdo,
+  atributo de evento some, `<a href>` vira link do app e `<img>`/`<video>` vão
+  pelo mesmo caminho do `![](...)` (imagem remota continua barrada até o
+  clique). Comentário `<!-- -->` fica invisível.
+- **Notas de rodapé de vários parágrafos.** A definição continua nas linhas
+  indentadas com 4 espaços, também depois de linha em branco (segundo
+  parágrafo, lista, código). O rótulo não distingue maiúsculas (`[^B]` acha
+  `[^b]:`), a nota citada duas vezes ganha uma seta de volta por citação (antes
+  as duas iam para a primeira), `^[nota com [link](x) dentro]` não corta mais
+  no primeiro `]`, e o número aparece entre colchetes, como no Obsidian.
+- **Callouts com tipo livre e metadado.** `[!meu-tipo]`, `[!Meu Tipo]` e
+  `[!note|largo]` são callouts (o tipo vai em `data-callout`, o metadado em
+  `data-callout-metadata`, para trechos de CSS); tipo desconhecido se veste de
+  nota. `[!note]Título` colado não é callout, como no Obsidian.
 - **Índice de links da pasta: menções ligadas exatas, menções não ligadas e
   links de saída.** O pé da leitura agora tem três seções recolhíveis, e o
   aberto ou fechado de cada uma vale para todos os documentos. As **menções
@@ -102,7 +119,25 @@ Versionamento [SemVer](https://semver.org/lang/pt-BR/).
 - **`[[Nota#Seção]]` abre a nota já na seção.** Antes a seção era descartada e
   a nota abria no topo. Vale também para `[texto](nota.md#Seção)`.
 
+### Alterado
+- **Regra de tag igual à do Obsidian**, no texto, no painel de tags, no índice
+  e no realce do código-fonte: `#` no começo ou depois de espaço (`(#x)` e
+  `[#x]` deixam de ser tag); depois, qualquer escrita, dígito, `_`, `-`, `/` e
+  emoji (`#2026-q4`, `#日本`, `#✅feito` passam a ser tag; antes só letra latina
+  abria tag); pontuação encerra; só dígitos não vale (`#1984`).
+- **Estados de tarefa como no Obsidian.** `[?]`, `[/]`, `[>]` deixam a caixa
+  marcada (antes só `[x]`), mas só `[x]` risca o texto. Clicar numa caixa com
+  estado volta para `[ ]`, não para `[x]`.
+- **Título padrão do callout é o próprio tipo**, como no Obsidian: `> [!tip]`
+  sem título mostra "Tip", `[!meu-tipo]` mostra "Meu tipo". Antes era uma
+  tradução fixa ("Dica", "Atencao" sem acento) que não seguia o idioma da
+  interface.
+
 ### Corrigido
+- **Todo callout saía azul.** A cor padrão pesava mais que a do tipo:
+  `[!warning]` não ficava laranja, nem `[!question]` amarelo.
+- **O botão Copiar do bloco de código não aparecia.** A peneira do HTML o
+  descartava; agora fica, com o rótulo no idioma da interface.
 - **Âncora de link virava tag.** `[ver](#secao)` aparecia no painel de tags
   como `#secao`.
 - **O modo código-fonte desalinhava o cursor do texto.** Duas causas, medidas

@@ -866,7 +866,10 @@ body.wide-lines .markdown-preview { max-width: none; }
   accent-color: var(--color-accent);
   flex-shrink: 0;
 }
-.markdown-preview .task-item.is-checked { color: var(--text-muted); text-decoration: line-through; }
+/* Todo estado que nao e espaco marca a caixa (como no Obsidian), mas so a
+   tarefa feita, [x], risca o texto; [?] [/] [>] ficam legiveis. */
+.markdown-preview .task-item[data-task="x"],
+.markdown-preview .task-item[data-task="X"] { color: var(--text-muted); text-decoration: line-through; }
 /* Riscar o pai nao risca as filhas: uma subtarefa aberta debaixo de uma
    tarefa concluida continua sendo trabalho por fazer. */
 .markdown-preview .task-item.is-checked > ul, .markdown-preview .task-item.is-checked > ol {
@@ -1277,15 +1280,10 @@ body.wide-lines .markdown-preview { max-width: none; }
 .markdown-preview .code-block:hover .code-copy { opacity: 1; }
 .markdown-preview .code-copy:hover { color: var(--text-normal); background: var(--interactive-hover); }
 
-.markdown-preview pre.raw-html {
-  background: var(--code-background);
-  border: 1px dashed var(--background-modifier-border-hover);
-  border-radius: var(--radius-m);
-  padding: 12px 14px;
-  overflow-x: auto;
-  color: var(--text-muted);
-  margin: 0 0 var(--p-spacing);
-}
+/* Bloco HTML do proprio texto (<details>, <div align>...), ja peneirado. */
+.markdown-preview .html-block { margin: 0 0 var(--p-spacing); }
+.markdown-preview .html-block > *:last-child { margin-bottom: 0; }
+.markdown-preview .html-block details > summary { cursor: pointer; }
 
 .markdown-preview .table-wrap {
   overflow-x: auto;
@@ -1341,6 +1339,9 @@ body.wide-lines .markdown-preview { max-width: none; }
 .markdown-preview .footnotes { font-size: 0.88em; color: var(--text-muted); }
 .markdown-preview .footnote-ref a { text-decoration: none; padding: 0 2px; }
 .markdown-preview .footnote-backref { text-decoration: none; }
+/* Nota de varios paragrafos: o espaco entre eles e menor que o do texto. */
+.markdown-preview .footnotes li > p { margin: 0 0 0.4em; }
+.markdown-preview .footnotes li > p:last-child { margin-bottom: 0; }
 
 /* callouts do Obsidian */
 .markdown-preview .callout {
@@ -1364,19 +1365,21 @@ body.wide-lines .markdown-preview { max-width: none; }
 .markdown-preview .callout-content { margin-top: 8px; }
 .markdown-preview .callout-content > *:last-child { margin-bottom: 0; }
 
-.callout-note     { --callout-color: var(--color-blue); }
-.callout-abstract { --callout-color: var(--color-cyan); }
-.callout-info     { --callout-color: var(--color-blue); }
-.callout-todo     { --callout-color: var(--color-blue); }
-.callout-tip      { --callout-color: var(--color-cyan); }
-.callout-success  { --callout-color: var(--color-green); }
-.callout-question { --callout-color: var(--color-yellow); }
-.callout-warning  { --callout-color: var(--color-orange); }
-.callout-failure  { --callout-color: var(--color-red); }
-.callout-danger   { --callout-color: var(--color-red); }
-.callout-bug      { --callout-color: var(--color-red); }
-.callout-example  { --callout-color: var(--color-purple); }
-.callout-quote    { --callout-color: var(--text-muted); }
+/* Com o prefixo do leitor: sem ele a cor padrao (azul) de
+   .markdown-preview .callout pesava mais e todo callout saia azul. */
+.markdown-preview .callout-note     { --callout-color: var(--color-blue); }
+.markdown-preview .callout-abstract { --callout-color: var(--color-cyan); }
+.markdown-preview .callout-info     { --callout-color: var(--color-blue); }
+.markdown-preview .callout-todo     { --callout-color: var(--color-blue); }
+.markdown-preview .callout-tip      { --callout-color: var(--color-cyan); }
+.markdown-preview .callout-success  { --callout-color: var(--color-green); }
+.markdown-preview .callout-question { --callout-color: var(--color-yellow); }
+.markdown-preview .callout-warning  { --callout-color: var(--color-orange); }
+.markdown-preview .callout-failure  { --callout-color: var(--color-red); }
+.markdown-preview .callout-danger   { --callout-color: var(--color-red); }
+.markdown-preview .callout-bug      { --callout-color: var(--color-red); }
+.markdown-preview .callout-example  { --callout-color: var(--color-purple); }
+.markdown-preview .callout-quote    { --callout-color: var(--text-muted); }
 
 /* destaque de resultado de busca */
 .markdown-preview .find-hit { background: var(--text-highlight-bg); border-radius: 2px; }
