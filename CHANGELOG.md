@@ -28,6 +28,12 @@ Versionamento [SemVer](https://semver.org/lang/pt-BR/).
   toda, por cima da barra de tarefas; F11 de novo volta exatamente como
   estava. "Sempre no topo" fica na paleta de comandos (Ctrl+Shift+P), útil para
   deixar um procedimento aberto por cima do terminal.
+- **Contagem da seleção, Ctrl+F3 e pular entre alterações** (do Notepad++).
+  Com texto selecionado, a barra de status conta só a seleção. Ctrl+F3 busca a
+  seleção, ou a palavra sob o cursor, e vai para a próxima ocorrência
+  (Ctrl+Shift+F3, a anterior); F3 e Shift+F3 seguem a busca aberta.
+  Alt+F5 e Alt+Shift+F5 pulam para a próxima e a anterior alteração marcada na
+  margem, no código-fonte e na leitura.
 - **`[[Nota#Seção]]` abre a nota já na seção.** Antes a seção era descartada e
   a nota abria no topo. Vale também para `[texto](nota.md#Seção)`.
 

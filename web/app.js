@@ -2832,6 +2832,103 @@
     updateCurrentLine();
   }
 
+  // ------------------------- selecao contada, Ctrl+F3 e pular entre alteracoes
+
+  function contaTexto(texto) {
+    var palavras = texto.match(/[\wÀ-ÿ'-]+/g);
+    return {
+      linhas: texto.length ? texto.split('\n').length : 0,
+      palavras: palavras ? palavras.length : 0,
+      caracteres: texto.length
+    };
+  }
+
+  /** O que esta selecionado agora, no editor ou na leitura ('' se nada). */
+  function textoSelecionado() {
+    if (!$('editingView').hidden) {
+      var ta = $('editorInput');
+      return ta.value.slice(ta.selectionStart, ta.selectionEnd);
+    }
+    var sel = window.getSelection();
+    if (!sel || sel.isCollapsed || !sel.rangeCount) return '';
+    return sel.anchorNode && $('preview').contains(sel.anchorNode) ? sel.toString() : '';
+  }
+
+  /**
+   * Ctrl+F3 (Notepad++): busca a selecao, ou a palavra sob o cursor, e vai para
+   * a proxima ocorrencia; com Shift, a anterior. Funciona travado tambem.
+   */
+  function buscaPalavraAtual(passo) {
+    var tab = activeTab();
+    if (!tab) return;
+    var noEditor = !$('editingView').hidden;
+    var ta = $('editorInput');
+    var texto = textoSelecionado().trim();
+    if (!texto && noEditor) {
+      var v = ta.value, a = ta.selectionStart, b = a;
+      while (a > 0 && /[\wÀ-ÿ]/.test(v[a - 1])) a--;
+      while (b < v.length && /[\wÀ-ÿ]/.test(v[b])) b++;
+      texto = v.slice(a, b);
+    }
+    if (!texto || texto.indexOf('\n') !== -1) {
+      toast(t('Selecione uma palavra para buscar.'), 'warn', 1800);
+      return;
+    }
+    openFind();
+    // Com a expressao regular ligada, a palavra vale ao pe da letra.
+    $('findInput').value = app.find.regex ? texto.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') : texto;
+    runFind(passo);
+    if (noEditor) ta.focus();
+  }
+
+  /**
+   * Alt+F5 / Alt+Shift+F5: proxima e anterior alteracao da margem (as faixas
+   * laranja e verde). No codigo-fonte anda pelas linhas; na leitura, pelos
+   * blocos marcados.
+   */
+  function pulaAlteracao(passo) {
+    var tab = activeTab();
+    if (!tab) return;
+
+    if ($('editingView').hidden) {
+      var blocos = Array.prototype.slice.call($('preview').querySelectorAll('.ch-mod, .ch-saved'));
+      if (!blocos.length) { toast(t('Nenhuma alteração neste documento.'), '', 1800); return; }
+      var topo = $('readingScroll').getBoundingClientRect().top + 8;
+      var alvoBloco = null;
+      if (passo > 0) {
+        for (var i = 0; i < blocos.length; i++) {
+          if (blocos[i].getBoundingClientRect().top > topo + 4) { alvoBloco = blocos[i]; break; }
+        }
+        alvoBloco = alvoBloco || blocos[0];
+      } else {
+        for (var j = blocos.length - 1; j >= 0; j--) {
+          if (blocos[j].getBoundingClientRect().top < topo - 4) { alvoBloco = blocos[j]; break; }
+        }
+        alvoBloco = alvoBloco || blocos[blocos.length - 1];
+      }
+      alvoBloco.scrollIntoView({ block: 'start' });
+      piscaAlvo(alvoBloco);
+      return;
+    }
+
+    var estado = lineStatus(tab);
+    var inicios = [];
+    for (var k = 0; k < estado.length; k++) if (estado[k] && (k === 0 || !estado[k - 1])) inicios.push(k);
+    if (!inicios.length) { toast(t('Nenhuma alteração neste documento.'), '', 1800); return; }
+
+    var ta = $('editorInput');
+    var atual = ta.value.slice(0, ta.selectionStart).split('\n').length - 1;
+    var alvo = null;
+    if (passo > 0) {
+      for (var m = 0; m < inicios.length; m++) if (inicios[m] > atual) { alvo = inicios[m]; break; }
+      if (alvo === null) alvo = inicios[0];
+    } else {
+      for (var n = inicios.length - 1; n >= 0; n--) if (inicios[n] < atual) { alvo = inicios[n]; break; }
+      if (alvo === null) alvo = inicios[inicios.length - 1];
+    }
+    goToLine(alvo + 1);
+  }
+
   // ------------------------------------------------------ status e sumario
 
   function renderStatus() {
@@ -2847,10 +2944,19 @@
       $('statusEncoding').textContent = '';
     } else {
       var text = tab.content;
-      var lines = text.length ? text.split('\n').length : 0;
-      var wordMatch = text.match(/[\wÀ-ÿ'-]+/g);
-      var words = wordMatch ? wordMatch.length : 0;
-      $('statusStats').textContent = lines + ' linhas · ' + words + ' palavras · ' + text.length + ' caracteres';
+      // A contagem do documento inteiro so muda quando o texto muda: guarda.
+      if (tab._contagemDe !== text) { tab._contagem = contaTexto(text); tab._contagemDe = text; }
+      var c = tab._contagem;
+      var selecao = textoSelecionado();
+      if (selecao) {
+        var cs = contaTexto(selecao);
+        $('statusStats').textContent = cs.palavras === 1
+          ? t('Seleção: 1 palavra · {c} caracteres', { c: cs.caracteres })
+          : t('Seleção: {p} palavras · {c} caracteres', { p: cs.palavras, c: cs.caracteres });
+      } else {
+        $('statusStats').textContent = t('{l} linhas · {p} palavras · {c} caracteres',
+          { l: c.linhas, p: c.palavras, c: c.caracteres });
+      }
 
       if (!tab.locked) {
         var ta = $('editorInput');
@@ -5750,6 +5856,23 @@
       }
     }
 
+    // ---- F3 / Shift+F3: proxima e anterior da busca; Ctrl+F3: busca a palavra
+    // atual (Notepad++). Vale tambem de dentro da caixa de busca.
+    if (e.key === 'F3' && !e.altKey) {
+      e.preventDefault();
+      if (ctrl) buscaPalavraAtual(e.shiftKey ? -1 : 1);
+      else if ($('findInput').value) { if (!app.find.open) openFind(); runFind(e.shiftKey ? -1 : 1); }
+      else openFind();
+      return;
+    }
+
+    // ---- Alt+F5 / Alt+Shift+F5: proxima e anterior alteracao da margem.
+    if (e.key === 'F5' && e.altKey && !ctrl) {
+      e.preventDefault();
+      pulaAlteracao(e.shiftKey ? -1 : 1);
+      return;
+    }
+
     // ---- comandos globais
     if (ctrl && !e.altKey) {
       switch (e.key.toLowerCase()) {
@@ -6324,6 +6447,13 @@
     document.addEventListener('mouseup', function (e) {
       if (e.button === 3) { e.preventDefault(); navega(-1); }
       else if (e.button === 4) { e.preventDefault(); navega(1); }
+    });
+    // A barra de status conta a selecao enquanto ela muda (um quadro por vez).
+    var statusPendente = false;
+    document.addEventListener('selectionchange', function () {
+      if (statusPendente) return;
+      statusPendente = true;
+      requestAnimationFrame(function () { statusPendente = false; renderStatus(); });
     });
     $('btnMore').onclick = function (e) {
       var r = e.currentTarget.getBoundingClientRect();
