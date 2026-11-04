@@ -1631,6 +1631,12 @@ body.no-gutter .ed-row .ln { display: none; }
   box-shadow: var(--shadow-l);
 }
 .menu[hidden] { display: none; }
+
+/* autocompletar [[ ]] no editor: o menu, com as linhas da paleta */
+.sugestao { width: min(420px, 90vw); max-height: 288px; }
+.sugestao .palette-item { padding: 6px 10px; }
+.sugestao-nome { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sugestao .pal-sub { flex-shrink: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 45%; }
 .menu-item {
   display: flex;
   align-items: center;

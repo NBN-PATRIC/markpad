@@ -6197,6 +6197,261 @@
     return '[' + sel + '](' + url + ')';
   }
 
+  // ------------------------------------------- autocompletar [[ ]]
+
+  /*
+   * Digitar [[ no editor (codigo-fonte ou bloco da edicao ao vivo) abre a
+   * lista de notas da pasta, filtrada pelo que vem depois; [[Nota# lista os
+   * titulos dela, e [[# os do proprio documento. Setas escolhem, Enter ou Tab
+   * aceitam, Esc fecha. O nome entra sem extensao — com o caminho quando ha
+   * outra nota com o mesmo nome — e o ]] so e posto se ainda nao estiver la.
+   * Apelido do frontmatter tambem e sugestao: entra como [[Nota|Apelido]].
+   */
+  var RE_SUGESTAO = /(!?)\[\[([^\[\]|\n]*)$/;
+  var SUGESTOES_MAX = 30;
+  var sugestao = null;   // { ta, inicio, itens, ativo, el }
+
+  function campoDeEdicao(el) {
+    return !!el && el.tagName === 'TEXTAREA' && (el.id === 'editorInput' || el.classList.contains('block-source'));
+  }
+
+  function sugestaoAvalia(ta) {
+    if (!app.folder || ta.selectionStart !== ta.selectionEnd) return fechaSugestao();
+    var antes = ta.value.slice(0, ta.selectionStart);
+    var linha = antes.slice(antes.lastIndexOf('\n') + 1);
+    var m = RE_SUGESTAO.exec(linha);
+    if (!m) return fechaSugestao();
+
+    var embed = m[1] === '!';
+    var consulta = m[2];
+    var inicio = ta.selectionStart - consulta.length;
+    var valor = ta.value, cursor = ta.selectionStart;
+
+    indiceLinks().then(function (idx) {
+      // Enquanto o indice carregava a pessoa pode ter seguido digitando.
+      if (!idx || document.activeElement !== ta || ta.value !== valor || ta.selectionStart !== cursor) return;
+      var hash = consulta.indexOf('#');
+      var itens = hash >= 0
+        ? sugereTitulos(idx, consulta.slice(0, hash), consulta.slice(hash + 1), inicio + hash + 1)
+        : sugereNotas(idx, consulta, embed, inicio);
+      if (!itens.length) return fechaSugestao();
+      mostraSugestao(ta, itens);
+    });
+  }
+
+  function sugereNotas(idx, consulta, embed, inicio) {
+    var LI = window.MarkPadLinkIndex;
+    var q = consulta.trim();
+    var querArquivo = embed || /\.[a-z0-9]{1,5}$/i.test(q);
+    var candidatos = [];
+
+    idx.arquivos.forEach(function (a) {
+      if (!a.md && !querArquivo) return;
+      var nome = a.md ? LI.semExtNota(baseName(a.path)) : baseName(a.path);
+      var homonimos = a.md ? (idx.porNomeNota[nome.toLowerCase()] || []) : (idx.porNome[nome.toLowerCase()] || []);
+      var escrito = homonimos.length > 1 ? (a.md ? LI.semExtNota(a.rel) : a.rel) : nome;
+      var pasta = a.rel.indexOf('/') >= 0 ? a.rel.slice(0, a.rel.lastIndexOf('/')) : '';
+
+      var nota = q ? Math.max(fuzzyScore(q, nome), fuzzyScore(q, a.rel) - 4) : 0;
+      if (nota > -Infinity) candidatos.push({ nota: nota, rotulo: nome, sub: pasta, texto: escrito, consulta: q, arq: a });
+
+      if (a.analise && q) {
+        a.analise.apelidos.forEach(function (ap) {
+          var n2 = fuzzyScore(q, ap);
+          if (n2 > -Infinity) candidatos.push({ nota: n2, rotulo: ap, sub: nome, texto: escrito + '|' + ap, consulta: q, arq: a, apelido: true });
+        });
+      }
+    });
+
+    if (!q) {
+      // Sem nada digitado: as recentes na frente, depois por nome.
+      var recentes = (settings.recent || []).map(function (p) { return String(p).toLowerCase(); });
+      candidatos.forEach(function (c) {
+        var i = recentes.indexOf(String(c.arq.path).toLowerCase());
+        c.nota = i >= 0 ? 1000 - i : 0;
+      });
+    }
+    candidatos.sort(function (a, b) {
+      return b.nota - a.nota || (a.rotulo.toLowerCase() < b.rotulo.toLowerCase() ? -1 : 1);
+    });
+    return candidatos.slice(0, SUGESTOES_MAX).map(function (c) {
+      c.inicio = inicio;
+      return c;
+    });
+  }
+
+  function sugereTitulos(idx, alvo, consulta, inicio) {
+    var LI = window.MarkPadLinkIndex;
+    var tab = activeTab();
+    var titulos;
+    if (!alvo.trim()) {
+      titulos = tab ? LI.analisa(tab.content).titulos : [];
+    } else {
+      var arq = LI.resolve(idx, { tipo: 'wiki', alvo: alvo.trim() }, relNaPasta((tab && tab.path) || ''));
+      titulos = arq && arq.analise ? arq.analise.titulos : [];
+    }
+    var q = consulta.trim();
+    return titulos.map(function (h) {
+      return { nota: q ? fuzzyScore(q, h.texto) : -h.linha, rotulo: h.texto, sub: 'H' + h.nivel, texto: h.texto, consulta: q, inicio: inicio };
+    }).filter(function (c) { return c.nota > -Infinity; })
+      .sort(function (a, b) { return b.nota - a.nota; })
+      .slice(0, SUGESTOES_MAX);
+  }
+
+  function mostraSugestao(ta, itens) {
+    if (!sugestao || sugestao.ta !== ta) {
+      fechaSugestao();
+      var el = document.createElement('div');
+      el.className = 'menu sugestao';
+      el.setAttribute('role', 'listbox');
+      // mousedown, nao click: o clique tiraria o foco do editor antes.
+      el.addEventListener('mousedown', function (e) {
+        var item = e.target.closest('.sugestao-item');
+        if (!item) return;
+        e.preventDefault();
+        aceitaSugestao(parseInt(item.getAttribute('data-i'), 10));
+      });
+      document.body.appendChild(el);
+      sugestao = { ta: ta, el: el };
+    }
+    sugestao.itens = itens;
+    sugestao.ativo = 0;
+    desenhaSugestao();
+    posicionaSugestao();
+  }
+
+  function desenhaSugestao() {
+    var el = sugestao.el;
+    el.textContent = '';
+    sugestao.itens.forEach(function (c, i) {
+      var row = document.createElement('div');
+      row.className = 'palette-item sugestao-item' + (i === sugestao.ativo ? ' is-active' : '');
+      row.setAttribute('role', 'option');
+      row.setAttribute('data-i', String(i));
+      var nome = document.createElement('span');
+      nome.className = 'sugestao-nome';
+      nome.appendChild(marcaFuzzy(c.rotulo, c.consulta));
+      row.appendChild(nome);
+      if (c.sub) {
+        var sub = document.createElement('span');
+        sub.className = 'pal-sub';
+        sub.textContent = c.apelido ? '→ ' + c.sub : c.sub;
+        row.appendChild(sub);
+      }
+      el.appendChild(row);
+    });
+    var ativo = el.children[sugestao.ativo];
+    if (ativo) ativo.scrollIntoView({ block: 'nearest' });
+  }
+
+  /* Onde o cursor esta na tela: um espelho invisivel da caixa de texto. */
+  function posicaoDoCursor(ta) {
+    var estilo = getComputedStyle(ta);
+    var espelho = document.createElement('div');
+    ['boxSizing', 'width', 'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft',
+     'borderTopWidth', 'borderRightWidth', 'borderBottomWidth', 'borderLeftWidth',
+     'fontFamily', 'fontSize', 'fontWeight', 'fontStyle', 'lineHeight', 'letterSpacing',
+     'whiteSpace', 'overflowWrap', 'wordBreak', 'tabSize', 'textIndent'].forEach(function (p) {
+      espelho.style[p] = estilo[p];
+    });
+    espelho.style.position = 'absolute';
+    espelho.style.visibility = 'hidden';
+    espelho.style.top = '0';
+    espelho.style.left = '-9999px';
+    espelho.style.overflow = 'hidden';
+    espelho.style.borderStyle = 'solid';
+    espelho.textContent = ta.value.slice(0, ta.selectionStart);
+    var marca = document.createElement('span');
+    marca.textContent = '​';
+    espelho.appendChild(marca);
+    document.body.appendChild(espelho);
+    var caixa = ta.getBoundingClientRect();
+    var linha = parseFloat(estilo.lineHeight) || parseFloat(estilo.fontSize) * 1.5;
+    var pos = {
+      x: caixa.left + marca.offsetLeft - ta.scrollLeft,
+      y: caixa.top + marca.offsetTop - ta.scrollTop,
+      linha: linha
+    };
+    document.body.removeChild(espelho);
+    return pos;
+  }
+
+  function posicionaSugestao() {
+    var el = sugestao.el;
+    var p = posicaoDoCursor(sugestao.ta);
+    el.style.left = '0px';
+    el.style.top = '0px';
+    var w = el.offsetWidth, h = el.offsetHeight;
+    var x = Math.max(8, Math.min(p.x, window.innerWidth - w - 8));
+    // Abaixo da linha; sem espaco embaixo, acima dela.
+    var y = p.y + p.linha + 4;
+    if (y + h > window.innerHeight - 8) y = Math.max(8, p.y - h - 4);
+    el.style.left = x + 'px';
+    el.style.top = y + 'px';
+  }
+
+  function fechaSugestao() {
+    if (!sugestao) return;
+    if (sugestao.el.parentNode) sugestao.el.parentNode.removeChild(sugestao.el);
+    sugestao = null;
+  }
+
+  function aceitaSugestao(i) {
+    if (!sugestao) return;
+    var c = sugestao.itens[i];
+    var ta = sugestao.ta;
+    fechaSugestao();
+    if (!c) return;
+
+    var depois = ta.value.slice(ta.selectionStart);
+    var fecha = /^\]\]/.test(depois) ? '' : ']]';
+    ta.focus();
+    ta.setSelectionRange(c.inicio, ta.selectionStart);
+    // insertText e nao value: o Ctrl+Z desfaz a sugestao como desfaria a digitacao.
+    document.execCommand('insertText', false, c.texto + fecha);
+    if (!fecha) ta.setSelectionRange(ta.selectionStart + 2, ta.selectionStart + 2);
+  }
+
+  document.addEventListener('input', function (e) {
+    if (campoDeEdicao(e.target)) sugestaoAvalia(e.target);
+  }, true);
+
+  document.addEventListener('keydown', function (e) {
+    if (!sugestao || e.target !== sugestao.ta) return;
+    var n = sugestao.itens.length;
+    var tecla = e.key;
+    if (tecla === 'ArrowDown' || tecla === 'ArrowUp') {
+      sugestao.ativo = (sugestao.ativo + (tecla === 'ArrowDown' ? 1 : -1) + n) % n;
+      desenhaSugestao();
+    } else if (tecla === 'Enter' || tecla === 'Tab') {
+      if (e.ctrlKey || e.shiftKey || e.altKey) { fechaSugestao(); return; }
+      aceitaSugestao(sugestao.ativo);
+    } else if (tecla === 'Escape') {
+      fechaSugestao();
+    } else {
+      // Setas para os lados, Home e cia. mudam o cursor: a lista se refaz
+      // (ou some) depois que a tecla agir.
+      if (/^(ArrowLeft|ArrowRight|Home|End|PageUp|PageDown)$/.test(tecla)) {
+        var ta = sugestao.ta;
+        setTimeout(function () { if (document.activeElement === ta) sugestaoAvalia(ta); }, 0);
+      }
+      return;
+    }
+    // Esta tecla era da lista: nem o editor nem os atalhos globais a veem
+    // (o Esc, por exemplo, cancelaria o bloco da edicao ao vivo).
+    e.preventDefault();
+    e.stopImmediatePropagation();
+  }, true);
+
+  document.addEventListener('focusout', function (e) {
+    if (sugestao && e.target === sugestao.ta) fechaSugestao();
+  }, true);
+  // O editor rola sozinho quando se digita perto da borda: a lista segue o
+  // cursor em vez de sumir.
+  document.addEventListener('scroll', function (e) {
+    if (sugestao && (e.target === sugestao.ta || (e.target.contains && e.target.contains(sugestao.ta)))) posicionaSugestao();
+  }, true);
+
   document.addEventListener('paste', function (e) {
     var ta = e.target;
     if (!ta || ta.tagName !== 'TEXTAREA') return;

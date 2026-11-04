@@ -18,6 +18,14 @@ Versionamento [SemVer](https://semver.org/lang/pt-BR/).
   marcam os que não têm destino na pasta; clicar num desses leva à linha
   dele. O índice relê só as notas que mudaram, e a primeira varredura de uma
   pasta grande vem em lotes, sem congelar a janela.
+- **Autocompletar `[[` no editor.** Digitar `[[` no código-fonte ou num bloco
+  da edição ao vivo abre a lista das notas da pasta, filtrada pelo que vem
+  depois (letras na ordem, como no Ctrl+P; sem nada digitado, as recentes
+  primeiro). `[[Nota#` lista os títulos da nota e `[[#` os do próprio
+  documento; um apelido do frontmatter entra como `[[Nota|Apelido]]`; com
+  `![[` aparecem também imagens e outros anexos. Setas escolhem, Enter ou Tab
+  aceitam, Esc fecha. O nome entra sem extensão, com o caminho quando há
+  outra nota de mesmo nome, e o `]]` só é posto se ainda não estiver lá.
 - **Renomear ou mover atualiza os links.** Depois de renomear (F2) ou mover
   um arquivo, o MarkPad conta quantos links da pasta apontavam para ele,
   mostra os arquivos e pergunta se atualiza. `[[Nome]]` continua só com o
