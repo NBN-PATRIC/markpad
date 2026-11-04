@@ -166,25 +166,41 @@
 
   var backupTimers = Object.create(null);
 
+  // Nota sem arquivo (nova, ou restaurada de um arquivo que sumiu) tambem tem
+  // rascunho. Antes nao tinha: uma nota nova nunca salva se perdia inteira numa
+  // queda de energia. A chave e um nome sintetico que nunca existe no disco, e
+  // por isso a restauracao ja a traz de volta como aba sem titulo.
+  function chaveDeRascunho(tab) {
+    if (tab.path) return tab.path;
+    if (!tab.rascunhoId) tab.rascunhoId = 'markpad:sem-titulo:' + Date.now().toString(36) + '-' + tab.id;
+    return tab.rascunhoId;
+  }
+
   function scheduleBackup(tab) {
-    if (!tab || !tab.path) return;
+    if (!tab) return;
+    var chave = chaveDeRascunho(tab);
 
     clearTimeout(backupTimers[tab.id]);
     backupTimers[tab.id] = setTimeout(function () {
-      if (tab.content === tab.savedContent) {
-        bridge.call('dropBackup', { path: tab.path }).catch(function () {});
+      if (tab.content === tab.savedContent || (!tab.path && !tab.content)) {
+        bridge.call('dropBackup', { path: chave }).catch(function () {});
         return;
       }
       bridge.call('writeBackup', {
-        path: tab.path, name: tab.name, content: tab.content
+        path: chave, name: tab.name, content: tab.content
       }).catch(function () {});
     }, 2000);
   }
 
+  // Apaga o rascunho pelas duas chaves: a nota sem titulo que acabou de ganhar
+  // um arquivo ("Salvar como") deixaria o rascunho antigo para tras.
   function dropBackup(tab) {
-    if (!tab || !tab.path) return;
+    if (!tab) return Promise.resolve();
     clearTimeout(backupTimers[tab.id]);
-    bridge.call('dropBackup', { path: tab.path }).catch(function () {});
+    var chaves = [tab.path, tab.rascunhoId].filter(Boolean);
+    return Promise.all(chaves.map(function (c) {
+      return bridge.call('dropBackup', { path: c }).catch(function () {});
+    }));
   }
 
   /** Ao iniciar, oferece de volta o que ficou pendente da sessão anterior. */
@@ -222,7 +238,11 @@
         if (!b.fileExists) {
           // Arquivo sumiu do disco: vira aba sem caminho, para não gravar
           // por engano num lugar que o usuário já removeu.
+          // Volta como NAO salva (antes voltava "salva": fechar perdia o texto
+          // sem aviso) e com a mesma chave, para o rascunho seguir valendo.
           var solto = makeTab({ name: b.name, content: b.content });
+          solto.savedContent = '';
+          solto.rascunhoId = b.path;
           solto.locked = false;
           insereAba(solto);
           return;
@@ -4101,7 +4121,11 @@
     } else {
       var hit = matches[app.find.index];
       var ta = $('editorInput');
-      ta.focus();
+      // Seleciona e rola SEM tirar o foco de onde ele esta. Antes o foco
+      // pulava para o editor na primeira letra achada: a tecla seguinte caia
+      // dentro do documento, e um segundo Enter trocava a ocorrencia
+      // selecionada por uma quebra de linha. A linha achada fica marcada, e Esc
+      // fecha a busca devolvendo o foco ao editor com a ocorrencia selecionada.
       ta.setSelectionRange(hit.start, hit.end);
       scrollSelectionIntoView();
       updateCurrentLine();
@@ -6733,7 +6757,12 @@
          { label: t('Salvar e sair'), value: 'save', cls: 'primary' }]
       ).then(function (choice) {
         if (choice === null) return;
-        if (choice === 'discard') { bridge.call('confirmClose', {}); return; }
+        if (choice === 'discard') {
+          // Sair sem salvar e descartar: os rascunhos dessas abas vao junto,
+          // senao a proxima abertura oferecia restaurar o que se mandou jogar fora.
+          Promise.all(dirty.map(dropBackup)).then(function () { bridge.call('confirmClose', {}); });
+          return;
+        }
 
         var chain = Promise.resolve(true);
         dirty.forEach(function (t) { chain = chain.then(function () { return saveTab(t); }); });

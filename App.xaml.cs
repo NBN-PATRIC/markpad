@@ -108,6 +108,16 @@ public partial class App : Application
             args = new[] { "--focus" };
         }
 
+        // Caminho relativo e relativo a pasta DESTA instancia (o terminal de
+        // quem chamou). A instancia aberta tem outra pasta atual e resolvia
+        // "nota.md" no lugar errado: resolve aqui, antes de mandar.
+        args = args.Select(a =>
+        {
+            if (a.StartsWith('-')) return a;
+            try { return System.IO.Path.GetFullPath(a); }
+            catch { return a; }
+        }).ToArray();
+
         try
         {
             using var client = new NamedPipeClientStream(".", PipeName, PipeDirection.Out);
