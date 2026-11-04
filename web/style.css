@@ -1845,6 +1845,18 @@ body.no-gutter .ed-row .ln { display: none; }
 
 /* historico de versoes: lista a esquerda, diferenca a direita */
 .dialog.versoes { width: min(940px, 94vw); }
+
+/* Exportar PDF: os quatro campos em grade, as caixas embaixo */
+.pdf-campos {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px 16px;
+  margin: 6px 0 18px;
+}
+.pdf-campo { display: flex; flex-direction: column; gap: 5px; font-size: var(--font-ui-small); color: var(--text-muted); }
+.pdf-campo .set-select { width: 100%; }
+.pdf-check { margin: 0 0 10px; }
+.pdf-opcoes .dialog-actions { margin-top: 18px; }
 .versoes-corpo {
   display: grid;
   grid-template-columns: minmax(170px, 230px) 1fr;
@@ -1976,10 +1988,32 @@ body.no-gutter .ed-row .ln { display: none; }
 .empty-tips { list-style: none; margin: 26px 0 0; padding: 0; font-size: var(--font-ui-smaller); color: var(--text-faint); line-height: 2.1; }
 
 /* impressao: so o texto */
+@page { background: #fff; }
 @media print {
   .tab-bar, .quick-bar, .sidebar, .sidebar-resizer, .view-header, .status-bar,
   .find-bar, .editing-view, .overlay, .palette, .toasts, .update-bar,
-  .backlinks-block, .hover-popup { display: none !important; }
+  .backlinks-block, .hover-popup, .properties, .dialog, .menu,
+  .fold-chevron, .code-copy { display: none !important; }
+  /* Dobrado na tela nao some do papel (como no Obsidian): secao recolhida,
+     callout fechado e <details> fechado saem abertos. */
+  .markdown-preview .heading-section[hidden] { display: block !important; }
+  /* Papel e sempre claro. No tema escuro (e nas paletas, que escrevem as
+     raizes no style do <body>) o titulo saia cinza-claro no branco; os
+     !important vencem o style inline e a escada de cinzas vira a do claro. */
+  /* A margem da pagina (onde moram o cabecalho e o rodape) era pintada no
+     esquema escuro: com "Cores e fundos" ligado saia uma faixa preta. O
+     body.theme-dark venceria um color-scheme sem !important. */
+  html { color-scheme: light !important; background: #fff !important; }
+  body {
+    color-scheme: light !important;
+    --color-base-00: #ffffff !important; --color-base-05: #fcfcfc !important;
+    --color-base-10: #fafafa !important; --color-base-20: #f6f6f6 !important;
+    --color-base-25: #e3e3e3 !important; --color-base-30: #e0e0e0 !important;
+    --color-base-35: #d4d4d4 !important; --color-base-40: #bdbdbd !important;
+    --color-base-50: #ababab !important; --color-base-60: #707070 !important;
+    --color-base-70: #5c5c5c !important; --color-base-100: #222222 !important;
+  }
+  .markdown-preview details::details-content { content-visibility: visible !important; display: block !important; }
   .main { border: none; }
   .markdown-preview { max-width: none; padding: 0; color: #000; }
   body, .app, .reading-scroll { background: #fff; overflow: visible; height: auto; }

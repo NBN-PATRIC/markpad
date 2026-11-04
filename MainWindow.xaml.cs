@@ -597,7 +597,10 @@ public partial class MainWindow : Window
                 return SaveAsDialog(Str(args, "suggestedName", "sem-titulo.md"), Str(args, "initialDir"));
 
             case "exportDialog":
-                return ExportDialog(Str(args, "suggestedName", "documento.html"), Str(args, "initialDir"));
+                return ExportDialog(Str(args, "suggestedName", "documento.html"), Str(args, "initialDir"), Str(args, "kind", "html"));
+
+            case "exportPdf":
+                return await ExportPdfAsync(Str(args, "path"), args);
 
             case "readFile":
                 return ReadTextFile(Str(args, "path"));
@@ -967,15 +970,16 @@ public partial class MainWindow : Window
         return full;
     }
 
-    private object? ExportDialog(string suggestedName, string initialDir)
+    private object? ExportDialog(string suggestedName, string initialDir, string kind = "html")
     {
+        var pdf = kind.Equals("pdf", StringComparison.OrdinalIgnoreCase);
         var dlg = new SaveFileDialog
         {
-            Title = "Exportar",
+            Title = pdf ? "Exportar PDF" : "Exportar",
             FileName = suggestedName,
-            DefaultExt = ".html",
+            DefaultExt = pdf ? ".pdf" : ".html",
             AddExtension = true,
-            Filter = "Pagina HTML (*.html)|*.html|Todos os arquivos (*.*)|*.*"
+            Filter = pdf ? "Documento PDF (*.pdf)|*.pdf" : "Pagina HTML (*.html)|*.html|Todos os arquivos (*.*)|*.*"
         };
         if (Directory.Exists(initialDir)) dlg.InitialDirectory = initialDir;
 
@@ -984,6 +988,53 @@ public partial class MainWindow : Window
         var full = Path.GetFullPath(dlg.FileName);
         _writablePaths.Add(full);
         return full;
+    }
+
+    /*
+     * PDF com as opcoes do dialogo, pelo PrintToPdf do WebView2: a pagina sai
+     * pela folha de impressao (@media print), do jeito que o JS deixou a
+     * leitura. So grava .pdf num caminho que o dialogo de salvar devolveu.
+     * O WebView2 mede papel e margem em polegadas.
+     */
+    private async Task<object> ExportPdfAsync(string path, JsonElement args)
+    {
+        var core = Web.CoreWebView2 ?? throw new InvalidOperationException("o leitor ainda nao abriu.");
+        if (_environment is null) throw new InvalidOperationException("o leitor ainda nao abriu.");
+        var full = Path.GetFullPath(path);
+        if (!_writablePaths.Contains(full))
+            throw new UnauthorizedAccessException("gravacao bloqueada: caminho nao autorizado.");
+        if (!Path.GetExtension(full).Equals(".pdf", StringComparison.OrdinalIgnoreCase))
+            throw new UnauthorizedAccessException("exportacao permitida apenas para .pdf.");
+
+        var s = _environment.CreatePrintSettings();
+        (s.PageWidth, s.PageHeight) = Str(args, "paper", "a4") switch
+        {
+            "carta" => (8.5, 11.0),
+            "oficio" => (8.5, 14.0),
+            "a5" => (148 / 25.4, 210 / 25.4),
+            _ => (210 / 25.4, 297 / 25.4)
+        };
+        s.Orientation = Str(args, "orientation") == "paisagem"
+            ? CoreWebView2PrintOrientation.Landscape
+            : CoreWebView2PrintOrientation.Portrait;
+        var margem = Math.Clamp(Int(args, "marginMm", 20), 0, 50) / 25.4;
+        s.MarginTop = s.MarginBottom = s.MarginLeft = s.MarginRight = margem;
+        s.ScaleFactor = Math.Clamp(Int(args, "scale", 100), 10, 200) / 100.0;
+        s.ShouldPrintBackgrounds = Bool(args, "backgrounds", true);
+        s.ShouldPrintHeaderAndFooter = Bool(args, "headerFooter", false);
+        // O cabecalho e o rodape moram na margem: com margem zero eles somem
+        // calados. Pedido o cabecalho, cima e baixo ficam com 1 cm no minimo.
+        if (s.ShouldPrintHeaderAndFooter)
+        {
+            s.MarginTop = Math.Max(s.MarginTop, 10 / 25.4);
+            s.MarginBottom = Math.Max(s.MarginBottom, 10 / 25.4);
+        }
+        s.HeaderTitle = Str(args, "title");
+        s.FooterUri = Str(args, "footer");
+
+        if (!await core.PrintToPdfAsync(full, s))
+            throw new IOException("o WebView2 nao conseguiu gerar o PDF.");
+        return new { path = full };
     }
 
     // --------------------------------------------------------------- arquivos

@@ -87,6 +87,8 @@
     editorFontSize: 14,
     wideLines: false,
     autoSave: false,
+    // Ultimas escolhas do "Exportar PDF". Margem em mm, escala em %.
+    pdf: { papel: 'a4', orientacao: 'retrato', margem: 20, escala: 100, fundos: true, cabecalho: false },
     loadRemoteImages: false,
     sidebarVisible: true,
     sidebarWidth: 260,
@@ -5088,6 +5090,7 @@
       { id: 'openWith', label: t('Abrir no app padrao do Windows'), icon: 'external', enabled: !!(tab && tab.path), action: function () { openWithDefaultApp(activeTab().path); } },
       { id: 'delete', label: t('Excluir arquivo...'), icon: 'trash', enabled: !!(tab && tab.path), action: function () { deleteDoc(activeTab().path); } },
       { id: 'export', label: t('Exportar como HTML...'), icon: 'external', enabled: !!tab, action: exportHtml },
+      { id: 'exportPdf', label: t('Exportar PDF...'), icon: 'printer', enabled: !!tab, action: exportPdf },
       { id: 'print', label: t('Imprimir'), key: 'Ctrl+Alt+P', icon: 'printer', enabled: !!tab, action: doPrint },
       { id: 'fullscreen', label: t('Tela inteira'), key: 'F11', icon: 'external', checked: !!app.telaInteira, action: alternaTelaInteira },
       { id: 'newWindow', label: t('Nova janela'), key: 'Ctrl+Shift+N', icon: 'columns', action: function () { novaJanela(app.folder ? [app.folder] : []); } },
@@ -5123,7 +5126,7 @@
     'find', 'replace', 'findFolder', 'switcher', 'goto', 'foldAll', 'unfoldAll',
     'treeSearch', 'treeSort', 'treeCollapse', 'tags',
     'wrap', 'gutter', 'properties', 'wide', 'theme', 'sidebar',
-    'export', 'print', 'copyPath', 'reveal',
+    'export', 'exportPdf', 'print', 'copyPath', 'reveal',
     'rename', 'duplicate', 'openWith'
   ];
 
@@ -6069,7 +6072,7 @@
       entry('save'), entry('saveAs'), entry('reload'), '-',
       { label: t('Documento'), header: true },
       entry('rename'), entry('move'), entry('duplicate'), '-',
-      entry('export'), entry('print'), '-',
+      entry('export'), entry('exportPdf'), entry('print'), '-',
       entry('openWith'), entry('reveal'), entry('copyPath'), '-',
       entry('delete'), '-',
       { label: t('Navegar'), header: true },
@@ -6645,20 +6648,142 @@
     });
   }
 
-  function doPrint() {
-    var tab = activeTab();
-    if (!tab) return;
-
-    // Impressao sai sempre do modo leitura, mesmo se estiver editando.
+  /** Impressao e PDF saem sempre do modo leitura, mesmo se estiver editando. */
+  function comLeituraParaImprimir(tab, fazer) {
     if (!tab.locked) renderPreview($('preview'), tab);
     $('readingView').hidden = false;
     var editing = $('editingView').hidden;
     $('editingView').hidden = true;
 
-    bridge.call('print', {}).finally(function () {
+    return Promise.resolve().then(fazer).finally(function () {
       $('editingView').hidden = editing;
       renderViews();
     });
+  }
+
+  function doPrint() {
+    var tab = activeTab();
+    if (!tab) return;
+    comLeituraParaImprimir(tab, function () { return bridge.call('print', {}); });
+  }
+
+  /*
+   * PDF com opcoes: papel, orientacao, margem, escala, fundos, cabecalho e
+   * rodape (titulo, caminho e numero da pagina). Antes so havia o "Imprimir"
+   * do navegador, que esquece tudo a cada vez. As escolhas ficam para a
+   * proxima.
+   */
+  function exportPdf() {
+    var tab = activeTab();
+    if (!tab) return;
+    var op = {};
+    var base = DEFAULTS.pdf;
+    var salvo = settings.pdf || {};
+    Object.keys(base).forEach(function (k) { op[k] = salvo[k] !== undefined ? salvo[k] : base[k]; });
+
+    var overlay = $('overlay');
+    var box = document.createElement('div');
+    box.className = 'dialog pdf-opcoes';
+    box.setAttribute('role', 'dialog');
+    var h = document.createElement('h2');
+    h.textContent = t('Exportar PDF');
+    box.appendChild(h);
+
+    var campos = document.createElement('div');
+    campos.className = 'pdf-campos';
+    box.appendChild(campos);
+
+    function campo(rotulo, opcoes, chave) {
+      var l = document.createElement('label');
+      l.className = 'pdf-campo';
+      var s = document.createElement('span');
+      s.textContent = rotulo;
+      l.appendChild(s);
+      setSelect(l, opcoes, function () { return op[chave]; }, function (v) {
+        op[chave] = typeof base[chave] === 'number' ? Number(v) : v;
+      });
+      campos.appendChild(l);
+    }
+    campo(t('Papel'), [
+      { value: 'a4', label: 'A4' }, { value: 'carta', label: t('Carta') },
+      { value: 'oficio', label: t('Ofício') }, { value: 'a5', label: 'A5' }
+    ], 'papel');
+    campo(t('Orientação'), [
+      { value: 'retrato', label: t('Retrato') }, { value: 'paisagem', label: t('Paisagem') }
+    ], 'orientacao');
+    campo(t('Margens'), [
+      { value: 0, label: t('Nenhuma') }, { value: 10, label: t('Estreitas (1 cm)') },
+      { value: 20, label: t('Normais (2 cm)') }, { value: 30, label: t('Largas (3 cm)') }
+    ], 'margem');
+    campo(t('Escala'), [80, 90, 100, 110, 125].map(function (n) { return { value: n, label: n + '%' }; }), 'escala');
+
+    function marca(rotulo, chave) {
+      var l = document.createElement('label');
+      l.className = 'dialog-check pdf-check';
+      var c = document.createElement('input');
+      c.type = 'checkbox';
+      c.checked = !!op[chave];
+      c.onchange = function () { op[chave] = c.checked; };
+      l.appendChild(c);
+      l.appendChild(document.createTextNode(rotulo));
+      box.appendChild(l);
+    }
+    marca(t('Cores e fundos (código, callouts, destaques)'), 'fundos');
+    marca(t('Cabeçalho e rodapé (título, caminho e número da página)'), 'cabecalho');
+
+    var acoes = document.createElement('div');
+    acoes.className = 'dialog-actions';
+    var btCancelar = document.createElement('button');
+    btCancelar.className = 'btn';
+    btCancelar.textContent = t('Cancelar');
+    var btExportar = document.createElement('button');
+    btExportar.className = 'btn primary';
+    btExportar.textContent = t('Exportar...');
+    acoes.appendChild(btCancelar);
+    acoes.appendChild(btExportar);
+    box.appendChild(acoes);
+
+    function fecha() {
+      overlay.hidden = true;
+      box.remove();
+      document.removeEventListener('keydown', onKey, true);
+    }
+    function onKey(e) {
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); fecha(); }
+      else if (e.key === 'Enter' && e.target.tagName !== 'SELECT') { e.preventDefault(); e.stopPropagation(); exporta(); }
+    }
+    btCancelar.onclick = fecha;
+    btExportar.onclick = exporta;
+
+    function exporta() {
+      fecha();
+      settings.pdf = op;
+      persist();
+      bridge.call('exportDialog', {
+        suggestedName: tab.name.replace(/\.\w+$/, '') + '.pdf',
+        initialDir: tab.dir || app.folder || '',
+        kind: 'pdf'
+      }).then(function (path) {
+        if (!path) return;
+        return comLeituraParaImprimir(tab, function () {
+          return bridge.call('exportPdf', {
+            path: path, paper: op.papel, orientation: op.orientacao, marginMm: op.margem,
+            scale: op.escala, backgrounds: !!op.fundos, headerFooter: !!op.cabecalho,
+            title: tab.name.replace(/\.\w+$/, ''), footer: tab.path || ''
+          });
+        }).then(function () {
+          toast(t('PDF salvo: {arquivo}', { arquivo: baseName(path) }), 'ok', 3000);
+        });
+      }).catch(function (err) {
+        toast(t('Não deu para gerar o PDF: ') + (err && err.message || err), 'error', 5000);
+      });
+    }
+
+    document.body.appendChild(box);
+    overlay.hidden = false;
+    overlay.onclick = fecha;
+    document.addEventListener('keydown', onKey, true);
+    btExportar.focus();
   }
 
   function exportHtml() {

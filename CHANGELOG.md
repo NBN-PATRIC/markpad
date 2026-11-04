@@ -6,6 +6,12 @@ Versionamento [SemVer](https://semver.org/lang/pt-BR/).
 ## [Não lançado]
 
 ### Adicionado
+- **Exportar PDF com opções** (menu ⋯ e paleta). Papel (A4, Carta, Ofício,
+  A5), orientação, margens, escala, cores e fundos, e cabeçalho e rodapé com
+  título, caminho e número da página; as escolhas ficam para a próxima vez.
+  Sai direto num arquivo, pelo WebView2, sem passar pelo diálogo de impressão.
+  Com cabeçalho e rodapé ligados, a margem de cima e de baixo fica em 1 cm no
+  mínimo (com margem zero eles sumiam).
 - **Nova janela** (Ctrl+Shift+N, menu ⋯ > Janela, e "Abrir em nova janela" /
   "Mover para nova janela" no menu da aba e da árvore). Abre outro MarkPad,
   em escada a partir da janela que pediu (mesmo monitor e tamanho). A janela
@@ -149,6 +155,11 @@ Versionamento [SemVer](https://semver.org/lang/pt-BR/).
   interface.
 
 ### Corrigido
+- **Impressão e PDF no tema escuro.** O título saía cinza-claro no papel
+  branco (a folha de impressão não trocava as cores do tema) e, com fundos
+  ligados, a margem da página saía preta. O papel agora é sempre claro. Seção
+  recolhida, callout fechado e `<details>` fechado saem abertos no papel, como
+  no Obsidian; o quadro de propriedades e os botões da tela não saem.
 - **Abrir um arquivo com o MarkPad "aberto" que não respondia perdia o
   arquivo.** Se a janela que recebe os pedidos tinha fechado (sobrando só uma
   janela extra) ou morrido sem soltar a vez, o pedido ia para ninguém. Agora a
