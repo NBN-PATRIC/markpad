@@ -95,6 +95,25 @@
 
   // ------------------------------------------------------------------ inline
 
+  // Destino de link e imagem: <com espaco> ou sem espaco, aceitando um nivel de
+  // parenteses (https://pt.wikipedia.org/wiki/Fulano_(cantor)). Titulo entre
+  // aspas, apostrofos ou parenteses, como no CommonMark.
+  var RE_INLINE_IMAGE = /!\[([^\]]*)\]\(\s*(<[^<>\n]*>|[^\s()<>]*(?:\([^\s()]*\)[^\s()<>]*)*)(?:\s+("[^"\n]*"|'[^'\n]*'|\([^()\n]*\)))?\s*\)/g;
+  var RE_INLINE_LINK = /\[([^\]]*)\]\(\s*(<[^<>\n]*>|[^\s()<>]*(?:\([^\s()]*\)[^\s()<>]*)*)(?:\s+("[^"\n]*"|'[^'\n]*'|\([^()\n]*\)))?\s*\)/g;
+
+  function destinoDe(d) {
+    d = String(d || '');
+    return d.charAt(0) === '<' ? d.slice(1, -1) : d;
+  }
+
+  function tituloDe(t) { return t ? t.slice(1, -1) : ''; }
+
+  // decodeURIComponent lanca erro com % solto ('100% certo.png') e derrubava o
+  // documento inteiro em 'Falha ao renderizar'.
+  function decodeSeguro(s) {
+    try { return decodeURIComponent(s); } catch (e) { return s; }
+  }
+
   function Inline(ctx) {
     this.ctx = ctx;
     this.slots = [];
@@ -137,7 +156,18 @@
       return self.stash('<code>' + escapeHtml(body) + '</code>');
     });
 
-    // 1b. comentarios do Obsidian: %%isto some%%. Depois do codigo inline de
+    // 1a. wikilink com a barra escapada, que e como se escreve o apelido dentro
+    // de uma celula de tabela: [[Nota\|apelido]]. Volta a ser o separador antes
+    // que o escape abaixo transforme a barra em texto.
+    text = text.replace(/\[\[([^\]\n]*?)\\\|([^\]\n]*)\]\]/g, '[[$1|$2]]');
+
+    // 1b. escapes de barra invertida: qualquer pontuacao ASCII (CommonMark).
+    // Antes dos comentarios (\%% nao abre um), da matematica (\$) e dos links.
+    text = text.replace(/\\([!"#$%&'()*+,\-./:;<=>?@\[\\\]^_`{|}~])/g, function (_, ch) {
+      return self.stash(escapeHtml(ch));
+    });
+
+    // 1c. comentarios do Obsidian: %%isto some%%. Depois do codigo inline de
     // proposito — `%%assim%%` dentro de crase continua aparecendo.
     text = text.replace(/%%[\s\S]*?%%/g, '');
 
@@ -149,30 +179,24 @@
       return pre + self.stash('<code class="math">' + escapeHtml(m) + '</code>');
     });
 
-    // 3. HTML cru permitido
-    text = text.replace(/<\/?[a-zA-Z][\w-]*(?:\s[^<>]*)?\/?>/g, function (tag) {
-      return self.stash(sanitizeInlineHtml(tag));
-    });
+    // Daqui ate o passo 10, links, imagens e wikilinks sao reconhecidos no
+    // texto CRU, antes do escape geral (passo 12), e cada funcao (image, link,
+    // embed) escapa o que recebe uma vez so. Na ordem antiga o escape vinha
+    // primeiro: titulo entre aspas nao casava (as aspas ja eram &quot;), & em
+    // URL e em nome de nota saia escapado duas vezes, e o destino <com espaco>
+    // era tomado por tag HTML.
 
-    // 4. escapes de barra invertida
-    text = text.replace(/\\([\\`*_{}\[\]()#+\-.!>~|=$])/g, function (_, ch) {
-      return self.stash(escapeHtml(ch));
-    });
-
-    // 5. o resto do texto vira literal
-    text = escapeHtml(text);
-
-    // 6. imagens embutidas do Obsidian: ![[arquivo.png|300]]
+    // 3. imagens embutidas do Obsidian: ![[arquivo.png|300]]
     text = text.replace(/!\[\[([^\]|]+?)(?:\|([^\]]*))?\]\]/g, function (_, target, size) {
       return self.stash(self.embed(target.trim(), (size || '').trim()));
     });
 
-    // 7. imagens markdown: ![alt](src "titulo")
-    text = text.replace(/!\[([^\]]*)\]\(\s*([^\s)]+)(?:\s+"([^"]*)")?\s*\)/g, function (_, alt, src, title) {
-      return self.stash(self.image(src, alt, title));
+    // 4. imagens markdown: ![alt](src "titulo"), ![alt](<com espaco.png>)
+    text = text.replace(RE_INLINE_IMAGE, function (_, alt, dest, title) {
+      return self.stash(self.image(destinoDe(dest), alt, tituloDe(title)));
     });
 
-    // 8. wikilinks: [[Nota]] / [[Nota|texto]] / [[Nota#secao]]
+    // 5. wikilinks: [[Nota]] / [[Nota|texto]] / [[Nota#secao]]
     text = text.replace(/\[\[([^\]|]+?)(?:\|([^\]]*))?\]\]/g, function (_, target, label) {
       var t = target.trim();
       // O Obsidian mostra o caminho inteiro do alvo, nao so o arquivo:
@@ -184,7 +208,7 @@
       );
     });
 
-    // 9. notas de rodape: [^1]
+    // 6. notas de rodape: [^1]
     text = text.replace(/\[\^([^\]\s]+)\]/g, function (all, id) {
       if (!self.ctx.footnotes[id]) return all;
       var order = self.ctx.footnoteOrder.indexOf(id);
@@ -196,20 +220,34 @@
       );
     });
 
-    // 10. links: [texto](url "titulo")
-    text = text.replace(/\[([^\]]*)\]\(\s*<?([^\s)>]*)>?(?:\s+"([^"]*)")?\s*\)/g, function (all, label, href, title) {
-      return self.stash(self.link(href, self.render(label), title));
+    // 7. links: [texto](url "titulo"), [texto](<com espaco.md>)
+    text = text.replace(RE_INLINE_LINK, function (_, label, dest, title) {
+      return self.stash(self.link(destinoDe(dest), self.render(label), tituloDe(title)));
     });
 
-    // 11. autolinks explicitos: <https://...>
-    text = text.replace(/&lt;((?:https?|mailto):[^\s&]+)&gt;/g, function (_, url) {
+    // 8. autolinks explicitos: <https://...>
+    text = text.replace(/<((?:https?|mailto):[^\s<>]+)>/g, function (_, url) {
       return self.stash(self.link(url, escapeHtml(url), ''));
     });
 
-    // 12. URLs soltas
+    // 9. HTML cru permitido (tags inofensivas; o resto vira texto)
+    text = text.replace(/<\/?[a-zA-Z][\w-]*(?:\s[^<>]*)?\/?>/g, function (tag) {
+      return self.stash(sanitizeInlineHtml(tag));
+    });
+
+    // 10. URLs soltas
     text = text.replace(/(^|[\s(])(https?:\/\/[^\s<>"')\]]+[^\s<>"')\].,;:!?])/g, function (_, pre, url) {
       return pre + self.stash(self.link(url, escapeHtml(url), ''));
     });
+
+    // 11. entidades HTML (&copy; &#169; &#xA9;) passam como estao: quem
+    // decodifica e o navegador, e como texto, nunca como marcacao.
+    text = text.replace(/&(?:#[0-9]{1,7}|#[xX][0-9a-fA-F]{1,6}|[a-zA-Z][a-zA-Z0-9]{1,31});/g, function (ent) {
+      return self.stash(ent);
+    });
+
+    // 12. o resto do texto vira literal
+    text = escapeHtml(text);
 
     // 13. enfase — negrito antes de italico
     text = text.replace(/\*\*\*(?!\s)([\s\S]+?)(?<!\s)\*\*\*/g, '<strong><em>$1</em></strong>');
@@ -251,7 +289,7 @@
       return '<span class="blocked-link" title="link bloqueado">' + innerHtml + '</span>';
     }
     // Caminho relativo ou absoluto no disco: abre dentro do proprio MarkPad.
-    return '<a class="internal-link" data-file="' + escapeAttr(decodeURIComponent(raw)) + '" href="#"' + t + '>' + innerHtml + '</a>';
+    return '<a class="internal-link" data-file="' + escapeAttr(decodeSeguro(raw)) + '" href="#"' + t + '>' + innerHtml + '</a>';
   };
 
   /** ' style="width:300px"' a partir de '300' ou '300x200'. Vazio se nao for. */
@@ -289,7 +327,7 @@
     }
     if (/^[a-z][a-z0-9+.-]*:/i.test(raw)) return '<span class="blocked-link">imagem bloqueada</span>';
 
-    return '<img class="local-image" data-src="' + escapeAttr(decodeURIComponent(raw)) + '"' + a + t + style + '>';
+    return '<img class="local-image" data-src="' + escapeAttr(decodeSeguro(raw)) + '"' + a + t + style + '>';
   };
 
   Inline.prototype.embed = function (target, size) {
@@ -319,7 +357,9 @@
   var RE_OL = /^(\s*)(\d{1,9})([.)])[ \t]+(.*)$/;
   var RE_FOOTNOTE = /^(\s{0,3})\[\^([^\]\s]+)\]:[ \t]*(.*)$/;
   var RE_TABLE_SEP = /^\s{0,3}\|?\s*:?-{1,}:?\s*(\|\s*:?-{1,}:?\s*)*\|?\s*$/;
-  var RE_HTML_BLOCK = /^\s{0,3}<(\/?)([a-zA-Z][\w-]*)/;
+  // So e tag se o nome terminar em espaco, '>' ou '/>': <https://x.com> no
+  // inicio da linha e autolink, nao bloco HTML.
+  var RE_HTML_BLOCK = /^\s{0,3}<(\/?)([a-zA-Z][\w-]*)(?=[\s>]|\/>|$)/;
 
   var CALLOUT_ALIASES = {
     note: 'note', abstract: 'abstract', summary: 'abstract', tldr: 'abstract',

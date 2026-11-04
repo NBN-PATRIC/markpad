@@ -234,7 +234,34 @@ const checks = [
   ['casulo ainda tem o link de dentro', /note-embed[^>]*><a class="internal-link embed-link" data-wikilink="Nota"/.test(r('![[Nota]]\n').html)],
   ['embed de imagem continua imagem', /<img class="local-image" data-src="foto.png"/.test(r('![[foto.png|300]]\n').html)],
   ['apelido de embed vai no data-alias', /data-alias="Meu titulo"/.test(r('![[Nota|Meu titulo]]\n').html)],
-  ['apelido de embed vira o rotulo do link', />Meu titulo</.test(r('![[Nota|Meu titulo]]\n').html)]
+  ['apelido de embed vira o rotulo do link', />Meu titulo</.test(r('![[Nota|Meu titulo]]\n').html)],
+
+  // Passada inline reordenada (04/11/2026): links, imagens e wikilinks sao
+  // reconhecidos no texto cru, antes do escape geral. Antes o escape vinha
+  // primeiro, e cada um destes casos saia errado.
+  ['link com titulo entre aspas', /data-external="https:\/\/x\.com" href="#" title="T"/.test(r('[t](https://x.com "T")\n').html)],
+  ['link com titulo entre apostrofos', /title="T"/.test(r("[t](https://x.com 'T')\n").html)],
+  ['link com titulo entre parenteses', /title="T"/.test(r('[t](https://x.com (T))\n').html)],
+  ['imagem com titulo', /<img class="local-image" data-src="a\.png" alt="i" title="T">/.test(r('![i](a.png "T")\n').html)],
+  ['destino com espaco entre < >', /data-file="minha nota\.md"/.test(r('[nota](<minha nota.md>)\n').html)],
+  ['& na URL do link escapa uma vez so', /data-external="https:\/\/x\.com\/\?a=1&amp;b=2"/.test(r('[x](https://x.com/?a=1&b=2)\n').html)],
+  ['& na URL solta escapa uma vez so', /data-external="https:\/\/x\.com\/\?a=1&amp;b=2"/.test(r('veja https://x.com/?a=1&b=2 aqui\n').html)],
+  ['& no nome da nota do wikilink', /data-wikilink="A &amp; B"/.test(r('[[A & B]]\n').html)],
+  ['wikilink com \\| em tabela usa o apelido', /data-wikilink="Nota" href="#">apelido</.test(r('| a | b |\n|---|---|\n| [[Nota\\|apelido]] | x |\n').html)],
+  ['\\%% nao abre comentario', />%%visivel%%</.test(r('\\%%visivel\\%%\n').html)],
+  ['entidade com nome', /&copy;/.test(r('a &copy; b\n').html) && !/&amp;copy;/.test(r('a &copy; b\n').html)],
+  ['entidade numerica', /&#169;/.test(r('a &#169; b\n').html)],
+  ['& solto continua escapado', /a &amp; b/.test(r('a & b\n').html)],
+  ['escape de qualquer pontuacao some a barra', />\^ : &lt;b&gt;</.test(r('\\^ \\: \\<b>\n').html)],
+  ['autolink no inicio da linha nao e bloco HTML', /<p[^>]*><a class="external-link" data-external="https:\/\/x\.com"/.test(r('<https://x.com>\n').html)],
+  ['javascript: com titulo continua bloqueado', /blocked-link/.test(r('[x](javascript:alert(1) "t")\n').html) && !/javascript:/.test(r('[x](javascript:alert(1) "t")\n').html)],
+  ['javascript: entre < > continua bloqueado', !/javascript:/.test(r('[x](<javascript:alert(1)>)\n').html)],
+  ['tag com onerror no meio do texto continua inerte', !/<[^>]*\sonerror\s*=/i.test(r('oi <img src=x onerror=alert(1)> tchau\n').html)],
+  ['% solto no caminho da imagem nao derruba o render', (() => { try { return /data-src="100% certo\.png"/.test(r('![x](<100% certo.png>)\n').html) && /data-src="100%\.png"/.test(r('![x](100%.png)\n').html); } catch (e) { return false; } })()],
+  ['% codificado continua decodificado', /data-file="minha nota\.md"/.test(r('[n](minha%20nota.md)\n').html)],
+  ['URL com parenteses (Wikipedia)', /data-external="https:\/\/pt\.wikipedia\.org\/wiki\/Fulano_\(cantor\)"/.test(r('[f](https://pt.wikipedia.org/wiki/Fulano_(cantor))\n').html)],
+  ['imagem dentro de link', /<a class="external-link"[^>]*><img class="local-image" data-src="i\.png"/.test(r('[![x](i.png)](https://x.com)\n').html)],
+  ['& no rotulo do link aparece uma vez', />a &amp; b<\/a>/.test(r('[a & b](https://x.com)\n').html)]
 ];
 
 /** Render curto para os casos acima — sem mapa de linha, so o HTML. */

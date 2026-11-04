@@ -28,7 +28,23 @@ Versionamento [SemVer](https://semver.org/lang/pt-BR/).
   também `\n`, `\t` e `\\` (como no Notepad++). Fora do modo regex o texto de
   substituição continua valendo ao pé da letra. "Trocar" (uma ocorrência) casa
   de novo no documento inteiro, então lookbehind e âncoras funcionam.
-- **Salvar em codificação de um byte não troca mais caractere por `?` calado.**
+- **Links, imagens e wikilinks que saíam errados no modo leitura.** O parser
+  escapava o texto inteiro antes de reconhecer os links, e por isso:
+  - link e imagem com título (`[t](url "título")`) não viravam link;
+  - `&` em URL e em nome de nota saía escapado duas vezes (o link do Zabbix ou
+    do phpIPAM abria com `&amp;` no endereço; nota com `&` no nome não era
+    achada), e aspas no texto do link apareciam como `&quot;`;
+  - destino entre `< >` (`[nota](<minha nota.md>)`) era tomado por tag HTML;
+  - `[[Nota\|apelido]]` dentro de tabela mostrava `Nota|apelido`;
+  - `\%%` não protegia o comentário, e `\<`, `\&`, `\^`, `\:` mostravam a barra.
+
+  Agora links, imagens e wikilinks são reconhecidos no texto original e
+  escapados uma vez só. Entram também: título entre apóstrofos ou parênteses,
+  URL com parênteses (Wikipédia), entidades HTML (`&copy;` vira ©), escape de
+  qualquer pontuação (CommonMark) e `<https://...>` no início da linha como
+  link (era tratado como bloco HTML). Um `%` solto num caminho de imagem
+  derrubava o documento inteiro em "Falha ao renderizar"; não derruba mais.
+  Conferido contra 800 notas reais: 789 iguais, 11 diferentes, todas correções.
   Um emoji num arquivo ANSI sumia ao salvar; agora o MarkPad recusa e explica
   que é preciso trocar para UTF-8 no rodapé.
 
