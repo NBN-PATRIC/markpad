@@ -6,6 +6,14 @@ Versionamento [SemVer](https://semver.org/lang/pt-BR/).
 ## [Não lançado]
 
 ### Adicionado
+- **Cor da aba e ícone de estado** (do Notepad++). O menu da aba tem uma
+  fileira de cinco cores e "sem cor": a aba ganha uma faixa no topo e o fundo
+  tingido, a cor aparece também no Ctrl+Tab e volta na próxima sessão. As cores
+  são as da paleta, então acompanham o tema. Antes do nome, um ícone só quando
+  algo foge do normal: lápis com a edição liberada, cadeado com o arquivo
+  somente leitura no disco, alerta quando ele mudou no disco.
+- **Mais do menu da aba:** "Fechar à esquerda", "Fechar todas, exceto as
+  fixadas", "Copiar nome" e "Copiar pasta".
 - **Bloco HTML aparece renderizado.** `<details>`, `<div align="center">`,
   `<kbd>`, `<sub>` e afins deixam de virar uma caixa de código e aparecem como
   no Obsidian. Um `<details>` com markdown no meio (código, lista) funciona.

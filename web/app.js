@@ -114,7 +114,9 @@
     recent: [],
     lastFolder: null,
     session: [],
-    sessionFixadas: []
+    sessionFixadas: [],
+    // Cor da aba por caminho (1 a 5), como o Notepad++ guarda na sessao.
+    sessionCores: {}
   };
 
   // Copia funda: DEFAULTS tem arrays (quickBar, recent, session) e o editor
@@ -270,6 +272,8 @@
     saveTimer = setTimeout(function () {
       settings.session = app.tabs.filter(function (t) { return t.path; }).map(function (t) { return t.path; });
       settings.sessionFixadas = app.tabs.filter(function (t) { return t.path && t.fixada; }).map(function (t) { return t.path; });
+      settings.sessionCores = {};
+      app.tabs.forEach(function (t) { if (t.path && t.cor) settings.sessionCores[t.path] = t.cor; });
       settings.lastFolder = app.folder;
       bridge.call('saveSettings', { json: JSON.stringify(settings) }).catch(function () {});
     }, 400);
@@ -487,6 +491,27 @@
         lbl.className = 'menu-label';
         lbl.textContent = item.label;
         menu.appendChild(lbl);
+        return;
+      }
+      // Fileira de amostras (cor da aba): um clique escolhe, sem submenu.
+      if (item.cores) {
+        var fileira = document.createElement('div');
+        fileira.className = 'menu-cores';
+        var rotulo = document.createElement('span');
+        rotulo.className = 'menu-cores-rotulo';
+        rotulo.textContent = item.label;
+        fileira.appendChild(rotulo);
+        item.cores.forEach(function (c) {
+          var am = document.createElement('button');
+          am.type = 'button';
+          am.className = 'menu-cor' + (c.atual ? ' is-atual' : '') + (c.valor ? '' : ' sem-cor');
+          if (c.valor) am.setAttribute('data-cor', String(c.valor));
+          am.title = c.label;
+          am.setAttribute('aria-label', c.label);
+          am.onclick = function () { hideMenu(); item.escolhe(c.valor); };
+          fileira.appendChild(am);
+        });
+        menu.appendChild(fileira);
         return;
       }
 
@@ -766,7 +791,7 @@
       originContent: tab.originContent,
       encoding: tab.encoding, eol: tab.eol,
       locked: tab.locked, showSource: tab.showSource, scrollTop: tab.scrollTop,
-      historico: tab.historico, fixada: tab.fixada
+      historico: tab.historico, fixada: tab.fixada, cor: tab.cor
     });
     if (app.fechadas.length > 12) app.fechadas.shift();
   }
@@ -792,6 +817,7 @@
         // A aba volta com o historico de voltar/avancar e a fixacao dela.
         aberta.historico = snap.historico;
         aberta.fixada = snap.fixada;
+        aberta.cor = snap.cor;
         renderAll();
       }).catch(function () {});
       return;
@@ -882,6 +908,33 @@
       var aba = tabByPath(p);
       if (aba && !aba.fixada) alternaFixacao(aba);
     });
+    var cores = settings.sessionCores || {};
+    Object.keys(cores).forEach(function (p) {
+      var aba = tabByPath(p);
+      if (aba && cores[p] >= 1 && cores[p] <= 5) aba.cor = cores[p];
+    });
+    renderTabs();
+  }
+
+  /*
+   * Cor da aba, do Notepad++: cinco cores e "sem cor", por documento, guardada
+   * na sessao. As cores sao as da paleta (--color-*), entao acompanham o tema.
+   */
+  function nomeDaCor(n) {
+    switch (n) {
+      case 1: return t('Amarelo');
+      case 2: return t('Verde');
+      case 3: return t('Azul');
+      case 4: return t('Laranja');
+      case 5: return t('Roxo');
+    }
+    return t('Sem cor');
+  }
+
+  function pintaAba(tab, cor) {
+    tab.cor = cor || 0;
+    renderTabs();
+    persist();
   }
 
   var arrastoAba = null;
@@ -962,6 +1015,7 @@
       novo.id = tab.id;
       novo.historico = historicoDe(tab);
       novo.fixada = tab.fixada;
+      novo.cor = tab.cor;
       app.tabs[idx] = novo;
       if (tab.path && !mesmoArquivo(tab.path, data.path)) {
         bridge.call('unwatchFile', { path: tab.path }).catch(function () {});
@@ -1137,6 +1191,7 @@
       if (!tab) return;
       var el = document.createElement('div');
       el.className = 'palette-item' + (i === tu.pos ? ' is-active' : '');
+      if (tab.cor) el.setAttribute('data-cor', String(tab.cor));
       var nome = document.createElement('span');
       nome.textContent = tab.name;
       el.appendChild(nome);
@@ -1293,6 +1348,23 @@
         (!tab.locked ? ' is-unlocked' : '') +
         (tab.fixada ? ' is-pinned' : '');
       el.title = tab.path || tab.name;
+      if (tab.cor) el.setAttribute('data-cor', String(tab.cor));
+
+      // Icone de estado (Notepad++): so o que foge do normal. Travada e o
+      // normal do MarkPad, entao nao ganha icone; mudou no disco vence
+      // somente leitura, que vence liberada.
+      var estado = tab.staleOnDisk ? ['warning', 'is-mudou', t('mudou no disco')]
+        : tab.readOnlyOnDisk ? ['lock', 'is-leitura', t('somente leitura no disco')]
+        : !tab.locked ? ['pencil', 'is-liberada', t('Edição liberada')]
+        : null;
+      if (estado) {
+        var ic = document.createElement('span');
+        ic.className = 'tab-estado ' + estado[1];
+        ic.title = estado[2];
+        var svgEstado = window.MarkPadIcons.build(estado[0], 12);
+        if (svgEstado) ic.appendChild(svgEstado);
+        el.appendChild(ic);
+      }
 
       var name = document.createElement('span');
       name.className = 'tab-name';
@@ -6030,12 +6102,21 @@
       { label: t('Fechar as outras'), action: function () {
           fechaAbas(app.tabs.filter(function (o) { return o !== tab && !o.fixada; }));
         } },
+      { label: t('Fechar à esquerda'), disabled: app.tabs.indexOf(tab) === 0, action: function () {
+          fechaAbas(app.tabs.slice(0, app.tabs.indexOf(tab)).filter(function (o) { return !o.fixada; }));
+        } },
       { label: t('Fechar à direita'), disabled: app.tabs.indexOf(tab) === app.tabs.length - 1, action: function () {
           fechaAbas(app.tabs.slice(app.tabs.indexOf(tab) + 1).filter(function (o) { return !o.fixada; }));
         } },
       { label: t('Fechar as não modificadas'), action: function () {
           fechaAbas(app.tabs.filter(function (o) { return !o.fixada && o.content === o.savedContent; }));
         } },
+      { label: t('Fechar todas, exceto as fixadas'), action: function () {
+          fechaAbas(app.tabs.filter(function (o) { return !o.fixada; }));
+        } },
+      '-',
+      { cores: [0, 1, 2, 3, 4, 5].map(function (n) { return { valor: n, label: nomeDaCor(n), atual: (tab.cor || 0) === n }; }),
+        label: t('Cor da aba'), escolhe: function (n) { pintaAba(tab, n); } },
       '-',
       { label: t('Renomear...'), icon: 'text', key: 'F2', disabled: !tab.path, action: function () { renameDoc(tab.path); } },
       { label: t('Mover para...'), icon: 'folder', disabled: !tab.path, action: function () { moveDoc(tab.path); } },
@@ -6045,6 +6126,8 @@
       { label: t('Abrir no app padrao'), icon: 'external', disabled: !tab.path, action: function () { openWithDefaultApp(tab.path); } },
       { label: t('Mostrar no Explorer'), icon: 'reveal', disabled: !tab.path, action: function () { bridge.call('revealInExplorer', { path: tab.path }); } },
       { label: t('Copiar caminho'), icon: 'copy', disabled: !tab.path, action: function () { navigator.clipboard.writeText(tab.path); toast(t('Caminho copiado.'), 'ok', 1200); } },
+      { label: t('Copiar nome'), disabled: !tab.path, action: function () { navigator.clipboard.writeText(tab.name); toast(t('Nome copiado.'), 'ok', 1200); } },
+      { label: t('Copiar pasta'), disabled: !tab.path, action: function () { navigator.clipboard.writeText(tab.path.replace(/[\\/][^\\/]*$/, '')); toast(t('Pasta copiada.'), 'ok', 1200); } },
       '-',
       { label: t('Excluir arquivo...'), icon: 'trash', disabled: !tab.path, action: function () { deleteDoc(tab.path); } }
     ];
@@ -8007,6 +8090,7 @@
       if (data.kind === 'deleted') {
         tab.staleOnDisk = true;
         renderHeader();
+        renderTabs();   // o icone de "mudou no disco" mora na aba
         return;
       }
 
@@ -8023,6 +8107,7 @@
       } else {
         tab.staleOnDisk = true;
         renderHeader();
+        renderTabs();   // o icone de "mudou no disco" mora na aba
       }
     });
 

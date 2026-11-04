@@ -340,6 +340,30 @@ body.sidebar-hidden .main { border-left: none; border-radius: var(--radius-m) va
 }
 .tab.is-unlocked { box-shadow: inset 0 -2px 0 var(--color-accent); }
 
+/* Cor da aba (Notepad++): faixa no topo e fundo tingido. As cinco cores sao
+   as da paleta, resolvidas no proprio elemento: um tema que troca --color-*
+   no <body> troca a cor da aba junto. */
+[data-cor="1"] { --tab-cor: var(--color-yellow); }
+[data-cor="2"] { --tab-cor: var(--color-green); }
+[data-cor="3"] { --tab-cor: var(--color-blue); }
+[data-cor="4"] { --tab-cor: var(--color-orange); }
+[data-cor="5"] { --tab-cor: var(--color-purple); }
+.tab[data-cor] {
+  background-color: color-mix(in srgb, var(--tab-cor) 13%, transparent);
+  background-image: linear-gradient(var(--tab-cor), var(--tab-cor));
+  background-size: 100% 2px;
+  background-position: top;
+  background-repeat: no-repeat;
+}
+.tab[data-cor]:hover { background-color: color-mix(in srgb, var(--tab-cor) 21%, transparent); }
+.tab.is-active[data-cor] { background-color: color-mix(in srgb, var(--tab-cor) 17%, var(--background-primary)); }
+.troca-uso .palette-item[data-cor] { box-shadow: inset 3px 0 0 var(--tab-cor); }
+
+/* Icone de estado antes do nome: so o que foge do normal (travada). */
+.tab-estado { display: flex; flex-shrink: 0; color: var(--text-muted); }
+.tab-estado.is-liberada { color: var(--color-accent); }
+.tab-estado.is-mudou { color: var(--color-orange); }
+
 .tab-name { overflow: hidden; text-overflow: ellipsis; }
 .tab-dot {
   width: 7px; height: 7px;
@@ -1743,6 +1767,24 @@ body.no-gutter .ed-row .ln { display: none; }
 .menu-item .menu-check { margin-left: auto; padding-left: 16px; color: var(--text-accent); display: flex; }
 .menu-sep { height: 1px; background: var(--background-modifier-border); margin: 4px 6px; }
 .menu-label { padding: 6px 10px 3px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-faint); }
+
+/* Fileira de amostras do menu (cor da aba). O rotulo alinha com o texto dos
+   itens, que comeca depois do icone de 16px e do vao de 9px. */
+.menu-cores { display: flex; align-items: center; gap: 6px; padding: 5px 10px 5px 35px; }
+.menu-cores-rotulo { margin-right: auto; padding-right: 12px; color: var(--text-normal); font-size: var(--font-ui-small); }
+.menu-cor {
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  background: var(--tab-cor);
+  border: 1px solid var(--background-modifier-border);
+  flex-shrink: 0;
+}
+.menu-cor.sem-cor {
+  background: linear-gradient(135deg, transparent 45%, var(--text-faint) 45%, var(--text-faint) 55%, transparent 55%);
+}
+.menu-cor:hover { outline: 2px solid var(--background-modifier-border-hover); outline-offset: 1px; }
+.menu-cor.is-atual { outline: 2px solid var(--text-normal); outline-offset: 1px; }
+.menu-cor:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 1px; }
 
 .palette {
   position: fixed;
