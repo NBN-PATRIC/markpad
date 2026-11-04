@@ -58,23 +58,46 @@ public partial class App : Application
             }
         }
 
+        // "Nova janela" (menu, aba, Ctrl+Shift+N): outro processo de proposito,
+        // como o -multiInst do Notepad++. Nao repassa nada e nao abre o pipe,
+        // que continua sendo da janela que chegou primeiro.
+        var novaJanela = e.Args.Any(a => a.Equals(ArgNovaJanela, StringComparison.OrdinalIgnoreCase));
+
         _mutex = new Mutex(true, MutexName, out bool isFirst);
 
-        if (!isFirst)
+        if (!isFirst && !novaJanela)
         {
             // Ja existe uma janela aberta: manda os arquivos pra ela e sai.
-            ForwardToRunningInstance(e.Args);
-            Shutdown();
-            return;
+            if (ForwardToRunningInstance(e.Args))
+            {
+                Shutdown();
+                return;
+            }
+
+            // Ninguem atendeu o pipe. A janela que tinha a vez fechou e so
+            // sobrou janela extra (que nao escuta), ou ela morreu sem soltar o
+            // mutex: esta assume. Se nem assim, abre como janela extra; antes o
+            // arquivo pedido sumia calado.
+            isFirst = TomaAVez();
         }
 
         base.OnStartup(e);
 
-        var window = new MainWindow(e.Args);
+        var window = new MainWindow(e.Args, janelaExtra: !isFirst);
         MainWindow = window;
         window.Show();
 
-        StartPipeServer(window);
+        if (isFirst) StartPipeServer(window);
+    }
+
+    public const string ArgNovaJanela = "--nova-janela";
+
+    /// <summary>Tenta ficar com o mutex que outra janela largou (ou deixou abandonado).</summary>
+    private bool TomaAVez()
+    {
+        try { return _mutex!.WaitOne(0); }
+        catch (AbandonedMutexException) { return true; }
+        catch { return false; }
     }
 
     /// <summary>Ha outro MarkPad rodando nesta sessao do Windows?</summary>
@@ -100,7 +123,8 @@ public partial class App : Application
         base.OnExit(e);
     }
 
-    private static void ForwardToRunningInstance(string[] args)
+    /// <summary>Manda os argumentos para a janela que escuta o pipe. False se ninguem atendeu.</summary>
+    private static bool ForwardToRunningInstance(string[] args)
     {
         if (args.Length == 0)
         {
@@ -125,10 +149,11 @@ public partial class App : Application
             var payload = Encoding.UTF8.GetBytes(string.Join("\n", args));
             client.Write(payload, 0, payload.Length);
             client.Flush();
+            return true;
         }
         catch
         {
-            // Se a instancia anterior morreu sem liberar o mutex, nao ha o que fazer.
+            return false;
         }
     }
 

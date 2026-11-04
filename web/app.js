@@ -903,6 +903,17 @@
     return cadeia;
   }
 
+  /** Abre outro MarkPad com estes caminhos (arquivo ou pasta). Promessa de true se abriu. */
+  function novaJanela(caminhos) {
+    return bridge.call('newWindow', { paths: caminhos || [] }).then(function () {
+      toast(t('Abrindo outra janela...'), 'ok', 1400);
+      return true;
+    }).catch(function (err) {
+      toast(t('Não deu para abrir outra janela: ') + (err && err.message || err), 'error', 4000);
+      return false;
+    });
+  }
+
   function restauraFixadas() {
     (settings.sessionFixadas || []).forEach(function (p) {
       var aba = tabByPath(p);
@@ -5079,6 +5090,7 @@
       { id: 'export', label: t('Exportar como HTML...'), icon: 'external', enabled: !!tab, action: exportHtml },
       { id: 'print', label: t('Imprimir'), key: 'Ctrl+Alt+P', icon: 'printer', enabled: !!tab, action: doPrint },
       { id: 'fullscreen', label: t('Tela inteira'), key: 'F11', icon: 'external', checked: !!app.telaInteira, action: alternaTelaInteira },
+      { id: 'newWindow', label: t('Nova janela'), key: 'Ctrl+Shift+N', icon: 'columns', action: function () { novaJanela(app.folder ? [app.folder] : []); } },
       { id: 'topmost', label: t('Sempre no topo'), icon: 'pin', checked: !!app.sempreNoTopo, action: alternaSempreNoTopo },
       { id: 'copyPath', label: t('Copiar caminho do arquivo'), icon: 'copy', enabled: !!(tab && tab.path), action: function () { navigator.clipboard.writeText(activeTab().path); toast(t('Caminho copiado.'), 'ok', 1200); } },
       { id: 'reveal', label: t('Mostrar no Explorer'), icon: 'reveal', enabled: !!(tab && tab.path), action: function () { bridge.call('revealInExplorer', { path: activeTab().path }); } },
@@ -6065,6 +6077,8 @@
       entry('foldAll'), entry('unfoldAll'), '-',
       { label: t('Visual'), header: true },
       entry('wrap'), entry('gutter'), entry('properties'), entry('wide'), entry('theme'), '-',
+      { label: t('Janela'), header: true },
+      entry('newWindow'), entry('fullscreen'), entry('topmost'), '-',
       { label: t('Trava'), header: true },
       entry('lockOnOpen'), entry('confirmUnlock'), entry('autoSave'), '-',
       { label: t('Arquivos'), header: true },
@@ -6084,6 +6098,7 @@
       { label: t('Duplicar'), icon: 'copy', action: function () { duplicateDoc(path); } },
       { label: t('Historico de versoes...'), icon: 'clock', action: function () { abreVersoes(path); } },
       '-',
+      { label: t('Abrir em nova janela'), icon: 'columns', action: function () { novaJanela([path]); } },
       { label: t('Abrir no app padrao'), icon: 'external', action: function () { openWithDefaultApp(path); } },
       { label: t('Mostrar no Explorer'), icon: 'reveal', action: function () { bridge.call('revealInExplorer', { path: path }); } },
       { label: t('Copiar caminho'), icon: 'copy', action: function () { navigator.clipboard.writeText(path); toast(t('Caminho copiado.'), 'ok', 1200); } },
@@ -6123,6 +6138,12 @@
       { label: t('Duplicar'), icon: 'copy', disabled: !tab.path, action: function () { duplicateDoc(tab.path); } },
       { label: t('Historico de versoes...'), icon: 'clock', disabled: !tab.path, action: function () { abreVersoes(tab.path); } },
       '-',
+      { label: t('Abrir em nova janela'), icon: 'columns', disabled: !tab.path, action: function () { novaJanela([tab.path]); } },
+      // Mover leva o arquivo do disco: com alteracao pendente, a outra janela
+      // abriria sem ela. Salva primeiro (ou fica aqui).
+      { label: t('Mover para nova janela'), disabled: !tab.path || tab.content !== tab.savedContent, action: function () {
+          novaJanela([tab.path]).then(function (ok) { if (ok) closeTab(tab.id); });
+        } },
       { label: t('Abrir no app padrao'), icon: 'external', disabled: !tab.path, action: function () { openWithDefaultApp(tab.path); } },
       { label: t('Mostrar no Explorer'), icon: 'reveal', disabled: !tab.path, action: function () { bridge.call('revealInExplorer', { path: tab.path }); } },
       { label: t('Copiar caminho'), icon: 'copy', disabled: !tab.path, action: function () { navigator.clipboard.writeText(tab.path); toast(t('Caminho copiado.'), 'ok', 1200); } },
@@ -7111,7 +7132,7 @@
     if (ctrl && !e.altKey) {
       switch (e.key.toLowerCase()) {
         case 'o': e.preventDefault(); e.shiftKey ? doOpenFolder() : doOpen(); return;
-        case 'n': e.preventDefault(); newTab(); return;
+        case 'n': e.preventDefault(); if (e.shiftKey) novaJanela(app.folder ? [app.folder] : []); else newTab(); return;
         case 's': e.preventDefault(); saveTab(activeTab(), e.shiftKey); return;
         case 'w': e.preventDefault(); if (tab) closeTab(app.activeId); return;
         case 'e': e.preventDefault(); toggleLock(); return;
@@ -8152,19 +8173,25 @@
       app.isDefault = info.isDefault;
       app.currentHandler = info.handler;
       app.portable = info.portable;
+      // Janela extra ("Nova janela") ou com outra aberta: a sessao e as copias
+      // de seguranca sao da outra. Restaurar duplicaria as abas dela, e
+      // "Descartar" no aviso das copias apagaria o rascunho vivo de la.
+      app.janelaExtra = !!info.janelaExtra;
+      app.outrasJanelas = !!info.outrasJanelas;
 
       var toOpen = (info.openPaths || []).slice();
-      if (!toOpen.length && settings.restoreSession && settings.session) {
+      if (!toOpen.length && !app.janelaExtra && settings.restoreSession && settings.session) {
         toOpen = settings.session.slice(0, 12);
       }
 
       if (settings.lastFolder) setFolder(settings.lastFolder, true);
 
       renderAll();
-      return openPaths(toOpen).then(restauraFixadas);
+      return openPaths(toOpen).then(app.janelaExtra ? null : restauraFixadas);
     }).then(function () {
       // Depois de restaurar a sessão, para o diálogo não competir com a
       // abertura dos arquivos.
+      if (app.janelaExtra || app.outrasJanelas) return;
       return offerBackups();
     }).then(function () {
       // Por ultimo, e sem segurar nada: se a rede estiver fora, o MarkPad ja

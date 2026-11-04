@@ -6,6 +6,13 @@ Versionamento [SemVer](https://semver.org/lang/pt-BR/).
 ## [Não lançado]
 
 ### Adicionado
+- **Nova janela** (Ctrl+Shift+N, menu ⋯ > Janela, e "Abrir em nova janela" /
+  "Mover para nova janela" no menu da aba e da árvore). Abre outro MarkPad,
+  em escada a partir da janela que pediu (mesmo monitor e tamanho). A janela
+  extra não restaura a sessão nem oferece as cópias de segurança da outra (o
+  "Descartar" do aviso apagaria o rascunho vivo de lá), e grava as preferências
+  sem mexer na sessão da principal. O menu ⋯ ganhou a seção Janela, com
+  Tela inteira (F11) e Sempre no topo.
 - **Cor da aba e ícone de estado** (do Notepad++). O menu da aba tem uma
   fileira de cinco cores e "sem cor": a aba ganha uma faixa no topo e o fundo
   tingido, a cor aparece também no Ctrl+Tab e volta na próxima sessão. As cores
@@ -142,6 +149,10 @@ Versionamento [SemVer](https://semver.org/lang/pt-BR/).
   interface.
 
 ### Corrigido
+- **Abrir um arquivo com o MarkPad "aberto" que não respondia perdia o
+  arquivo.** Se a janela que recebe os pedidos tinha fechado (sobrando só uma
+  janela extra) ou morrido sem soltar a vez, o pedido ia para ninguém. Agora a
+  nova abertura assume a vez ou, no pior caso, abre numa janela própria.
 - **Todo callout saía azul.** A cor padrão pesava mais que a do tipo:
   `[!warning]` não ficava laranja, nem `[!question]` amarelo.
 - **O botão Copiar do bloco de código não aparecia.** A peneira do HTML o

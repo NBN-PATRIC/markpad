@@ -82,6 +82,11 @@ public partial class MainWindow : Window
     private readonly Dictionary<string, DateTime> _lastChangeNotice = new(StringComparer.OrdinalIgnoreCase);
 
     private readonly string[] _startupArgs;
+
+    // Aberta por "Nova janela" (ou porque a primeira nao atendeu): nao escuta o
+    // pipe, nao oferece copias de seguranca de ninguem e grava a configuracao
+    // sem mexer na sessao da outra janela.
+    private readonly bool _janelaExtra;
     private readonly List<string> _pendingOpen = new();
     private readonly string _settingsPath;
 
@@ -143,12 +148,28 @@ public partial class MainWindow : Window
     private bool _allowClose;
     private bool _darkTitleBar = true;
 
-    public MainWindow(string[] args)
+    public MainWindow(string[] args, bool janelaExtra = false)
     {
         InitializeComponent();
 
         _startupArgs = args;
+        _janelaExtra = janelaExtra;
         _settingsPath = Path.Combine(DataRoot, "settings.json");
+
+        // Janela extra abre em escada a partir da janela que pediu (mesmo
+        // monitor, mesmo tamanho, 32 px abaixo e a direita): em cima da outra,
+        // no mesmo lugar, parecia que nada tinha acontecido; no centro do
+        // monitor principal, ia parar longe de quem pediu.
+        if (janelaExtra && PosicaoPedida(args) is Rect origem)
+        {
+            WindowStartupLocation = WindowStartupLocation.Manual;
+            Width = Math.Max(MinWidth, origem.Width);
+            Height = Math.Max(MinHeight, origem.Height);
+            var vl = SystemParameters.VirtualScreenLeft;
+            var vt = SystemParameters.VirtualScreenTop;
+            Left = Math.Max(vl, Math.Min(origem.Left + 32, vl + SystemParameters.VirtualScreenWidth - Width));
+            Top = Math.Max(vt, Math.Min(origem.Top + 32, vt + SystemParameters.VirtualScreenHeight - Height));
+        }
 
         Loaded += OnLoaded;
         Closing += OnClosing;
@@ -696,6 +717,9 @@ public partial class MainWindow : Window
                 SaveSettingsFile(Str(args, "json", "{}"));
                 return true;
 
+            case "newWindow":
+                return AbreNovaJanela(StrList(args, "paths"));
+
             case "print":
                 Web.CoreWebView2?.ShowPrintUI(CoreWebView2PrintDialogKind.Browser);
                 return true;
@@ -802,8 +826,84 @@ public partial class MainWindow : Window
             handler = FileAssociation.EffectiveHandler(),
             exePath = Environment.ProcessPath ?? "",
             portable = IsPortable,
-            dataRoot = DataRoot
+            dataRoot = DataRoot,
+            janelaExtra = _janelaExtra,
+            outrasJanelas = OutrasJanelas() > 0
         };
+    }
+
+    private const string ArgPosicao = "--posicao=";
+
+    /// <summary>O retangulo da janela que pediu a nova (--posicao=L,T,W,H), se veio e e numero.</summary>
+    private static Rect? PosicaoPedida(string[] args)
+    {
+        foreach (var a in args)
+        {
+            if (!a.StartsWith(ArgPosicao, StringComparison.OrdinalIgnoreCase)) continue;
+            var partes = a.Substring(ArgPosicao.Length).Split(',');
+            if (partes.Length != 4) return null;
+            var v = new double[4];
+            for (var i = 0; i < 4; i++)
+                if (!double.TryParse(partes[i], System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture, out v[i]) || double.IsNaN(v[i]) || double.IsInfinity(v[i]))
+                    return null;
+            if (v[2] <= 0 || v[3] <= 0) return null;
+            return new Rect(v[0], v[1], v[2], v[3]);
+        }
+        return null;
+    }
+
+    /// <summary>Quantos outros MarkPad (o mesmo executavel) estao abertos nesta sessao do Windows.</summary>
+    private static int OutrasJanelas()
+    {
+        try
+        {
+            using var eu = System.Diagnostics.Process.GetCurrentProcess();
+            var meuExe = Environment.ProcessPath ?? "";
+            var n = 0;
+            foreach (var p in System.Diagnostics.Process.GetProcessesByName(eu.ProcessName))
+            {
+                using (p)
+                {
+                    if (p.Id == eu.Id || p.SessionId != eu.SessionId) continue;
+                    string? exe = null;
+                    try { exe = p.MainModule?.FileName; } catch { }
+                    // Sem poder ler o caminho, conta: na duvida, nao mexer nas
+                    // copias de seguranca e mais seguro.
+                    if (exe is null || string.Equals(exe, meuExe, StringComparison.OrdinalIgnoreCase)) n++;
+                }
+            }
+            return n;
+        }
+        catch { return 0; }
+    }
+
+    /*
+     * Abre outro MarkPad, com os arquivos ou a pasta dados. So o proprio
+     * executavel, so caminho que existe; o resto do pedido e ignorado.
+     */
+    private object AbreNovaJanela(List<string>? paths)
+    {
+        var exe = Environment.ProcessPath;
+        if (string.IsNullOrEmpty(exe)) throw new InvalidOperationException("nao achei o executavel do MarkPad.");
+
+        var psi = new System.Diagnostics.ProcessStartInfo(exe) { UseShellExecute = false };
+        psi.ArgumentList.Add(App.ArgNovaJanela);
+        // Maximizada ou em tela inteira, a escada parte do tamanho normal dela.
+        var r = WindowState == WindowState.Normal && !_telaCheia ? new Rect(Left, Top, Width, Height) : RestoreBounds;
+        if (!r.IsEmpty)
+        {
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
+            psi.ArgumentList.Add(ArgPosicao + string.Join(",", r.Left.ToString(ic), r.Top.ToString(ic), r.Width.ToString(ic), r.Height.ToString(ic)));
+        }
+        foreach (var p in paths ?? new List<string>())
+        {
+            if (string.IsNullOrWhiteSpace(p)) continue;
+            var full = Path.GetFullPath(p);
+            if (File.Exists(full) || Directory.Exists(full)) psi.ArgumentList.Add(full);
+        }
+        System.Diagnostics.Process.Start(psi)?.Dispose();
+        return true;
     }
 
     // ------------------------------------------------------------- dialogos
@@ -1076,6 +1176,7 @@ public partial class MainWindow : Window
     {
         if (!IsValidJson(json))
             throw new InvalidDataException("configuracao invalida: nada foi gravado.");
+        if (_janelaExtra) json = MantemSessaoDoDisco(json);
 
         Directory.CreateDirectory(Path.GetDirectoryName(_settingsPath)!);
         var temp = _settingsPath + ".tmp";
@@ -1091,6 +1192,35 @@ public partial class MainWindow : Window
             File.Replace(temp, _settingsPath, SettingsBackupPath, true);
         else
             File.Move(temp, _settingsPath, overwrite: true);
+    }
+
+    // A sessao (abas, fixadas, cores, pasta) e da janela principal. A extra
+    // grava as preferencias dela, mas devolve a sessao como esta no disco:
+    // sem isso, a ultima janela a gravar decidia o que reabre amanha.
+    private static readonly string[] ChavesDaSessao = { "session", "sessionFixadas", "sessionCores", "lastFolder" };
+
+    private string MantemSessaoDoDisco(string json)
+    {
+        try
+        {
+            if (System.Text.Json.Nodes.JsonNode.Parse(json) is not System.Text.Json.Nodes.JsonObject novo) return json;
+            System.Text.Json.Nodes.JsonObject? atual = null;
+            if (File.Exists(_settingsPath))
+                atual = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(_settingsPath, Encoding.UTF8)) as System.Text.Json.Nodes.JsonObject;
+            foreach (var chave in ChavesDaSessao)
+            {
+                novo.Remove(chave);
+                if (atual?[chave] is System.Text.Json.Nodes.JsonNode valor) novo[chave] = valor.DeepClone();
+            }
+            return novo.ToJsonString(new JsonSerializerOptions
+            {
+                Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+            });
+        }
+        catch
+        {
+            return json;
+        }
     }
 
     // Nao escreve bytes nem arquivo cru: escreve texto UTF-8 e so aceita
