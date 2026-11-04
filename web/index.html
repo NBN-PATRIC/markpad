@@ -127,6 +127,12 @@
 
       <header class="view-header">
         <div class="view-title">
+          <!-- Voltar e avançar dentro da aba: seguir um link troca o documento
+               da própria aba e guarda onde se estava. Clique direito lista. -->
+          <div class="nav-buttons">
+            <button class="icon-btn nav-btn" id="btnVoltar" data-icon="arrow-left" title="Voltar (Alt+←)" disabled></button>
+            <button class="icon-btn nav-btn" id="btnAvancar" data-icon="arrow-right" title="Avançar (Alt+→)" disabled></button>
+          </div>
           <span class="view-icon" data-icon="file-text"></span>
           <span class="view-name" id="viewTitle">MarkPad</span>
           <span class="dirty-dot" id="dirtyDot" hidden title="alteracoes nao salvas"></span>

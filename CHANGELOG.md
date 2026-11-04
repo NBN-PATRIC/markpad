@@ -5,6 +5,21 @@ Versionamento [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Não lançado]
 
+### Adicionado
+- **Voltar e avançar, como no navegador.** Seguir um link agora troca a nota
+  na própria aba e guarda onde você estava, inclusive a rolagem; antes, todo
+  link abria uma aba nova e não havia como voltar. Botões ← → no cabeçalho do
+  documento (clique direito lista o histórico), Alt+← e Alt+→ na leitura,
+  Ctrl+Alt+← e Ctrl+Alt+→ em qualquer modo, e os botões laterais do mouse.
+  Ctrl+clique ou botão do meio abrem em aba nova. Saltos dentro da mesma nota
+  (sumário, `[[#Seção]]`, nota de rodapé) também entram no histórico.
+  Proteções: nota com alteração não salva nunca é trocada (o destino abre em
+  aba nova), e se o destino já está aberto em outra aba o MarkPad vai para ela
+  em vez de abrir o mesmo arquivo duas vezes. Reabrir aba fechada
+  (Ctrl+Shift+T) traz o histórico junto.
+- **`[[Nota#Seção]]` abre a nota já na seção.** Antes a seção era descartada e
+  a nota abria no topo. Vale também para `[texto](nota.md#Seção)`.
+
 ### Corrigido
 - **O modo código-fonte desalinhava o cursor do texto.** Duas causas, medidas
   no navegador: os títulos cresciam só na camada colorida (cada um empurrava o

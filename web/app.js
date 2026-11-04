@@ -740,7 +740,8 @@
       content: tab.content, savedContent: tab.savedContent,
       originContent: tab.originContent,
       encoding: tab.encoding, eol: tab.eol,
-      locked: tab.locked, showSource: tab.showSource, scrollTop: tab.scrollTop
+      locked: tab.locked, showSource: tab.showSource, scrollTop: tab.scrollTop,
+      historico: tab.historico, fixada: tab.fixada
     });
     if (app.fechadas.length > 12) app.fechadas.shift();
   }
@@ -763,6 +764,9 @@
         aberta.locked = snap.locked;
         aberta.showSource = snap.showSource;
         aberta.scrollTop = snap.scrollTop;
+        // A aba volta com o historico de voltar/avancar e a fixacao dela.
+        aberta.historico = snap.historico;
+        aberta.fixada = snap.fixada;
         renderAll();
       }).catch(function () {});
       return;
@@ -775,6 +779,202 @@
     tab.showSource = snap.showSource;
     app.tabs.push(tab);
     selectTab(tab.id);
+  }
+
+  // ======================================================= voltar e avancar
+  //
+  // Seguir um link troca o documento DA PROPRIA ABA e guarda onde se estava,
+  // como no navegador e no Obsidian. Antes todo link abria aba nova e nao
+  // havia como voltar. Ctrl+clique ou botao do meio abrem em aba nova.
+  // Seguranca: nota com alteracao nao salva nunca e trocada (o destino abre em
+  // aba nova), aba fixada tambem nao, e se o destino ja esta aberto em outra
+  // aba vai para ela, em vez de o mesmo arquivo ficar aberto duas vezes.
+
+  var MAX_HISTORICO = 60;
+
+  function historicoDe(tab) {
+    if (!tab.historico) tab.historico = { voltar: [], avancar: [] };
+    return tab.historico;
+  }
+
+  function mesmoArquivo(a, b) {
+    return !!a && !!b && a.toLowerCase() === b.toLowerCase();
+  }
+
+  /** Onde a aba esta agora: arquivo e rolagem da vista visivel. */
+  function fotoDaAba(tab) {
+    var ativa = activeTab() === tab;
+    var lendo = !ativa || !$('readingView').hidden;
+    var rolagem = ativa
+      ? (lendo ? $('readingScroll').scrollTop : $('editorInput').scrollTop)
+      : (tab.scrollTop || 0);
+    return { path: tab.path, name: tab.name, rolagem: rolagem };
+  }
+
+  function empilha(pilha, foto) {
+    pilha.push(foto);
+    if (pilha.length > MAX_HISTORICO) pilha.shift();
+  }
+
+  function aplicaRolagem(foto) {
+    // Depois da pintura: antes dela o documento ainda nao tem altura.
+    setTimeout(function () {
+      var alvo = $('readingView').hidden ? $('editorInput') : $('readingScroll');
+      alvo.scrollTop = (foto && foto.rolagem) || 0;
+    }, 0);
+  }
+
+  /** Antes de um salto dentro do mesmo documento: o Voltar volta para ca. */
+  function registraPosicao(tab) {
+    if (!tab || !tab.path) return;
+    var h = historicoDe(tab);
+    empilha(h.voltar, fotoDaAba(tab));
+    h.avancar.length = 0;
+    renderNavegacao();
+  }
+
+  function saltaParaSecao(secao) {
+    if (!secao) return;
+    setTimeout(function () {
+      var id = secao.charAt(0) === '^' ? secao.slice(1) : window.MarkPadMarkdown.slugify(secao);
+      var alvo = id && $('preview').querySelector('#' + CSS.escape(id));
+      if (alvo) { alvo.scrollIntoView({ block: 'start' }); piscaAlvo(alvo); }
+    }, 30);
+  }
+
+  /** Troca o documento da aba, mantendo a identidade, o historico e a fixacao. */
+  function carregaNaAba(tab, path) {
+    if (live) live.commit();
+    return bridge.call('readFile', { path: path }).then(function (data) {
+      var idx = app.tabs.indexOf(tab);
+      if (idx === -1) return null;
+      var novo = makeTab(data);
+      novo.id = tab.id;
+      novo.historico = historicoDe(tab);
+      novo.fixada = tab.fixada;
+      app.tabs[idx] = novo;
+      if (tab.path && !mesmoArquivo(tab.path, data.path)) {
+        bridge.call('unwatchFile', { path: tab.path }).catch(function () {});
+      }
+      bridge.call('watchFile', { path: data.path }).catch(function () {});
+      if (!app.folder && data.dir) setFolder(data.dir, true);
+      addRecent(data.path);
+      app.find.index = 0;
+      renderAll();
+      persist();
+      return novo;
+    });
+  }
+
+  /**
+   * Abre o destino de um link do documento. `nav`: { origem: a aba de onde se
+   * clicou, novaAba: Ctrl ou botao do meio, secao: 'Secao' ou '^bloco' }.
+   * Sem `nav` (previa ao pairar, busca) e o openPath de sempre.
+   */
+  function abreDestino(path, nav) {
+    nav = nav || {};
+    var origem = nav.origem && app.tabs.indexOf(nav.origem) !== -1 ? nav.origem : null;
+    var jaAberta = tabByPath(path);
+
+    if (origem && jaAberta === origem) {
+      if (nav.secao) { registraPosicao(origem); saltaParaSecao(nav.secao); }
+      return Promise.resolve(origem);
+    }
+    if (jaAberta) {
+      selectTab(jaAberta.id);
+      saltaParaSecao(nav.secao);
+      return Promise.resolve(jaAberta);
+    }
+
+    var sujo = origem && origem.content !== origem.savedContent;
+    if (!origem || nav.novaAba || origem.fixada || !origem.path || sujo) {
+      return openPath(path).then(function (aba) { saltaParaSecao(nav.secao); return aba; });
+    }
+
+    var foto = fotoDaAba(origem);
+    return confirmNonMarkdown(path).then(function (ok) {
+      if (!ok) return null;
+      return carregaNaAba(origem, path).then(function (novo) {
+        if (!novo) return null;
+        var h = historicoDe(novo);
+        empilha(h.voltar, foto);
+        h.avancar.length = 0;
+        renderNavegacao();
+        if (nav.secao) saltaParaSecao(nav.secao); else aplicaRolagem(null);
+        return novo;
+      });
+    }).catch(function (err) {
+      toast(t('Nao consegui abrir: ') + (err && err.message ? err.message : path), 'error', 5000);
+      return null;
+    });
+  }
+
+  /** Volta (passo -1) ou avanca (+1) `n` entradas do historico da aba ativa. */
+  function navega(passo, n) {
+    var tab = activeTab();
+    if (!tab) return;
+    n = Math.max(1, n || 1);
+    var h = historicoDe(tab);
+    var de = passo < 0 ? h.voltar : h.avancar;
+    var para = passo < 0 ? h.avancar : h.voltar;
+    if (de.length < n) return;
+
+    var alvo = de[de.length - n];
+    var aqui = fotoDaAba(tab);
+    // As entradas puladas vao para a outra pilha na ordem em que se passaria
+    // por elas uma a uma: quem esta mais perto do destino fica no topo.
+    var meio = de.slice(de.length - n + 1).reverse();
+    function confirma() {
+      de.length = de.length - n;
+      empilha(para, aqui);
+      meio.forEach(function (f) { empilha(para, f); });
+      renderNavegacao();
+    }
+
+    if (mesmoArquivo(alvo.path, tab.path)) { confirma(); aplicaRolagem(alvo); return; }
+    if (tab.content !== tab.savedContent) {
+      toast(t('Salve ou descarte as alterações antes de sair desta nota.'), 'warn', 3500);
+      return;
+    }
+    var outra = tabByPath(alvo.path);
+    if (outra) {
+      toast(t('Essa nota já está aberta em outra aba.'), '', 2500);
+      selectTab(outra.id);
+      return;
+    }
+    carregaNaAba(tab, alvo.path).then(function (novo) {
+      if (!novo) return;
+      confirma();
+      aplicaRolagem(alvo);
+    }).catch(function () {
+      toast(t('A nota não existe mais: ') + (alvo.name || alvo.path), 'warn', 3500);
+    });
+  }
+
+  function renderNavegacao() {
+    var tab = activeTab();
+    var h = tab && tab.historico;
+    var voltar = $('btnVoltar'), avancar = $('btnAvancar');
+    if (!voltar || !avancar) return;
+    voltar.disabled = !(h && h.voltar.length);
+    avancar.disabled = !(h && h.avancar.length);
+  }
+
+  /** Clique direito em Voltar/Avancar: a lista, do mais perto ao mais longe. */
+  function menuHistorico(passo, ev) {
+    ev.preventDefault();
+    var tab = activeTab();
+    var h = tab && tab.historico;
+    if (!h) return;
+    var pilha = passo < 0 ? h.voltar : h.avancar;
+    if (!pilha.length) return;
+    var itens = [];
+    for (var i = pilha.length - 1, n = 1; i >= 0 && n <= 15; i--, n++) {
+      (function (passos, foto) {
+        itens.push({ label: foto.name || foto.path, action: function () { navega(passo, passos); } });
+      })(n, pilha[i]);
+    }
+    showMenu(itens, ev.clientX, ev.clientY);
   }
 
   function selectTab(id) {
@@ -948,6 +1148,7 @@
 
     $('viewTitle').textContent = tab ? tab.name : 'MarkPad';
     $('dirtyDot').hidden = !dirty;
+    renderNavegacao();
 
     var windowTitle = tab
       ? (dirty ? '• ' : '') + tab.name + (tab.locked ? '' : '  [edicao liberada]') + ' — MarkPad'
@@ -2153,9 +2354,16 @@
         // de rodape homonima do documento hospedeiro).
         var escopoAncora = (el.closest && el.closest('.embed-content')) || container;
         var target = escopoAncora.querySelector('#' + CSS.escape(el.getAttribute('data-anchor')));
-        if (target) { target.scrollIntoView({ behavior: 'smooth', block: 'start' }); piscaAlvo(target); }
+        if (target) {
+          if (escopoAncora === container) registraPosicao(tab);
+          target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          piscaAlvo(target);
+        }
         return;
       }
+
+      // Ctrl+clique ou botao do meio: aba nova. Clique simples: navega na aba.
+      var navLink = { origem: tab, novaAba: !!(e.ctrlKey || e.metaKey || e.button === 1) };
 
       if (el.hasAttribute('data-tag')) {
         openFolderSearch('#' + el.getAttribute('data-tag'));
@@ -2163,7 +2371,9 @@
       }
 
       if (el.hasAttribute('data-file')) {
-        resolveAndOpen(el.getAttribute('data-file'), tabDeClique(el, tab));
+        var partesArq = el.getAttribute('data-file').split('#');
+        navLink.secao = partesArq.slice(1).join('#');
+        resolveAndOpen(partesArq[0], tabDeClique(el, tab), navLink);
         return;
       }
 
@@ -2179,13 +2389,31 @@
             ? secaoWl.slice(1)
             : window.MarkPadMarkdown.slugify(secaoWl);
           var destinoWl = idWl && container.querySelector('#' + CSS.escape(idWl));
-          if (destinoWl) { destinoWl.scrollIntoView({ behavior: 'smooth', block: 'start' }); piscaAlvo(destinoWl); }
+          if (destinoWl) {
+            registraPosicao(tab);
+            destinoWl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            piscaAlvo(destinoWl);
+          }
           else toast(t('Secao nao encontrada: ') + secaoWl, 'warn');
           return;
         }
 
-        resolveAndOpen(/\.\w+$/.test(wl) ? wl : wl + '.md', tabDeClique(el, tab));
+        // [[Nota#Secao]] abre a nota JA na secao (antes a secao era descartada).
+        navLink.secao = secaoWl;
+        resolveAndOpen(/\.\w+$/.test(wl) ? wl : wl + '.md', tabDeClique(el, tab), navLink);
       }
+    };
+
+    // Botao do meio nao gera 'click': chega como auxclick. E o mousedown dele
+    // sobre um link nao deve ligar a rolagem automatica do navegador.
+    container.onauxclick = function (e) {
+      if (e.button === 1 && e.target.closest && e.target.closest('[data-file],[data-wikilink]')) {
+        e.preventDefault();
+        container.onclick(e);
+      }
+    };
+    container.onmousedown = function (e) {
+      if (e.button === 1 && e.target.closest && e.target.closest('[data-file],[data-wikilink]')) e.preventDefault();
     };
   }
 
@@ -2203,17 +2431,19 @@
     return base.replace(/[\\/]+$/, '') + '\\' + rel.replace(/\//g, '\\').replace(/^\\+/, '');
   }
 
-  function resolveAndOpen(relative, tab) {
+  // `nav` (opcional) diz de qual aba veio o clique e se e para abrir em aba
+  // nova: com ele o link navega na propria aba (abreDestino).
+  function resolveAndOpen(relative, tab, nav) {
     var base = tab.dir || app.folder;
     if (!base) { toast(t('Sem pasta de referencia para resolver o link.'), 'warn'); return; }
 
     var candidate = isAbsolutePath(relative) ? relative : joinPath(base, relative);
 
     bridge.call('pathInfo', { path: candidate }).then(function (info) {
-      if (info.exists && info.kind === 'file') return openPath(info.path);
+      if (info.exists && info.kind === 'file') return abreDestino(info.path, nav);
       if (app.folder) {
         // Nao achou ao lado: procura pelo nome na pasta aberta, como o Obsidian faz.
-        return findByName(relative);
+        return findByName(relative, nav);
       }
       toast(t('Arquivo nao encontrado: ') + relative, 'warn');
       return null;
@@ -2256,11 +2486,11 @@
     });
   }
 
-  function findByName(name) {
+  function findByName(name, nav) {
     return buscaPorNome(name).then(function (achados) {
       if (!achados.length) { toast(t('Arquivo nao encontrado: ') + name, 'warn'); return null; }
-      if (achados.length > 1) toast(achados.length + ' arquivos com esse nome; abri o mais raso.', 'warn');
-      return openPath(achados[0].path);
+      if (achados.length > 1) toast(t('{n} arquivos com esse nome; abri o mais raso.', { n: achados.length }), 'warn');
+      return abreDestino(achados[0].path, nav);
     });
   }
 
@@ -3961,6 +4191,8 @@
       { id: 'saveAs', label: t('Salvar como...'), key: 'Ctrl+Shift+S', icon: 'save', enabled: !!tab, action: function () { saveTab(activeTab(), true); } },
       { id: 'close', label: t('Fechar aba'), key: 'Ctrl+W', icon: 'x', enabled: !!tab, action: function () { closeTab(app.activeId); } },
       { id: 'reopen', label: t('Reabrir aba fechada'), key: 'Ctrl+Shift+T', icon: 'refresh', enabled: !!app.fechadas.length, action: reabrirAba },
+      { id: 'back', label: t('Voltar'), key: 'Alt+←', icon: 'arrow-left', enabled: !!(tab && tab.historico && tab.historico.voltar.length), action: function () { navega(-1); } },
+      { id: 'forward', label: t('Avançar'), key: 'Alt+→', icon: 'arrow-right', enabled: !!(tab && tab.historico && tab.historico.avancar.length), action: function () { navega(1); } },
       { id: 'lock', label: unlocked ? t('Travar edicao') : t('Liberar edicao'), key: 'Ctrl+E', icon: unlocked ? 'lock' : 'unlock', enabled: !!tab, action: toggleLock },
       { id: 'modeRead', label: t('Modo: leitura'), icon: 'book-open', enabled: !!tab, checked: modo === 'leitura', action: function () { setModo('leitura'); } },
       { id: 'modeLive', label: t('Modo: edicao ao vivo'), icon: 'pencil', enabled: !!tab, checked: modo === 'vivo', action: function () { setModo('vivo'); } },
@@ -5342,6 +5574,18 @@
     var tab = activeTab();
     var inEditor = e.target === $('editorInput');
 
+    // ---- voltar/avancar: Ctrl+Alt+setas em qualquer lugar; Alt+setas so fora
+    // de campo de texto (no editor elas ficam com o editor).
+    if (e.altKey && !e.shiftKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+      var foco = document.activeElement;
+      var digitando = !!foco && (foco.tagName === 'TEXTAREA' || foco.tagName === 'INPUT' || foco.isContentEditable);
+      if (ctrl || !digitando) {
+        e.preventDefault();
+        navega(e.key === 'ArrowLeft' ? -1 : 1);
+        return;
+      }
+    }
+
     // ---- comandos globais
     if (ctrl && !e.altKey) {
       switch (e.key.toLowerCase()) {
@@ -5886,6 +6130,19 @@
 
     $('btnLock').onclick = toggleLock;
     $('btnFind').onclick = openFind;
+    $('btnVoltar').onclick = function () { navega(-1); };
+    $('btnAvancar').onclick = function () { navega(1); };
+    $('btnVoltar').oncontextmenu = function (e) { menuHistorico(-1, e); };
+    $('btnAvancar').oncontextmenu = function (e) { menuHistorico(1, e); };
+    // Botoes laterais do mouse (4 e 5): voltar e avancar, como no navegador.
+    // O mousedown deles e engolido para o WebView2 nao tentar navegar a pagina.
+    document.addEventListener('mousedown', function (e) {
+      if (e.button === 3 || e.button === 4) e.preventDefault();
+    });
+    document.addEventListener('mouseup', function (e) {
+      if (e.button === 3) { e.preventDefault(); navega(-1); }
+      else if (e.button === 4) { e.preventDefault(); navega(1); }
+    });
     $('btnMore').onclick = function (e) {
       var r = e.currentTarget.getBoundingClientRect();
       moreMenu(r.right - 220, r.bottom + 4);
