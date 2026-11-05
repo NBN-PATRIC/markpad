@@ -8134,8 +8134,59 @@
       { id: 'quickBar', label: t('Barra de acesso rapido'), icon: 'command', checked: settings.quickBarVisible, action: function () { settings.quickBarVisible = !settings.quickBarVisible; renderQuickBar(); persist(); } },
       { id: 'settings', label: t('Configuracoes...'), key: 'Ctrl+,', icon: 'settings', action: function () { openSettings(); } },
       { id: 'devtools', label: t('Ferramentas do desenvolvedor'), icon: 'settings', action: function () { bridge.call('devTools', {}); } }
-    ];
+    ].map(function (c) {
+      // Atalho escolhido pela pessoa aparece no lugar do de fabrica.
+      var meu = settings.atalhos && settings.atalhos[c.id];
+      if (meu) { c.keyPadrao = c.key; c.key = meu; }
+      return c;
+    });
   }
+
+  // ------------------------------------------------- atalhos personalizados
+  //
+  // Qualquer comando da paleta pode ganhar um atalho (Configuracoes >
+  // Atalhos, clique no atalho). O atalho proprio e conferido antes de todos
+  // os outros; exige Ctrl, Alt ou uma tecla F, para nao roubar a digitacao.
+
+  var NOMES_TECLA = { ' ': 'Space', 'ArrowUp': 'Up', 'ArrowDown': 'Down', 'ArrowLeft': 'Left', 'ArrowRight': 'Right', 'Escape': 'Esc' };
+
+  function comboDoEvento(e) {
+    var k = e.key;
+    if (!k || /^(Control|Shift|Alt|Meta|AltGraph|CapsLock|Dead)$/.test(k)) return null;
+    k = NOMES_TECLA[k] || (k.length === 1 ? k.toUpperCase() : k);
+    var partes = [];
+    if (e.ctrlKey || e.metaKey) partes.push('Ctrl');
+    if (e.altKey) partes.push('Alt');
+    if (e.shiftKey) partes.push('Shift');
+    partes.push(k);
+    return partes.join('+');
+  }
+
+  function atalhoValido(combo) {
+    return !!combo && (/^(Ctrl|Alt)\+/.test(combo) || /(^|\+)F([1-9]|1[0-9]|2[0-4])$/.test(combo));
+  }
+
+  function atalhoPersonalizado(e) {
+    var mapa = settings.atalhos;
+    if (!mapa) return null;
+    var combo = comboDoEvento(e);
+    if (!combo) return null;
+    var id = null;
+    Object.keys(mapa).forEach(function (k) { if (mapa[k] === combo) id = k; });
+    if (!id) return null;
+    var cmd = commands().filter(function (c) { return c.id === id; })[0];
+    if (!cmd || cmd.enabled === false) return null;
+    return cmd.action;
+  }
+
+  document.addEventListener('keydown', function (e) {
+    if (app.capturandoAtalho) return;
+    var acao = atalhoPersonalizado(e);
+    if (!acao) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    acao();
+  }, true);
 
   // ================================================ barra de acesso rapido
 
@@ -8936,6 +8987,7 @@
 
     function desenhar() {
       var q = busca.value.trim().toLowerCase();
+      todos = commands();   // o atalho pode ter mudado
       lista.textContent = '';
 
       var n = 0;
@@ -8954,9 +9006,13 @@
         nome.textContent = c.label;
         row.appendChild(nome);
 
-        var key = document.createElement('span');
-        key.className = 'hotkey-key' + (c.key ? '' : ' is-empty');
+        var key = document.createElement('button');
+        key.type = 'button';
+        key.className = 'hotkey-key' + (c.key ? '' : ' is-empty') + (c.keyPadrao !== undefined ? ' is-meu' : '');
         key.textContent = c.key || t('sem atalho');
+        key.title = t('Clique e pressione o atalho novo. Backspace tira o atalho proprio; Esc cancela.') +
+          (c.keyPadrao !== undefined ? ' ' + t('De fabrica: {k}', { k: c.keyPadrao || t('sem atalho') }) : '');
+        key.onclick = function () { capturaAtalho(c, key, desenhar); };
         row.appendChild(key);
 
         lista.appendChild(row);
@@ -8973,6 +9029,37 @@
     busca.oninput = desenhar;
     desenhar();
     setTimeout(function () { busca.focus(); }, 0);
+  }
+
+  function capturaAtalho(cmd, botao, redesenha) {
+    app.capturandoAtalho = true;
+    botao.textContent = t('Pressione o atalho...');
+    botao.classList.add('is-capturando');
+    function tecla(e) {
+      if (/^(Control|Shift|Alt|Meta|AltGraph)$/.test(e.key)) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      document.removeEventListener('keydown', tecla, true);
+      app.capturandoAtalho = false;
+      settings.atalhos = settings.atalhos || {};
+      if (e.key === 'Escape') { redesenha(); return; }
+      if (e.key === 'Backspace' || e.key === 'Delete') {
+        delete settings.atalhos[cmd.id];
+        persist(); redesenha(); return;
+      }
+      var combo = comboDoEvento(e);
+      if (!atalhoValido(combo)) {
+        toast(t('Use Ctrl, Alt ou uma tecla F no atalho.'), 'warn', 2400);
+        redesenha(); return;
+      }
+      // Um atalho, um comando: quem tinha esse antes perde.
+      Object.keys(settings.atalhos).forEach(function (k) { if (settings.atalhos[k] === combo) delete settings.atalhos[k]; });
+      settings.atalhos[cmd.id] = combo;
+      persist();
+      toast(t('Atalho de {cmd}: {k}', { cmd: cmd.label, k: combo }), 'ok', 1600);
+      redesenha();
+    }
+    document.addEventListener('keydown', tecla, true);
   }
 
   function abaAtualizacao(pai) {

@@ -322,6 +322,14 @@
             // Qualquer imagem local vira o mesmo retangulo: o visor e o tamanho
             // tem o que mostrar sem disco de verdade.
             case 'resolveAsset': result = { url: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI2NDAiIGhlaWdodD0iMzYwIj48cmVjdCB3aWR0aD0iNjQwIiBoZWlnaHQ9IjM2MCIgZmlsbD0iIzNjNWFhMCIvPjxyZWN0IHg9IjQwIiB5PSI0MCIgd2lkdGg9IjU2MCIgaGVpZ2h0PSIyODAiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI2ZmZiIgc3Ryb2tlLXdpZHRoPSI2Ii8+PC9zdmc+', path: msg.args.src }; break;
+            // Nota nova sem dialogo: cria em memoria (nunca por cima).
+            case 'createNote':
+              var nomeNota = /\.(md|txt)$/i.test(msg.args.name) ? msg.args.name : msg.args.name + '.md';
+              var caminhoNota = String(msg.args.dir).replace(/[\\/]+$/, '') + '\\' + nomeNota;
+              var jaHa = Object.prototype.hasOwnProperty.call(FILES, caminhoNota);
+              if (!jaHa) FILES[caminhoNota] = msg.args.content || '';
+              result = { path: caminhoNota, exists: jaHa };
+              break;
             // Anexos: so registra (as provas conferem em window.__anexos).
             case 'saveAttachment':
             case 'copyAttachment':

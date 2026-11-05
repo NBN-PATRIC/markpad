@@ -3064,3 +3064,9 @@ body.wide-lines .cm-modo-vivo .cm-content { max-width: none; padding-right: 40px
 .settings-busca { margin: 0 8px 10px; width: calc(100% - 16px); box-sizing: border-box; }
 .settings-busca-grupo .set-section { display: none; }
 .settings-busca-grupo .set-row[hidden] { display: none; }
+
+/* atalhos editaveis */
+button.hotkey-key { cursor: pointer; border: 1px solid transparent; font: inherit; }
+button.hotkey-key:hover { border-color: var(--background-modifier-border-hover); }
+.hotkey-key.is-meu { color: var(--text-accent); }
+.hotkey-key.is-capturando { border-color: var(--color-accent); color: var(--text-normal); }

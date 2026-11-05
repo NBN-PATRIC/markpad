@@ -6,6 +6,11 @@ Versionamento [SemVer](https://semver.org/lang/pt-BR/).
 ## [Não lançado]
 
 ### Adicionado
+- **Atalhos editáveis** (Configurações > Atalhos): clicar no atalho de
+  qualquer comando e pressionar a combinação nova (com Ctrl, Alt ou uma tecla
+  F). O atalho próprio vale antes do de fábrica e aparece na paleta;
+  Backspace tira, Esc cancela, e um atalho repetido sai do comando que o
+  tinha antes.
 - **Busca nas configurações**: um campo no alto da janela de configurações
   procura em todas as abas de uma vez (sem ligar para acento) e mostra só as
   opções que casam, agrupadas pela aba. Apagar o texto volta à aba de antes.
