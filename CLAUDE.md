@@ -56,17 +56,16 @@ propósito. Interface web embutida no assembly (exe de arquivo único).
   `tools/cm6`, compilação em `C:\dev\markpad-cm6`, fora do ownCloud). Não editar
   `web/codemirror.js` à mão; o que é do MarkPad mora em `web/editor.js`.
 
-## Estado (2026-09-16)
+## Estado (2026-11-05)
 
-Ativo. **v1.3.0 lançada em 2026-09-16** — paletas de cor, tema do VS Code,
-interface em pt-BR/inglês/espanhol, e a edição ao vivo consertada (na 1.2.0 ela
-não abria editor dentro de nenhuma seção, ou seja quase nunca). É também a
-primeira release que o atualizador automático consome: `MarkPad-1.3.0-setup-win-x64.exe`
-e `SHA256SUMS.txt` estão publicados, e a cadeia de conferência foi validada
-contra o digest da própria API do GitHub.
+Ativo. **v1.4.0 lançada em 2026-11-05**: editor CodeMirror 6 nos modos ao vivo
+e fonte (`web/editor.js`), tela dividida, abas empilhadas, janela destacada,
+barra lateral da direita, espaços de trabalho, notas (hoje, modelos, única),
+grafo da pasta, `.canvas`, slides, KaTeX embutido e o pacote de funções do
+Notepad++. Binários do CI (setup, exe, msi, zip) e `SHA256SUMS.txt` conferidos
+contra o digest da API do GitHub e contra o download; quem tem a 1.3.0 recebe
+pelo atualizador. O exe do CI abre e se identifica como `1.4.0+96ff672`.
 
-Pendentes do rumo Obsidian (conferidos no código, não na lista): painel de
-links de saída, operadores de busca (`path:`, `tag:`, `file:`), gráfico local,
-arrastar título para reordenar seção. **KaTeX e Mermaid** estão parados à
-espera de decisão: os dois pedem biblioteca externa, contra a promessa de
-"zero dependências, funciona offline" do README.
+Pendentes: **Mermaid** (a v12 embute o ELK, licença EPL-2.0, e pesa 5,5 MB;
+decisão de licença do Patric), leitor de `.base`, modo Vim, janela destacada
+na mesma instância. A matriz de paridade mora em `estudo-obsidian\` (fora do git).
