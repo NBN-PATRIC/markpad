@@ -4314,7 +4314,102 @@
     sumario.desfazer = null;
     scheduleBackup(tab);
     renderAll();
-    toast(t('Seção de volta ao lugar.'), '', 1600);
+    toast(t('Desfeito.'), '', 1600);
+    return true;
+  }
+
+  // ------------------------------------------------- operacoes com linhas
+  //
+  // Ordenar, remover duplicadas, unir, aparar, recuo, maiusculas: as funcoes
+  // puras moram em textops.js (testadas no node). Aqui so se aplica: no
+  // editor que tem o foco (codigo-fonte ou o bloco aberto no modo ao vivo),
+  // pelo insertText, para o Ctrl+Z do proprio editor desfazer; sem editor
+  // aberto, no documento inteiro, com o Ctrl+Z de fora desfazendo.
+
+  function textareaEmUso() {
+    var a = document.activeElement;
+    var doLive = live && live.activeTextarea ? live.activeTextarea() : null;
+    if (a && a.tagName === 'TEXTAREA' && (a === $('editorInput') || a === doLive)) return a;
+    var tab = activeTab();
+    if (tab && !tab.locked && tab.showSource) return $('editorInput');
+    return null;
+  }
+
+  /*
+   * `fn(texto, ini, fim)` devolve { ini, fim, texto, selIni, selFim } ou null.
+   * `soNoEditor`: precisa de cursor (duplicar, mover, unir, caixa) e nao faz
+   * sentido no documento inteiro.
+   */
+  function aplicaOperacao(nome, fn, soNoEditor) {
+    var tab = activeTab();
+    if (!tab) return;
+    if (tab.locked) { toast(t('Edicao travada. Ctrl+E para liberar.'), 'warn', 2000); return; }
+    var ta = textareaEmUso();
+    if (ta) {
+      var r = fn(ta.value, ta.selectionStart, ta.selectionEnd);
+      if (!r || r.texto === ta.value.slice(r.ini, r.fim)) { toast(t('Nada a mudar.'), '', 1400); return; }
+      ta.focus();
+      ta.setSelectionRange(r.ini, r.fim);
+      if (!document.execCommand('insertText', false, r.texto)) {
+        ta.value = ta.value.slice(0, r.ini) + r.texto + ta.value.slice(r.fim);
+        ta.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+      if (ta === $('editorInput')) onEditorInput();
+      ta.setSelectionRange(r.selIni, r.selFim);
+      return;
+    }
+    if (soNoEditor) { toast(t('Abra um bloco para editar (ou use o modo fonte) e tente de novo.'), 'warn', 2600); return; }
+    if (live) live.commit();
+    var antes = tab.content;
+    var r2 = fn(antes, 0, antes.length);
+    var depois = r2 ? antes.slice(0, r2.ini) + r2.texto + antes.slice(r2.fim) : antes;
+    if (depois === antes) { toast(t('Nada a mudar.'), '', 1400); return; }
+    tab.content = depois;
+    scheduleBackup(tab);
+    renderAll();
+    sumario.desfazer = { tabId: tab.id, antes: antes, depois: depois };
+    toast(t('{op}: feito. Ctrl+Z desfaz.', { op: nome }), 'ok', 2200);
+  }
+
+  function opLinhas(nome) {
+    var T = window.MarkPadTextOps;
+    var tabela = {
+      az: [t('Ordenar linhas (A a Z)'), function (x, a, b) { return T.ordenaLinhas(x, a, b, 'az'); }],
+      za: [t('Ordenar linhas (Z a A)'), function (x, a, b) { return T.ordenaLinhas(x, a, b, 'za'); }],
+      tamanho: [t('Ordenar linhas por tamanho'), function (x, a, b) { return T.ordenaLinhas(x, a, b, 'tamanho'); }],
+      inverter: [t('Inverter a ordem das linhas'), function (x, a, b) { return T.ordenaLinhas(x, a, b, 'inverter'); }],
+      lista: [t('Ordenar itens da lista (com os subitens)'), function (x, a, b) { return T.ordenaLista(x, a, b, 'az'); }],
+      duplicadas: [t('Remover linhas duplicadas'), function (x, a, b) { return T.removeDuplicadas(x, a, b, false); }],
+      seguidas: [t('Remover duplicadas seguidas'), function (x, a, b) { return T.removeDuplicadas(x, a, b, true); }],
+      reduzVazias: [t('Reduzir linhas vazias seguidas a uma'), T.reduzVazias],
+      vazias: [t('Remover linhas vazias'), T.removeVazias],
+      aparar: [t('Aparar espaços no fim das linhas'), T.aparaDireita],
+      tabEspaco: [t('Recuo: TAB para espaços'), function (x, a, b) { return T.trocaRecuo(x, a, b, true, 4); }],
+      espacoTab: [t('Recuo: espaços para TAB'), function (x, a, b) { return T.trocaRecuo(x, a, b, false, 4); }]
+    };
+    var op = tabela[nome];
+    if (op) aplicaOperacao(op[0], op[1], false);
+  }
+
+  /** Os atalhos do Notepad++ nas linhas. true se tratou a tecla. */
+  function atalhoDeLinha(e) {
+    var T = window.MarkPadTextOps;
+    var ctrl = e.ctrlKey || e.metaKey;
+    var k = (e.key || '').toLowerCase();
+    var feito = null;
+    if (ctrl && !e.shiftKey && !e.altKey && k === 'd') feito = function () { aplicaOperacao(t('Duplicar'), T.duplica, true); };
+    else if (ctrl && !e.shiftKey && !e.altKey && k === 'j') feito = function () { aplicaOperacao(t('Unir linhas'), T.unirLinhas, true); };
+    else if (ctrl && !e.shiftKey && !e.altKey && k === 'u') feito = function () { aplicaOperacao(t('minúsculas'), function (x, a, b) { return T.trocaCaixa(x, a, b, 'minusculas'); }, true); };
+    else if (ctrl && e.shiftKey && !e.altKey && k === 'u') feito = function () { aplicaOperacao(t('MAIÚSCULAS'), function (x, a, b) { return T.trocaCaixa(x, a, b, 'maiusculas'); }, true); };
+    else if (ctrl && e.shiftKey && !e.altKey && k === 'k') feito = function () { aplicaOperacao(t('Apagar linha'), T.apagaLinhas, true); };
+    else if ((e.altKey && !ctrl && !e.shiftKey || ctrl && e.shiftKey && !e.altKey) && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+      var dir = e.key === 'ArrowUp' ? -1 : 1;
+      feito = function () { aplicaOperacao(t('Mover linhas'), function (x, a, b) { return T.moveLinhas(x, a, b, dir); }, true); };
+    }
+    if (!feito) return false;
+    e.preventDefault();
+    e.stopPropagation();
+    feito();
     return true;
   }
 
@@ -7478,6 +7573,24 @@
       { id: 'splitDown', label: t('Dividir abaixo'), icon: 'columns', enabled: !!tab, action: function () { dividir('v'); } },
       { id: 'otherHalf', label: t('Ir para a outra metade'), key: 'F8', icon: 'columns', enabled: dividido(), action: focaOutraMetade },
       { id: 'moveHalf', label: t('Mover aba para a outra metade'), icon: 'columns', enabled: !!tab && dividido(), action: function () { var a = activeTab(); mudaDeGrupo(a, outroGrupoDe(grupoDe(a))); persist(); } },
+      { id: 'sortAz', label: t('Ordenar linhas (A a Z)'), icon: 'sort', enabled: !!tab && !tab.locked, action: function () { opLinhas('az'); } },
+      { id: 'sortZa', label: t('Ordenar linhas (Z a A)'), icon: 'sort', enabled: !!tab && !tab.locked, action: function () { opLinhas('za'); } },
+      { id: 'sortLen', label: t('Ordenar linhas por tamanho'), icon: 'sort', enabled: !!tab && !tab.locked, action: function () { opLinhas('tamanho'); } },
+      { id: 'sortRev', label: t('Inverter a ordem das linhas'), icon: 'sort', enabled: !!tab && !tab.locked, action: function () { opLinhas('inverter'); } },
+      { id: 'sortList', label: t('Ordenar itens da lista (com os subitens)'), icon: 'sort', enabled: !!tab && !tab.locked, action: function () { opLinhas('lista'); } },
+      { id: 'dedupe', label: t('Remover linhas duplicadas'), icon: 'minus', enabled: !!tab && !tab.locked, action: function () { opLinhas('duplicadas'); } },
+      { id: 'dedupeNext', label: t('Remover duplicadas seguidas'), icon: 'minus', enabled: !!tab && !tab.locked, action: function () { opLinhas('seguidas'); } },
+      { id: 'squeezeBlank', label: t('Reduzir linhas vazias seguidas a uma'), icon: 'minus', enabled: !!tab && !tab.locked, action: function () { opLinhas('reduzVazias'); } },
+      { id: 'dropBlank', label: t('Remover linhas vazias'), icon: 'minus', enabled: !!tab && !tab.locked, action: function () { opLinhas('vazias'); } },
+      { id: 'trimRight', label: t('Aparar espaços no fim das linhas'), icon: 'text', enabled: !!tab && !tab.locked, action: function () { opLinhas('aparar'); } },
+      { id: 'tabsSpaces', label: t('Recuo: TAB para espaços'), icon: 'text', enabled: !!tab && !tab.locked, action: function () { opLinhas('tabEspaco'); } },
+      { id: 'spacesTabs', label: t('Recuo: espaços para TAB'), icon: 'text', enabled: !!tab && !tab.locked, action: function () { opLinhas('espacoTab'); } },
+      { id: 'joinLines', label: t('Unir linhas'), key: 'Ctrl+J', icon: 'text', enabled: !!tab && !tab.locked, action: function () { aplicaOperacao(t('Unir linhas'), window.MarkPadTextOps.unirLinhas, true); } },
+      { id: 'upper', label: t('MAIÚSCULAS'), key: 'Ctrl+Shift+U', icon: 'text', enabled: !!tab && !tab.locked, action: function () { aplicaOperacao(t('MAIÚSCULAS'), function (x, a, b) { return window.MarkPadTextOps.trocaCaixa(x, a, b, 'maiusculas'); }, true); } },
+      { id: 'lower', label: t('minúsculas'), key: 'Ctrl+U', icon: 'text', enabled: !!tab && !tab.locked, action: function () { aplicaOperacao(t('minúsculas'), function (x, a, b) { return window.MarkPadTextOps.trocaCaixa(x, a, b, 'minusculas'); }, true); } },
+      { id: 'titleCase', label: t('Iniciais Maiúsculas (título)'), icon: 'text', enabled: !!tab && !tab.locked, action: function () { aplicaOperacao(t('Iniciais Maiúsculas (título)'), function (x, a, b) { return window.MarkPadTextOps.trocaCaixa(x, a, b, 'titulo'); }, true); } },
+      { id: 'sentenceCase', label: t('Primeira letra da frase maiúscula'), icon: 'text', enabled: !!tab && !tab.locked, action: function () { aplicaOperacao(t('Primeira letra da frase maiúscula'), function (x, a, b) { return window.MarkPadTextOps.trocaCaixa(x, a, b, 'frase'); }, true); } },
+      { id: 'deleteLine', label: t('Apagar linha'), key: 'Ctrl+Shift+K', icon: 'trash', enabled: !!tab && !tab.locked, action: function () { aplicaOperacao(t('Apagar linha'), window.MarkPadTextOps.apagaLinhas, true); } },
       { id: 'popout', label: t('Mover aba para nova janela'), icon: 'external', enabled: !!(tab && tab.path), action: function () { destacaAba(activeTab()); } },
       { id: 'stackTabs', label: t('Empilhar abas'), icon: 'columns', checked: !!(grupoPorId(app.grupoAtivo) || {}).empilhado, action: function () { alternaEmpilhar(); } },
       { id: 'joinHalves', label: t('Juntar as metades'), icon: 'columns', enabled: dividido(), action: juntaMetades },
@@ -9903,15 +10016,16 @@
       if (k === 'b') { e.preventDefault(); wrapSelection('**', '**'); return; }
       if (k === 'i') { e.preventDefault(); wrapSelection('*', '*'); return; }
       if (k === 'k') { e.preventDefault(); wrapSelection('[', '](url)'); return; }
-      if (k === 'd') { e.preventDefault(); duplicateLine(); return; }
       if (k === '/') { e.preventDefault(); toggleComment(); return; }
     }
 
-    if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
-      e.preventDefault();
-      moveLine(e.key === 'ArrowUp' ? -1 : 1);
-      return;
-    }
+    if (atalhoDeLinha(e)) return;
+  }, true);
+
+  // O bloco aberto no modo ao vivo tambem entende os atalhos de linha.
+  document.addEventListener('keydown', function (e) {
+    var doLive = live && live.activeTextarea ? live.activeTextarea() : null;
+    if (doLive && e.target === doLive) atalhoDeLinha(e);
   }, true);
 
   // -------------------------------------------------- ajudantes do editor
@@ -9988,39 +10102,6 @@
     var ta2 = $('editorInput');
     if (selected) ta2.setSelectionRange(s + before.length, s + before.length + selected.length);
     else ta2.setSelectionRange(s + before.length, s + before.length);
-  }
-
-  function duplicateLine() {
-    var ta = $('editorInput');
-    var b = lineBounds(ta.value, ta.selectionStart);
-    var line = ta.value.slice(b.start, b.end);
-    replaceRange(b.end, b.end, '\n' + line);
-  }
-
-  function moveLine(direction) {
-    var ta = $('editorInput');
-    var text = ta.value;
-    var b = lineBounds(text, ta.selectionStart);
-    var offsetInLine = ta.selectionStart - b.start;
-
-    if (direction < 0) {
-      if (b.start === 0) return;
-      var prev = lineBounds(text, b.start - 1);
-      var block = text.slice(prev.start, b.end);
-      var lines = block.split('\n');
-      var moved = lines.slice(1).concat(lines.slice(0, 1)).join('\n');
-      replaceRange(prev.start, b.end, moved);
-      $('editorInput').setSelectionRange(prev.start + offsetInLine, prev.start + offsetInLine);
-    } else {
-      if (b.end >= text.length) return;
-      var nxt = lineBounds(text, b.end + 1);
-      var blk = text.slice(b.start, nxt.end);
-      var ls = blk.split('\n');
-      var mv = ls.slice(1).concat(ls.slice(0, 1)).join('\n');
-      replaceRange(b.start, nxt.end, mv);
-      var newStart = b.start + (nxt.end - nxt.start) + 1;
-      $('editorInput').setSelectionRange(newStart + offsetInLine, newStart + offsetInLine);
-    }
   }
 
   /*

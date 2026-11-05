@@ -6,6 +6,23 @@ Versionamento [SemVer](https://semver.org/lang/pt-BR/).
 ## [Não lançado]
 
 ### Adicionado
+- **Operações com linhas do Notepad++, com a regra do Markdown** (paleta):
+  ordenar linhas de A a Z na ordem do português (números em ordem natural,
+  sem ligar para maiúscula e acento), de Z a A, por tamanho ou invertendo;
+  ordenar itens de lista levando os subitens junto (e renumerando lista
+  numerada); remover duplicadas (todas ou só as seguidas); reduzir linhas
+  vazias seguidas a uma, ou remover as vazias; aparar espaços no fim da linha
+  sem desfazer a quebra forçada de dois espaços e sem tocar em bloco de
+  código; recuo de TAB para espaços e o contrário; MAIÚSCULAS, minúsculas,
+  título em português (deixa "de", "da", "e" minúsculos) e frase. Valem na
+  seleção (ou na linha) do editor; sem editor aberto, no documento inteiro, e
+  Ctrl+Z desfaz.
+- **Atalhos do Notepad++ no editor:** Ctrl+D duplica a seleção (sem seleção,
+  a linha), Alt+↑/↓ e Ctrl+Shift+↑/↓ movem todas as linhas da seleção,
+  Ctrl+Shift+K apaga a linha, Ctrl+J une a linha com a de baixo (ou as
+  selecionadas, tirando recuo, citação e hífen de quebra), Ctrl+U e
+  Ctrl+Shift+U passam para minúsculas e maiúsculas. Valem também no bloco
+  aberto do modo ao vivo.
 - **Arrastar a aba para fora da janela a destaca** (o gesto da janela
   destacada do Obsidian): solta fora do MarkPad, a nota vai para uma janela
   nova, nascida onde foi solta, e sai desta. A janela nova edita e salva

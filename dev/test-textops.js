@@ -46,5 +46,66 @@ igual('nao casa fora da posicao', T.replacementAt('foo', /foo/g, 1, 'x', true), 
 um = T.replacementAt('Abc', /a/gi, 0, '[$&]', true);
 igual('mantem a flag i', um && um.text, '[A]');
 
+// ------------------------------------------------ operacoes com linhas
+function aplica(texto, r) { return r ? texto.slice(0, r.ini) + r.texto + texto.slice(r.fim) : texto; }
+var tx;
+
+tx = 'cebola\nAbacate\n10 itens\n2 itens\nbanana';
+igual('ordenar A-Z pt-BR (caixa e numeros naturais)', aplica(tx, T.ordenaLinhas(tx, 0, tx.length, 'az')), '2 itens\n10 itens\nAbacate\nbanana\ncebola');
+igual('ordenar Z-A', aplica(tx, T.ordenaLinhas(tx, 0, tx.length, 'za')), 'cebola\nbanana\nAbacate\n10 itens\n2 itens');
+igual('inverter', aplica('a\nb\nc', T.ordenaLinhas('a\nb\nc', 0, 5, 'inverter')), 'c\nb\na');
+igual('por tamanho', aplica('ccc\na\nbb', T.ordenaLinhas('ccc\na\nbb', 0, 8, 'tamanho')), 'a\nbb\nccc');
+tx = 'x\nc\nb\na\ny';
+igual('so as linhas da selecao', aplica(tx, T.ordenaLinhas(tx, 2, 7, 'az')), 'x\na\nb\nc\ny');
+igual('fim no comeco da linha nao inclui ela', aplica(tx, T.ordenaLinhas(tx, 2, 6, 'az')), 'x\nb\nc\na\ny');
+igual('acentos ordenam como letra', aplica('éa\neb\nea', T.ordenaLinhas('éa\neb\nea', 0, 8, 'az')), 'éa\nea\neb');
+
+tx = '- [ ] zebra\n  - filho z\n- [x] abelha\n  continua\n- macaco';
+igual('lista: subitens e continuacao vao junto', aplica(tx, T.ordenaLista(tx, 0, tx.length, 'az')),
+  '- [x] abelha\n  continua\n- macaco\n- [ ] zebra\n  - filho z');
+tx = '1. zeta\n2. alfa\n   detalhe\n3. beta';
+igual('lista numerada renumera', aplica(tx, T.ordenaLista(tx, 0, tx.length, 'az')), '1. alfa\n   detalhe\n2. beta\n3. zeta');
+
+tx = 'a\nb\na\na\nc\nb';
+igual('remove duplicadas (todas)', aplica(tx, T.removeDuplicadas(tx, 0, tx.length, false)), 'a\nb\nc');
+igual('remove duplicadas seguidas', aplica(tx, T.removeDuplicadas(tx, 0, tx.length, true)), 'a\nb\na\nc\nb');
+tx = 'a\n\n\n\nb\n\nc';
+igual('reduz vazias seguidas a uma', aplica(tx, T.reduzVazias(tx, 0, tx.length)), 'a\n\nb\n\nc');
+igual('remove vazias', aplica(tx, T.removeVazias(tx, 0, tx.length)), 'a\nb\nc');
+
+tx = 'Texto colado de um\n  PDF com manu-\ntencao e\n> citacao';
+igual('unir linhas tira recuo, citacao e hifen de quebra', aplica(tx, T.unirLinhas(tx, 0, tx.length)), 'Texto colado de um PDF com manutencao e citacao');
+tx = 'linha um\nlinha dois\nlinha tres';
+igual('unir sem selecao junta com a de baixo', aplica(tx, T.unirLinhas(tx, 3, 3)), 'linha um linha dois\nlinha tres');
+igual('unir na ultima linha nao faz nada', T.unirLinhas(tx, tx.length, tx.length), null);
+
+tx = 'quebra forcada   \nproxima\nlixo  \t\n\n```\ncodigo   \n```\nfim   ';
+igual('aparar preserva quebra forcada e o codigo cercado', aplica(tx, T.aparaDireita(tx, 0, 0)),
+  'quebra forcada  \nproxima\nlixo\n\n```\ncodigo   \n```\nfim');
+tx = '\t- item\n  \t- sub';
+igual('TAB para espacos so no recuo', aplica(tx, T.trocaRecuo(tx, 0, 0, true, 4)), '    - item\n    - sub');
+igual('espacos para TAB', aplica('        x\n  y', T.trocaRecuo('        x\n  y', 0, 0, false, 4)), '\t\tx\n  y');
+
+tx = 'relatório de ação da rede';
+igual('maiusculas', aplica(tx, T.trocaCaixa(tx, 0, tx.length, 'maiusculas')), 'RELATÓRIO DE AÇÃO DA REDE');
+igual('titulo pt-BR deixa particulas', aplica(tx, T.trocaCaixa(tx, 0, tx.length, 'titulo')), 'Relatório de Ação da Rede');
+igual('frase', aplica('ola MUNDO. tudo BEM? sim', T.trocaCaixa('ola MUNDO. tudo BEM? sim', 0, 24, 'frase')), 'Ola mundo. Tudo bem? Sim');
+igual('sem selecao: a palavra do cursor', aplica('um ação três', T.trocaCaixa('um ação três', 5, 5, 'maiusculas')), 'um AÇÃO três');
+
+tx = 'abc\ndef';
+igual('duplica a selecao depois dela', aplica(tx, T.duplica(tx, 1, 3)), 'abcbc\ndef');
+var d = T.duplica(tx, 5, 5);
+igual('duplica a linha sem selecao', aplica(tx, d), 'abc\ndef\ndef');
+igual('cursor vai para a copia, mesma coluna', d.selIni, 9);
+tx = 'a\nb\nc\nd';
+var m = T.moveLinhas(tx, 2, 5, -1);
+igual('move as linhas da selecao para cima', aplica(tx, m), 'b\nc\na\nd');
+igual('a selecao acompanha', [m.selIni, m.selFim].join(','), '0,3');
+igual('move para baixo', aplica(tx, T.moveLinhas(tx, 2, 5, 1)), 'a\nd\nb\nc');
+igual('nao sobe da primeira', T.moveLinhas(tx, 0, 0, -1), null);
+igual('apaga as linhas da selecao (fim no comeco da linha nao a inclui)', aplica(tx, T.apagaLinhas(tx, 2, 4)), 'a\nc\nd');
+igual('apaga duas linhas', aplica(tx, T.apagaLinhas(tx, 2, 5)), 'a\nd');
+igual('apaga a ultima linha', aplica(tx, T.apagaLinhas(tx, 6, 6)), 'a\nb\nc');
+
 console.log(ok + '/' + (ok + falhas) + ' passaram');
 process.exit(falhas ? 1 : 0);
