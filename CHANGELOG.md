@@ -6,6 +6,10 @@ Versionamento [SemVer](https://semver.org/lang/pt-BR/).
 ## [Não lançado]
 
 ### Adicionado
+- **Apresentação** (o "Slides" do Obsidian), pela paleta: a nota vira
+  apresentação em tela inteira, um slide por trecho separado por `---` (o
+  `---` dentro de bloco de código e o das propriedades não contam). Setas,
+  PageUp/PageDown, espaço e clique andam; Esc sai e devolve a janela.
 - **Leitor de quadros do Obsidian (`.canvas`)**: o arquivo abre travado como
   quadro, com cartões de texto em Markdown, notas e imagens incorporadas,
   links, grupos com rótulo e cor e as setas entre cartões (com rótulo e cor).

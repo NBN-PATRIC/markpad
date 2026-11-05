@@ -1037,6 +1037,77 @@
     }).catch(function () {});
   }
 
+  // ------------------------------------------------------------ apresentacao
+  //
+  // O "Slides" do Obsidian: a nota vira apresentacao em tela inteira, um
+  // slide por trecho separado por --- (fora de bloco de codigo; o --- das
+  // propriedades nao conta). Setas, PageUp/PageDown, espaco e clique andam;
+  // Esc sai.
+
+  function slidesDe(texto) {
+    var fm = window.MarkPadMarkdown.extractFrontmatter(String(texto || ''));
+    var linhas = fm.body.replace(/\r\n?/g, '\n').split('\n');
+    var slides = [[]], cerca = null;
+    linhas.forEach(function (l) {
+      var c = /^\s{0,3}(`{3,}|~{3,})/.exec(l);
+      if (c) { if (!cerca) cerca = c[1].charAt(0); else if (l.trim().charAt(0) === cerca) cerca = null; }
+      if (!cerca && /^\s{0,3}---+\s*$/.test(l)) { slides.push([]); return; }
+      slides[slides.length - 1].push(l);
+    });
+    return slides.map(function (s) { return s.join('\n').trim(); }).filter(function (s) { return s.length; });
+  }
+
+  function iniciaApresentacao() {
+    var tab = activeTab();
+    if (!tab) return;
+    var slides = slidesDe(tab.content);
+    if (!slides.length) { toast(t('A nota esta vazia.'), 'warn', 1800); return; }
+    var atual = 0;
+    var entrouTelaInteira = !app.telaInteira;
+    var caixa = document.createElement('div');
+    caixa.className = 'apresentacao';
+    caixa.setAttribute('role', 'dialog');
+    caixa.setAttribute('aria-label', t('Apresentacao'));
+    var palco = document.createElement('div');
+    palco.className = 'apresentacao-slide markdown-preview';
+    var conta = document.createElement('div');
+    conta.className = 'apresentacao-conta';
+    caixa.appendChild(palco);
+    caixa.appendChild(conta);
+    document.body.appendChild(caixa);
+
+    function mostra(i) {
+      atual = Math.max(0, Math.min(slides.length - 1, i));
+      palco.textContent = '';
+      renderTrecho(palco, slides[atual], 'slide', tab);
+      conta.textContent = (atual + 1) + ' / ' + slides.length;
+    }
+    function sai() {
+      document.removeEventListener('keydown', tecla, true);
+      if (caixa.parentNode) caixa.parentNode.removeChild(caixa);
+      if (entrouTelaInteira && app.telaInteira) alternaTelaInteira();
+    }
+    function tecla(e) {
+      var k = e.key;
+      if (k === 'Escape') sai();
+      else if (k === 'ArrowRight' || k === 'ArrowDown' || k === 'PageDown' || k === ' ' || k === 'Enter') mostra(atual + 1);
+      else if (k === 'ArrowLeft' || k === 'ArrowUp' || k === 'PageUp' || k === 'Backspace') mostra(atual - 1);
+      else if (k === 'Home') mostra(0);
+      else if (k === 'End') mostra(slides.length - 1);
+      else if (k === 'F11') return;
+      else return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+    }
+    caixa.addEventListener('click', function (e) {
+      if (e.target.closest('a,button,input,video,audio')) return;
+      mostra(e.clientX > window.innerWidth / 3 ? atual + 1 : atual - 1);
+    });
+    document.addEventListener('keydown', tecla, true);
+    if (entrouTelaInteira) alternaTelaInteira();
+    mostra(0);
+  }
+
   function alternaSempreNoTopo() {
     bridge.call('setTopmost', { on: !app.sempreNoTopo }).then(function (ligado) {
       app.sempreNoTopo = !!ligado;
@@ -7994,6 +8065,7 @@
       { id: 'export', label: t('Exportar como HTML...'), icon: 'external', enabled: !!tab, action: exportHtml },
       { id: 'exportPdf', label: t('Exportar PDF...'), icon: 'printer', enabled: !!tab, action: exportPdf },
       { id: 'print', label: t('Imprimir'), key: 'Ctrl+Alt+P', icon: 'printer', enabled: !!tab, action: doPrint },
+      { id: 'slides', label: t('Iniciar apresentacao (slides separados por ---)'), icon: 'columns', enabled: !!tab, action: iniciaApresentacao },
       { id: 'fullscreen', label: t('Tela inteira'), key: 'F11', icon: 'external', checked: !!app.telaInteira, action: alternaTelaInteira },
       { id: 'newWindow', label: t('Nova janela'), key: 'Ctrl+Shift+N', icon: 'columns', action: function () { novaJanela(app.folder ? [app.folder] : []); } },
       { id: 'topmost', label: t('Sempre no topo'), icon: 'pin', checked: !!app.sempreNoTopo, action: alternaSempreNoTopo },

@@ -3038,3 +3038,18 @@ body.wide-lines .cm-modo-vivo .cm-content { max-width: none; padding-right: 40px
 .canvas-arquivo { padding: 4px 10px; border-bottom: 1px solid var(--background-modifier-border); font-size: 12px; }
 .canvas-link { word-break: break-all; }
 .canvas-falha { padding: 24px; color: var(--color-red); }
+
+/* apresentacao (Slides do Obsidian) */
+.apresentacao {
+  position: fixed; inset: 0; z-index: calc(var(--layer-menu) + 10);
+  display: flex; align-items: center; justify-content: center;
+  background: var(--background-primary); cursor: default;
+}
+.apresentacao-slide.markdown-preview {
+  max-width: min(1100px, 90vw); max-height: 90vh; width: 100%;
+  margin: 0; padding: 4vh 5vw; overflow: auto;
+  font-size: clamp(18px, 2.3vw, 34px); line-height: 1.5;
+}
+.apresentacao-slide.markdown-preview h1 { font-size: 2.2em; }
+.apresentacao-slide.markdown-preview h2 { font-size: 1.7em; }
+.apresentacao-conta { position: fixed; right: 24px; bottom: 16px; color: var(--text-faint); font-size: 14px; }
