@@ -6,6 +6,12 @@ Versionamento [SemVer](https://semver.org/lang/pt-BR/).
 ## [Não lançado]
 
 ### Adicionado
+- **Abas empilhadas** (do Obsidian), pela paleta ou pelo menu da aba: cada
+  aba do grupo vira um painel com a largura de leitura, lado a lado, com o
+  título na vertical numa lombada à esquerda. Rolando de lado, os painéis que
+  saem viram lombadas encostadas na borda; clicar na lombada ou no painel traz
+  a nota, e a lombada fecha a aba pelo X ou abre o menu dela pelo clique
+  direito. Vale por metade na tela dividida e volta na próxima abertura.
 - **Tela dividida** (Obsidian e Notepad++). "Dividir à direita" e "Dividir
   abaixo" (paleta e menu da aba) põem a nota nas duas metades, cada uma com a
   sua fileira de abas. Abrir arquivo vai para a metade com o foco; "Abrir à

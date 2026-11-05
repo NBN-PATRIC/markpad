@@ -372,6 +372,71 @@ body.dividido .grupo.is-foco .grupo-abas .tab.is-active { box-shadow: inset 0 2p
 }
 body.dividido .grupo:not(.is-foco) .main { opacity: 0.92; }
 .tab-estado.is-espelho { color: var(--text-accent); }
+
+/* abas empilhadas: paineis da largura de leitura, lado a lado, com lombada */
+.pilha {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  overflow-x: auto;
+  overflow-y: hidden;
+  background: var(--background-secondary);
+}
+.pilha-item {
+  --lombada: 34px;
+  position: sticky;
+  left: calc(var(--i, 0) * var(--lombada));
+  flex: 0 0 min(760px, 88%);
+  display: flex;
+  min-height: 0;
+  background: var(--background-primary);
+  border-left: 1px solid var(--background-modifier-border);
+  box-shadow: -6px 0 10px -6px rgba(0, 0, 0, 0.35);
+}
+.pilha-lombada {
+  flex: 0 0 var(--lombada);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 0;
+  background: var(--background-secondary);
+  border-right: 1px solid var(--background-modifier-border);
+  cursor: pointer;
+  user-select: none;
+}
+.pilha-lombada:hover { background: var(--background-modifier-hover); }
+.pilha-item.is-ativa .pilha-lombada { box-shadow: inset 2px 0 0 var(--color-accent); }
+.pilha-titulo {
+  writing-mode: vertical-rl;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-height: 100%;
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+}
+.pilha-item.is-ativa .pilha-titulo { color: var(--text-normal); font-weight: 600; }
+.pilha-item.is-espelho .pilha-titulo { font-style: italic; }
+.pilha-fecha {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-s);
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+}
+.pilha-fecha:hover { background: var(--background-modifier-hover); color: var(--text-normal); }
+.pilha-conteudo { flex: 1; min-width: 0; display: flex; }
+.pilha-conteudo > .main { border-left: none; border-radius: 0; }
+.pilha-leitura[hidden] { display: none; }
+.grupo.is-empilhado .grupo-abas { display: none !important; }
+body.pilha-unica .tab-bar .tab-list { visibility: hidden; }
 .tab.is-espelho .tab-name { font-style: italic; }
 
 /* =============================================================== abas */

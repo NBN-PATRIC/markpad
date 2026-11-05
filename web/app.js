@@ -6423,7 +6423,7 @@
   function espelhosDe(tab) { return app.tabs.filter(function (t) { return t.espelhoDe === tab.id; }); }
 
   function garanteDivisao() {
-    if (!dividido()) app.grupos.push({ id: 2, ativa: null });
+    if (!dividido()) app.grupos.push({ id: 2, ativa: null, empilhado: false });
   }
 
   function criaEspelho(tab, gid) {
@@ -6502,8 +6502,8 @@
     var vazio1 = !abasDoGrupo(1).length, vazio2 = !abasDoGrupo(2).length;
     if (!vazio1 && !vazio2) return;
     if (vazio1) app.tabs.forEach(function (t) { t.grupo = 1; });
-    var ativa = vazio1 ? grupoPorId(2).ativa : grupoPorId(1).ativa;
-    app.grupos = [{ id: 1, ativa: ativa }];
+    var fica = vazio1 ? grupoPorId(2) : grupoPorId(1);
+    app.grupos = [{ id: 1, ativa: fica.ativa, empilhado: !!fica.empilhado }];
     app.grupoAtivo = 1;
   }
 
@@ -6551,7 +6551,8 @@
       else t.grupo = 1;
     });
     var ativa = activeTab();
-    app.grupos = [{ id: 1, ativa: ativa ? ativa.id : null }];
+    var g1 = grupoPorId(1);
+    app.grupos = [{ id: 1, ativa: ativa ? ativa.id : null, empilhado: !!(g1 && g1.empilhado) }];
     app.grupoAtivo = 1;
     renderAll();
     persist();
@@ -6585,6 +6586,8 @@
   }
 
   function restauraGrupos() {
+    var emp = settings.gruposEmpilhados || [];
+    if (emp.indexOf(1) !== -1) { grupoPorId(1).empilhado = true; renderAll(); }
     var dois = (settings.sessaoGrupo2 || []).map(function (p) { return p.toLowerCase(); });
     if (!dois.length) return;
     var algum = false;
@@ -6592,14 +6595,20 @@
       if (t.path && dois.indexOf(t.path.toLowerCase()) !== -1) { t.grupo = 2; algum = true; }
     });
     if (!algum || !abasDoGrupo(1).length) { app.tabs.forEach(function (t) { t.grupo = 1; }); return; }
-    app.grupos = [{ id: 1, ativa: abasDoGrupo(1)[0].id }, { id: 2, ativa: abasDoGrupo(2)[0].id }];
+    app.grupos = [{ id: 1, ativa: abasDoGrupo(1)[0].id, empilhado: emp.indexOf(1) !== -1 },
+      { id: 2, ativa: abasDoGrupo(2)[0].id, empilhado: emp.indexOf(2) !== -1 }];
     var ativa = activeTab();
     app.grupoAtivo = grupoDe(ativa);
     grupoPorId(app.grupoAtivo).ativa = ativa ? ativa.id : null;
     renderAll();
   }
 
-  /** Posiciona a visao viva na metade do foco e desenha a outra. */
+  // A visao viva e um no so; desmontar a pilha que a continha a tiraria do
+  // documento, e ai o $('main') nao a acharia mais.
+  var mainViva = null;
+  function mainEl() { return mainViva || (mainViva = $('main')); }
+
+  /** Posiciona a visao viva na metade do foco e desenha a(s) outra(s). */
   function renderGrupos() {
     var div = dividido();
     document.body.classList.toggle('dividido', div);
@@ -6609,22 +6618,174 @@
     $('grupo2').hidden = !div;
     $('grupoDivisor').hidden = !div;
     var foco = div ? app.grupoAtivo : 1;
-    var corpo = $('grupo' + foco).querySelector('.grupo-corpo');
-    var main = $('main');
-    if (main.parentNode !== corpo) {
-      var velha = corpo.querySelector('.main-copia');
-      if (velha) velha.hidden = true;
-      corpo.appendChild(main);
-    }
     var prop = Math.max(0.15, Math.min(0.85, settings.layoutProporcao || 0.5));
     $('grupo1').style.flex = div ? prop + ' 1 0' : '';
     $('grupo2').style.flex = div ? (1 - prop) + ' 1 0' : '';
-    [1, 2].forEach(function (gid) {
+    var g1 = grupoPorId(1);
+    document.body.classList.toggle('pilha-unica', !div && !!(g1 && g1.empilhado));
+    // O grupo sem foco primeiro: se a visao viva estava na pilha dele, ela
+    // sai antes de a pilha ser refeita, e o grupo com foco a recebe.
+    var ordem = div ? [outroGrupoDe(foco), foco] : [1];
+    ordem.forEach(function (gid) {
       $('grupo' + gid).classList.toggle('is-foco', div && gid === foco);
-      var copia = $('grupo' + gid).querySelector('.main-copia');
-      if (copia && (!div || gid === foco)) copia.hidden = true;
+      desenhaGrupo(gid, gid === foco);
     });
-    if (div) renderCopia(outroGrupoDe(foco));
+  }
+
+  function desenhaGrupo(gid, temFoco) {
+    var g = grupoPorId(gid);
+    var corpo = $('grupo' + gid).querySelector('.grupo-corpo');
+    var main = mainEl();
+    $('grupo' + gid).classList.toggle('is-empilhado', !!(g && g.empilhado));
+    if (g && g.empilhado) {
+      var solta = corpo.querySelector(':scope > .main-copia');
+      if (solta) solta.hidden = true;
+      desenhaPilha(gid, temFoco);
+      return;
+    }
+    var pilha = corpo.querySelector('.pilha');
+    if (pilha) {
+      if (pilha.contains(main)) corpo.appendChild(main);
+      pilha.remove();
+    }
+    if (temFoco) {
+      if (main.parentNode !== corpo) corpo.appendChild(main);
+      var copia = corpo.querySelector(':scope > .main-copia');
+      if (copia) copia.hidden = true;
+    } else {
+      renderCopia(gid);
+    }
+  }
+
+  // ------------------------------------------------------- abas empilhadas
+  //
+  // As abas empilhadas do Obsidian: cada aba do grupo e um painel com a
+  // largura de leitura, lado a lado, com a lombada (o titulo na vertical) a
+  // esquerda; rolando de lado, os paineis que saem encostam na borda como
+  // lombadas. A aba da vez e a visao viva; as outras mostram a leitura.
+
+  function alternaEmpilhar(gid) {
+    gid = gid || app.grupoAtivo || 1;
+    var g = grupoPorId(gid);
+    if (!g) return;
+    g.empilhado = !g.empilhado;
+    settings.gruposEmpilhados = app.grupos.filter(function (x) { return x.empilhado; }).map(function (x) { return x.id; });
+    renderAll();
+    persist();
+  }
+
+  function desenhaPilha(gid, temFoco) {
+    var corpo = $('grupo' + gid).querySelector('.grupo-corpo');
+    var g = grupoPorId(gid);
+    var main = mainEl();
+    var pilha = corpo.querySelector('.pilha');
+    if (!pilha) {
+      pilha = document.createElement('div');
+      pilha.className = 'pilha';
+      corpo.appendChild(pilha);
+    }
+    if (main.parentNode === corpo) {
+      // A visao viva estava solta no grupo: entra na pilha mais abaixo.
+      if (!temFoco) pilha.appendChild(main);
+    }
+    var abas = abasDoGrupo(gid);
+    if (g && !tabById(g.ativa)) g.ativa = abas[0] ? abas[0].id : null;
+    var existentes = {};
+    Array.prototype.forEach.call(pilha.children, function (item) { existentes[item.getAttribute('data-tab')] = item; });
+    var vivas = {};
+    abas.forEach(function (tab, i) {
+      var item = existentes[tab.id] || criaItemPilha(tab);
+      vivas[tab.id] = true;
+      item.style.setProperty('--i', i);
+      item.style.setProperty('--j', abas.length - 1 - i);
+      var doc = tab.espelhoDe ? (tabById(tab.espelhoDe) || tab) : tab;
+      var lomb = item.querySelector('.pilha-titulo');
+      lomb.textContent = doc.name + (doc.content !== doc.savedContent ? ' •' : '');
+      item.classList.toggle('is-espelho', !!tab.espelhoDe);
+      var ativa = g && g.ativa === tab.id;
+      item.classList.toggle('is-ativa', ativa);
+      var conteudo = item.querySelector('.pilha-conteudo');
+      var leitura = conteudo.querySelector('.pilha-leitura');
+      if (temFoco && ativa) {
+        if (leitura) leitura.hidden = true;
+        if (main.parentNode !== conteudo) conteudo.appendChild(main);
+      } else {
+        if (!leitura) {
+          leitura = document.createElement('div');
+          leitura.className = 'reading-scroll pilha-leitura';
+          var alvo = document.createElement('div');
+          alvo.className = 'copia-conteudo markdown-preview';
+          leitura.appendChild(alvo);
+          conteudo.appendChild(leitura);
+        }
+        leitura.hidden = false;
+        // So redesenha se o texto mudou: pilha com muitas abas seria lenta.
+        var alvoL = leitura.firstChild;
+        if (alvoL.__fonte !== doc.content || alvoL.__modo !== (doc.locked ? 'l' : 'e')) {
+          alvoL.__fonte = doc.content;
+          alvoL.__modo = doc.locked ? 'l' : 'e';
+          renderPreview(alvoL, doc);
+          var tarefas = alvoL.querySelectorAll('[data-task-line]');
+          for (var k = 0; k < tarefas.length; k++) tarefas[k].removeAttribute('data-task-line');
+          alvoL.onclick = function (e) {
+            if (e.target.closest && e.target.closest('[data-wikilink],[data-file]')) e.preventDefault();
+          };
+        }
+      }
+      pilha.appendChild(item);
+    });
+    Object.keys(existentes).forEach(function (id) {
+      if (vivas[id]) return;
+      var item = existentes[id];
+      if (item.contains(main)) corpo.appendChild(main);
+      item.remove();
+    });
+    // Leva a aba da vez para a vista (so quando ela mudou).
+    var ativaEl = pilha.querySelector('.pilha-item.is-ativa');
+    if (ativaEl && pilha.__ativa !== (g && g.ativa)) {
+      pilha.__ativa = g && g.ativa;
+      // O painel i fica logo depois das i lombadas da esquerda: a posicao
+      // natural dele (i larguras) menos as i lombadas. offsetLeft de item
+      // grudado ja vem com o deslocamento do grude, entao nao serve.
+      var idx = Array.prototype.indexOf.call(pilha.children, ativaEl);
+      var largura = ativaEl.getBoundingClientRect().width;
+      var lombada = ativaEl.querySelector('.pilha-lombada').getBoundingClientRect().width;
+      pilha.scrollLeft = Math.max(0, idx * (largura - lombada));
+    }
+  }
+
+  function criaItemPilha(tab) {
+    var item = document.createElement('div');
+    item.className = 'pilha-item';
+    item.setAttribute('data-tab', String(tab.id));
+    var lomb = document.createElement('div');
+    lomb.className = 'pilha-lombada';
+    var titulo = document.createElement('span');
+    titulo.className = 'pilha-titulo';
+    var fecha = document.createElement('button');
+    fecha.type = 'button';
+    fecha.className = 'pilha-fecha';
+    fecha.title = t('Fechar');
+    var x = window.MarkPadIcons.build('x', 12);
+    if (x) fecha.appendChild(x);
+    fecha.onclick = function (e) { e.stopPropagation(); closeTab(tab.id); };
+    lomb.appendChild(fecha);
+    lomb.appendChild(titulo);
+    lomb.onclick = function () { selectTab(tab.id); };
+    lomb.oncontextmenu = function (e) {
+      e.preventDefault();
+      var aba = tabById(tab.id);
+      if (aba) showMenu(tabContextMenu(aba), e.clientX, e.clientY);
+    };
+    var conteudo = document.createElement('div');
+    conteudo.className = 'pilha-conteudo';
+    conteudo.addEventListener('click', function () {
+      if (conteudo.contains(mainEl())) return;
+      setTimeout(function () { if (tabById(tab.id)) selectTab(tab.id); }, 0);
+    });
+    item.appendChild(lomb);
+    item.appendChild(conteudo);
+    return item;
   }
 
   function criaCopia(gid) {
@@ -6669,7 +6830,7 @@
 
   function renderCopia(gid) {
     var corpo = $('grupo' + gid).querySelector('.grupo-corpo');
-    var copia = corpo.querySelector('.main-copia');
+    var copia = corpo.querySelector(':scope > .main-copia');
     if (!copia) { copia = criaCopia(gid); corpo.appendChild(copia); }
     copia.hidden = false;
     var g = grupoPorId(gid);
@@ -7298,6 +7459,7 @@
       { id: 'splitDown', label: t('Dividir abaixo'), icon: 'columns', enabled: !!tab, action: function () { dividir('v'); } },
       { id: 'otherHalf', label: t('Ir para a outra metade'), key: 'F8', icon: 'columns', enabled: dividido(), action: focaOutraMetade },
       { id: 'moveHalf', label: t('Mover aba para a outra metade'), icon: 'columns', enabled: !!tab && dividido(), action: function () { var a = activeTab(); mudaDeGrupo(a, outroGrupoDe(grupoDe(a))); persist(); } },
+      { id: 'stackTabs', label: t('Empilhar abas'), icon: 'columns', checked: !!(grupoPorId(app.grupoAtivo) || {}).empilhado, action: function () { alternaEmpilhar(); } },
       { id: 'joinHalves', label: t('Juntar as metades'), icon: 'columns', enabled: dividido(), action: juntaMetades },
       { id: 'flipHalves', label: t('Alternar divisão lado a lado / em cima e embaixo'), icon: 'columns', enabled: dividido(), action: function () { settings.layoutDirecao = settings.layoutDirecao === 'v' ? 'h' : 'v'; renderGrupos(); persist(); } },
       { id: 'monitor', label: t('Monitorar (tail -f)'), icon: 'eye', checked: !!(tab && tab.monitorar), enabled: !!(tab && tab.path), action: function () { alternaMonitorar(activeTab()); } },
@@ -8465,6 +8627,7 @@
       { label: t('Dividir à direita'), icon: 'columns', action: function () { dividir('h', tab); } },
       { label: t('Dividir abaixo'), icon: 'columns', action: function () { dividir('v', tab); } },
       { label: t('Mover para a outra metade'), icon: 'columns', disabled: !dividido(), action: function () { mudaDeGrupo(tab, outroGrupoDe(grupoDe(tab))); persist(); } },
+      { label: t('Empilhar abas'), icon: 'columns', checked: !!(grupoPorId(grupoDe(tab)) || {}).empilhado, action: function () { alternaEmpilhar(grupoDe(tab)); } },
       '-',
       { label: t('Abrir em nova janela'), icon: 'columns', disabled: !tab.path, action: function () { novaJanela([tab.path]); } },
       // Mover leva o arquivo do disco: com alteracao pendente, a outra janela
@@ -10714,6 +10877,7 @@
       var monitorar = (info.monitorar || []).map(function (p) { return p.toLowerCase(); });
       return openPaths(toOpen).then(app.janelaExtra ? null : restauraFixadas).then(function () {
         if (!app.janelaExtra && !(info.openPaths || []).length) restauraGrupos();
+        else if ((settings.gruposEmpilhados || []).indexOf(1) !== -1) { grupoPorId(1).empilhado = true; renderAll(); }
         app.tabs.forEach(function (aba) {
           if (aba.path && monitorar.indexOf(aba.path.toLowerCase()) !== -1) alternaMonitorar(aba, true);
         });
