@@ -40,17 +40,18 @@ execSync('"' + esbuild + '" entrada.js --bundle --format=iife --global-name=CM -
 const pacotes = Object.keys(lock.packages)
   .filter((k) => k.indexOf('node_modules/') === 0)
   .map((k) => ({ nome: k.slice('node_modules/'.length), info: lock.packages[k] }))
-  .filter((p) => !/^(@esbuild\/|esbuild$)/.test(p.nome) && !p.info.dev)
+  // domino e o DOM do turndown fora do navegador: no pacote (navegador) nao entra.
+  .filter((p) => !/^(@esbuild\/|esbuild$|@mixmark-io\/domino$)/.test(p.nome) && !p.info.dev)
   .sort((a, b) => (a.nome < b.nome ? -1 : 1));
 
-const cabecalho = '/*! MarkPad: CodeMirror 6 e Lezer (licenca MIT), embutidos para o editor funcionar sem rede.\n' +
+const cabecalho = '/*! MarkPad: CodeMirror 6, Lezer e Turndown (licenca MIT), embutidos para o editor funcionar sem rede.\n' +
   ' * Gerado por tools/cm6/construir.js; versoes e licencas em THIRD-PARTY-NOTICES.md.\n' +
   ' * ' + pacotes.map((p) => p.nome + '@' + p.info.version).join(', ').replace(/(.{1,110})(, |$)/g, '$1$2\n * ').replace(/\n \* $/, '') + '\n */\n';
 fs.writeFileSync(path.join(RAIZ, 'web', 'codemirror.js'), cabecalho + fs.readFileSync(saida, 'utf8'));
 
 let avisos = '# Componentes de terceiros\n\n' +
   'O MarkPad embute no executavel (arquivo `web/codemirror.js`) as bibliotecas abaixo, todas sob a licenca MIT.\n' +
-  'Elas sao o editor de texto dos modos ao vivo e fonte. Gerado por `tools/cm6/construir.js`.\n\n' +
+  'Elas sao o editor de texto dos modos ao vivo e fonte e a conversao de HTML colado em Markdown. Gerado por `tools/cm6/construir.js`.\n\n' +
   '| Pacote | Versao | Licenca |\n|---|---|---|\n';
 const textos = new Map();
 for (const p of pacotes) {

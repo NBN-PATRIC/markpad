@@ -23,6 +23,8 @@
     "@lezer/common": "1.5.3",
     "@lezer/highlight": "1.2.5",
     "@lezer/markdown": "1.8.1",
-    "esbuild": "0.28.2"
+    "esbuild": "0.28.2",
+    "turndown": "7.2.4",
+    "turndown-plugin-gfm": "1.0.2"
   }
 }

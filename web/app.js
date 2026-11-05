@@ -10458,6 +10458,7 @@
       travado: function () { toast(t('Edicao travada. Ctrl+E para liberar.'), '', 1600); },
       textoColado: textoColado,
       alternaComentario: function () { toggleComment(); return true; },
+      colaImagens: colaImagens,
       sugestoes: [fonteSugestoes, fonteTags, fonteComandosBarra]
     });
     ed.aba = null;
@@ -10468,6 +10469,96 @@
     ed.view.dom.addEventListener('contextmenu', function (e) {
       e.preventDefault();
       menuDoEditor(e.clientX, e.clientY);
+    });
+  }
+
+  // ------------------------------------------------------------- anexos
+  //
+  // Imagem colada vira "Pasted image AAAAMMDDHHmmss.png" na pasta da nota e
+  // entra como ![[...]] no cursor; imagem, audio, video ou PDF solto do
+  // Explorer em cima do editor e copiado para a pasta da nota (se ja nao
+  // estiver na pasta aberta) e entra no ponto da queda. Como o Obsidian.
+
+  var RE_ANEXO = /\.(png|jpe?g|gif|webp|bmp|avif|mp3|wav|ogg|m4a|flac|mp4|webm|mov|mkv|pdf)$/i;
+
+  function carimboAgora() {
+    var d = new Date();
+    var p2 = function (n) { return (n < 10 ? '0' : '') + n; };
+    return '' + d.getFullYear() + p2(d.getMonth() + 1) + p2(d.getDate()) + p2(d.getHours()) + p2(d.getMinutes()) + p2(d.getSeconds());
+  }
+
+  function lerBase64(arquivo) {
+    return new Promise(function (ok, falha) {
+      var leitor = new FileReader();
+      leitor.onload = function () { ok(String(leitor.result).replace(/^data:[^,]*,/, '')); };
+      leitor.onerror = function () { falha(leitor.error || new Error('leitura')); };
+      leitor.readAsDataURL(arquivo);
+    });
+  }
+
+  function abaParaAnexo() {
+    var tab = ed && ed.aba;
+    if (!tab || tab.locked || tab !== activeTab()) return null;
+    if (!tab.path) {
+      toast(t('Salve a nota antes: o anexo vai para a pasta dela.'), 'warn', 3200);
+      return null;
+    }
+    return tab;
+  }
+
+  function insereAnexos(tab, nomes) {
+    if (!nomes.length || !ed || ed.aba !== tab) return;
+    ed.trocaSelecao(nomes.map(function (n) { return '![[' + n + ']]'; }).join('\n'));
+    ed.foco();
+    app.linksEm = 0;   // o indice precisa ver o arquivo novo
+    toast(nomes.length === 1 ? t('Anexo gravado: {nome}', { nome: nomes[0] }) : t('{n} anexos gravados.', { n: nomes.length }), 'ok', 2200);
+  }
+
+  function colaImagens(arquivos) {
+    var tab = abaParaAnexo();
+    if (!tab) return;
+    var tipos = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp', 'image/bmp': 'bmp', 'image/avif': 'avif' };
+    var carimbo = carimboAgora();
+    Promise.all(arquivos.map(function (f, i) {
+      return lerBase64(f).then(function (b64) {
+        var nome = f.name && f.name !== 'image.png' && RE_ANEXO.test(f.name)
+          ? f.name
+          : 'Pasted image ' + carimbo + (arquivos.length > 1 ? '-' + (i + 1) : '') + '.' + (tipos[f.type] || 'png');
+        return bridge.call('saveAttachment', { notePath: tab.path, name: nome, data: b64 });
+      });
+    })).then(function (res) {
+      insereAnexos(tab, res.map(function (r) { return r.name; }));
+    }).catch(function (err) {
+      toast(t('Nao consegui gravar o anexo: ') + ((err && err.message) || err), 'error', 4000);
+    });
+  }
+
+  function dentroDaPastaAberta(caminho) {
+    var raiz = String(app.folder || '').replace(/[\\/]+$/, '').toLowerCase();
+    return !!raiz && String(caminho).toLowerCase().indexOf(raiz + '\\') === 0;
+  }
+
+  /** Arquivos soltos do Explorer (o WPF manda o ponto da queda). */
+  function arquivosSoltos(d) {
+    var caminhos = (d && d.paths) || [];
+    var tab = activeTab();
+    var alvo = document.elementFromPoint(d.x || 0, d.y || 0);
+    var noEditor = !!(ed && tab && !tab.locked && ed.aba === tab && alvo && ed.view.dom.contains(alvo));
+    var anexos = noEditor ? caminhos.filter(function (c) { return RE_ANEXO.test(c); }) : [];
+    var resto = caminhos.filter(function (c) { return anexos.indexOf(c) < 0; });
+    if (resto.length) openPaths(resto);
+    if (!anexos.length) return;
+    var aba = abaParaAnexo();
+    if (!aba) return;
+    ed.cursorNoPonto(d.x, d.y);
+    Promise.all(anexos.map(function (c) {
+      // Ja esta na pasta aberta: so o link, pelo nome (o indice acha).
+      if (dentroDaPastaAberta(c)) return { name: baseName(c) };
+      return bridge.call('copyAttachment', { notePath: aba.path, source: c });
+    })).then(function (res) {
+      insereAnexos(aba, res.map(function (r) { return r.name; }));
+    }).catch(function (err) {
+      toast(t('Nao consegui gravar o anexo: ') + ((err && err.message) || err), 'error', 4000);
     });
   }
 
@@ -10814,6 +10905,7 @@
     });
 
     bridge.on('openPaths', function (paths) { openPaths(paths); });
+    bridge.on('filesDropped', arquivosSoltos);
     // Segunda instancia com --monitorar: o C# manda os caminhos depois de abrir.
     bridge.on('monitorPaths', function (paths) {
       var alvos = (paths || []).map(function (p) { return p.toLowerCase(); });

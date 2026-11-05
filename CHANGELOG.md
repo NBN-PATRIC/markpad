@@ -6,6 +6,21 @@ Versionamento [SemVer](https://semver.org/lang/pt-BR/).
 ## [Não lançado]
 
 ### Adicionado
+- **Colar HTML vira Markdown** (como no Obsidian): texto copiado do
+  navegador, Teams, Outlook, Word ou Google Docs entra com título, negrito,
+  itálico, link, lista (com subitens e numeração), tarefa e tabela em
+  Markdown. Código copiado do VS Code continua entrando como texto puro, e
+  dentro de bloco de código nada é convertido. **Ctrl+Shift+V** cola só o
+  texto, sem converter.
+- **Imagem colada vira anexo**: print de tela ou imagem copiada é gravada na
+  pasta da nota como `Pasted image AAAAMMDDHHmmss.png` (o nome que o Obsidian
+  usa) e entra como `![[...]]` no cursor. Nota ainda sem arquivo pede para
+  salvar antes.
+- **Arquivo solto do Explorer em cima do editor vira anexo**: imagem, áudio,
+  vídeo ou PDF é copiado para a pasta da nota (se já estiver na pasta aberta,
+  só ganha o link) e entra como `![[...]]` no ponto da queda. Outros arquivos,
+  e qualquer arquivo solto fora do editor, continuam abrindo como aba. O app
+  nunca grava por cima: nome repetido ganha um número.
 - **Dobrar no editor**, como no Obsidian: seta ao lado do título (aparece ao
   passar o mouse), do item de lista com filhos, do bloco de código e das
   propriedades; a seção dobrada vira "…" e o clique abre. Ctrl+Shift+- e

@@ -322,6 +322,13 @@
             // Qualquer imagem local vira o mesmo retangulo: o visor e o tamanho
             // tem o que mostrar sem disco de verdade.
             case 'resolveAsset': result = { url: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI2NDAiIGhlaWdodD0iMzYwIj48cmVjdCB3aWR0aD0iNjQwIiBoZWlnaHQ9IjM2MCIgZmlsbD0iIzNjNWFhMCIvPjxyZWN0IHg9IjQwIiB5PSI0MCIgd2lkdGg9IjU2MCIgaGVpZ2h0PSIyODAiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI2ZmZiIgc3Ryb2tlLXdpZHRoPSI2Ii8+PC9zdmc+', path: msg.args.src }; break;
+            // Anexos: so registra (as provas conferem em window.__anexos).
+            case 'saveAttachment':
+            case 'copyAttachment':
+              var nomeAnexo = msg.op === 'saveAttachment' ? msg.args.name : String(msg.args.source).split(/[\\/]/).pop();
+              (window.__anexos = window.__anexos || []).push({ op: msg.op, nome: nomeAnexo, nota: msg.args.notePath, bytes: (msg.args.data || '').length });
+              result = { path: String(msg.args.notePath).replace(/[^\\/]*$/, '') + nomeAnexo, name: nomeAnexo, copied: true };
+              break;
             case 'grepFolder':
               var agulha = String(msg.args.query || '');
               if (!msg.args.caseSensitive) agulha = agulha.toLowerCase();
@@ -385,6 +392,8 @@
   function emite(evt, data) {
     window.chrome.webview._handlers.forEach(function (h) { h({ data: { evt: evt, data: data } }); });
   }
+  // Arquivos soltos do Explorer (o WPF manda caminhos e o ponto da queda).
+  window.__solta = function (paths, x, y) { emite('filesDropped', { paths: paths, x: x, y: y }); };
   window.__disco = {
     muda: function (caminho, texto, o) {
       o = o || {};

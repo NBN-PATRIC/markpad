@@ -900,10 +900,10 @@
             case 'Image':
             case 'Embed': {
               if (revela(state, no.from, no.to)) return false;
-              var lImg = doc.lineAt(no.from);
-              // Sozinho na linha vira bloco (camada de blocos); no meio do
-              // texto, fica em linha.
-              if (lImg.text.trim() === doc.sliceString(no.from, no.to)) return false;
+              // Paragrafo de uma linha so com ele: quem desenha e a camada
+              // de blocos. Qualquer outro caso fica em linha (com o texto, ou
+              // sozinho numa linha de um paragrafo maior).
+              if (paragrafoSoDeMidia(no.node, doc)) return false;
               troca(no.from, no.to, new Trecho(ctx, doc.sliceString(no.from, no.to), nome === 'Image' ? 'imagem' : 'embed-inline', 1));
               return false;
             }
@@ -917,6 +917,18 @@
     });
 
     return { todas: Decoration.set(deco, true), ocultas: Decoration.set(ocultas, true) };
+  }
+
+  // Imagem ou embed que e o paragrafo inteiro, numa linha so, no primeiro
+  // nivel do documento: vira bloco. A mesma regra decide nas duas camadas.
+  function paragrafoSoDeMidia(no, doc) {
+    if (!no || (no.name !== 'Image' && no.name !== 'Embed')) return false;
+    var par = no.parent;
+    if (!par || par.name !== 'Paragraph' || !par.parent || par.parent.name !== 'Document') return false;
+    if (par.firstChild.from !== no.from || no.nextSibling) return false;
+    var lin = doc.lineAt(par.from);
+    if (doc.lineAt(par.to).number !== lin.number) return false;
+    return lin.text.trim() === doc.sliceString(no.from, no.to);
   }
 
   function atributosDoLink(alvo) {
@@ -984,10 +996,8 @@
           if (/^\s*>\s*\[![^\]]+\]/.test(doc.lineAt(no.from).text)) bloco(deco, state, no, 'callout');
         } else if (nome === 'Paragraph') {
           var filho = no.firstChild;
-          if (!filho || filho.nextSibling || (filho.name !== 'Image' && filho.name !== 'Embed')) continue;
+          if (!filho || !paragrafoSoDeMidia(filho, doc)) continue;
           var lin = doc.lineAt(no.from);
-          if (doc.lineAt(no.to).number !== lin.number) continue;
-          if (lin.text.trim() !== doc.sliceString(filho.from, filho.to)) continue;
           if (revela(state, lin.from, lin.to)) continue;
           deco.push(Decoration.replace({
             widget: new Trecho(ctx, doc.sliceString(filho.from, filho.to), filho.name === 'Image' ? 'imagem-bloco' : 'embed', 3),
@@ -1248,6 +1258,81 @@
     return true;
   });
 
+  // HTML colado vira Markdown (navegador, Teams, Outlook, Word, Google Docs).
+  // So quando o HTML tem estrutura de verdade: codigo copiado do VS Code vem
+  // como <div><span> coloridos e deve entrar como texto puro.
+  var RE_HTML_ESTRUTURA = /<(p|h[1-6]|ul|ol|li|table|tr|td|th|a|strong|b|em|i|u|s|del|strike|code|pre|img|blockquote|hr|br)[\s>\/]/i;
+
+  var conversor = null;
+  function obtemConversor() {
+    if (conversor || !CM.TurndownService) return conversor;
+    var td = new CM.TurndownService({
+      headingStyle: 'atx', hr: '---', bulletListMarker: '-', codeBlockStyle: 'fenced',
+      emDelimiter: '*', strongDelimiter: '**', linkStyle: 'inlined'
+    });
+    if (CM.turndownGfm) td.use(CM.turndownGfm);
+    td.remove(['style', 'script', 'meta', 'title', 'head']);
+    // Item de lista com um espaco depois do marcador, como o Obsidian escreve.
+    td.addRule('itemDeLista', {
+      filter: 'li',
+      replacement: function (conteudo, no, opcoes) {
+        conteudo = conteudo.replace(/^\n+/, '').replace(/\n+$/, '\n').replace(/\n/gm, '\n    ');
+        var prefixo = opcoes.bulletListMarker + ' ';
+        var pai = no.parentNode;
+        var caixa = no.querySelector && no.querySelector('input[type=checkbox]');
+        if (pai && pai.nodeName === 'OL') {
+          var ini = pai.getAttribute('start');
+          var idx = Array.prototype.indexOf.call(pai.children, no);
+          prefixo = (ini ? Number(ini) + idx : idx + 1) + '. ';
+        }
+        if (caixa && !/^\[[ xX]\]/.test(conteudo.trim())) prefixo += (caixa.checked ? '[x] ' : '[ ] ');
+        return prefixo + conteudo + (no.nextSibling && !/\n$/.test(conteudo) ? '\n' : '');
+      }
+    });
+    // Negrito e italico feitos com estilo (Google Docs, Word online).
+    td.addRule('estiloForte', {
+      filter: function (no) {
+        if (no.nodeName !== 'SPAN' || !no.style) return false;
+        var w = no.style.fontWeight;
+        return w === 'bold' || parseInt(w, 10) >= 600;
+      },
+      replacement: function (c) { return c.trim() ? '**' + c + '**' : c; }
+    });
+    td.addRule('estiloItalico', {
+      filter: function (no) { return no.nodeName === 'SPAN' && no.style && no.style.fontStyle === 'italic'; },
+      replacement: function (c) { return c.trim() ? '*' + c + '*' : c; }
+    });
+    // Imagem embutida no HTML (data:) nao vira um paredao de base64.
+    td.addRule('imagemDados', {
+      filter: function (no) { return no.nodeName === 'IMG' && /^data:/i.test(no.getAttribute('src') || ''); },
+      replacement: function (c, no) { return no.getAttribute('alt') || ''; }
+    });
+    conversor = td;
+    return td;
+  }
+
+  function htmlParaMarkdown(html) {
+    var td = obtemConversor();
+    if (!td) return null;
+    var doc = new DOMParser().parseFromString(String(html), 'text/html');
+    // Google Docs embrulha tudo num <b style="font-weight:normal">.
+    Array.prototype.slice.call(doc.querySelectorAll('b')).forEach(function (b) {
+      var w = b.style && b.style.fontWeight;
+      if (w === 'normal' || w === '400') {
+        while (b.firstChild) b.parentNode.insertBefore(b.firstChild, b);
+        b.parentNode.removeChild(b);
+      }
+    });
+    var md = td.turndown(doc.body || doc.documentElement);
+    return md.replace(/\u00a0/g, ' ').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+  }
+
+  function emCodigoNoCursor(state) {
+    var no = L.syntaxTree(state).resolveInner(state.selection.main.head, -1);
+    for (; no; no = no.parent) if (/^(FencedCode|CodeBlock|InlineCode|CodeText|Frontmatter)$/.test(no.name)) return true;
+    return false;
+  }
+
   // =================================================================
   // 8. O editor.
   // =================================================================
@@ -1366,6 +1451,7 @@
       return el;
     }
 
+    var semFormato = false;
     var eventos = EditorView.domEventHandlers({
       mousedown: function (e, v) {
         if (e.button !== 0 && e.button !== 1) return false;
@@ -1399,17 +1485,46 @@
         if (e.button === 1 && linkNoEvento(e)) { e.preventDefault(); return true; }
         return false;
       },
+      keydown: function (e) {
+        // Ctrl+Shift+V cola so o texto, sem converter HTML (como no Obsidian).
+        semFormato = !!((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'V' || e.key === 'v'));
+        return false;
+      },
       paste: function (e, v) {
+        var puro = semFormato;
+        semFormato = false;
         if (v.state.readOnly) return false;
+        var dt = e.clipboardData;
+        if (!dt) return false;
+        // Imagem na area de transferencia (print de tela, imagem copiada): anexo.
+        var imagens = Array.prototype.filter.call(dt.files || [], function (f) { return /^image\//.test(f.type); });
+        if (imagens.length && op.colaImagens) {
+          e.preventDefault();
+          op.colaImagens(imagens);
+          return true;
+        }
+        var bruto = dt.getData('text/plain') || '';
         var r = v.state.selection.main;
-        if (r.empty || v.state.selection.ranges.length > 1) return false;
-        var bruto = (e.clipboardData && e.clipboardData.getData('text/plain')) || '';
-        var sel = v.state.doc.sliceString(r.from, r.to);
-        var novo = op.textoColado ? op.textoColado(sel, bruto) : bruto;
-        if (novo === bruto) return false;
-        e.preventDefault();
-        v.dispatch(v.state.replaceSelection(novo), { userEvent: 'input.paste', scrollIntoView: true });
-        return true;
+        if (!r.empty && v.state.selection.ranges.length === 1 && op.textoColado) {
+          var sel = v.state.doc.sliceString(r.from, r.to);
+          var comLink = op.textoColado(sel, bruto);
+          if (comLink !== bruto) {
+            e.preventDefault();
+            v.dispatch(v.state.replaceSelection(comLink), { userEvent: 'input.paste', scrollIntoView: true });
+            return true;
+          }
+        }
+        var html = puro ? '' : dt.getData('text/html');
+        if (html && RE_HTML_ESTRUTURA.test(html) && !emCodigoNoCursor(v.state)) {
+          var md = null;
+          try { md = htmlParaMarkdown(html); } catch (err) { md = null; }
+          if (md) {
+            e.preventDefault();
+            v.dispatch(v.state.replaceSelection(md), { userEvent: 'input.paste', scrollIntoView: true });
+            return true;
+          }
+        }
+        return false;
       },
       // Arquivo solto de fora (Explorer) e do app: abre como aba, nao vira
       // texto dentro da nota (o CodeMirror leria o arquivo e colaria).
@@ -1707,6 +1822,14 @@
       dobraTudo: function () { return L.foldAll(view); },
       desdobraTudo: function () { return L.unfoldAll(view); },
 
+      /** Poe o cursor no ponto da tela (x, y); false se o ponto nao cai no texto. */
+      cursorNoPonto: function (x, y) {
+        var pos = view.posAtCoords({ x: x, y: y });
+        if (pos == null) return false;
+        view.dispatch({ selection: { anchor: pos } });
+        return true;
+      },
+
       desfazer: function () { return C.undo(view); },
       refazer: function () { return C.redo(view); },
 
@@ -1727,7 +1850,8 @@
       navegaTabela: navegaTabela,
       renumeraListas: renumeraListas,
       insereLink: insereLink,
-      atributosDoLink: atributosDoLink
+      atributosDoLink: atributosDoLink,
+      htmlParaMarkdown: htmlParaMarkdown
     }
   };
 })(typeof window !== 'undefined' ? window : globalThis);

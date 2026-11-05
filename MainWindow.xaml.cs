@@ -490,8 +490,25 @@ public partial class MainWindow : Window
     {
         if (!e.Data.GetDataPresent(System.Windows.DataFormats.FileDrop)) return;
         if (e.Data.GetData(System.Windows.DataFormats.FileDrop) is not string[] paths) return;
-        HandleExternalOpen(paths);
         e.Handled = true;
+
+        // Com a pagina pronta, quem decide e ela: imagem, audio, video ou PDF
+        // solto em cima do editor vira anexo da nota no ponto da queda (como
+        // no Obsidian); o resto abre como aba. Antes disso, so abre.
+        if (!_rendererReady)
+        {
+            HandleExternalOpen(paths);
+            return;
+        }
+        var lista = paths
+            .Where(p => !string.IsNullOrWhiteSpace(p) && (File.Exists(p) || Directory.Exists(p)))
+            .Select(p => Path.GetFullPath(p))
+            .ToList();
+        if (lista.Count == 0) return;
+        foreach (var p in lista) _writablePaths.Add(p);
+        Activate();
+        var ponto = e.GetPosition(Web);
+        PostEvent("filesDropped", new { paths = lista, x = ponto.X, y = ponto.Y });
     }
 
     /// <summary>Chamado pelo pipe (segunda instancia), pelo drop e pelos argumentos de linha de comando.</summary>
@@ -643,6 +660,12 @@ public partial class MainWindow : Window
 
             case "writeHtml":
                 return WriteHtmlFile(Str(args, "path"), Str(args, "content"));
+
+            case "saveAttachment":
+                return SaveAttachment(Str(args, "notePath"), Str(args, "name"), Str(args, "data"));
+
+            case "copyAttachment":
+                return CopyAttachment(Str(args, "notePath"), Str(args, "source"));
 
             case "listDir":
                 return ListDirectory(Str(args, "path"));
@@ -2346,6 +2369,88 @@ public partial class MainWindow : Window
 
         File.Move(full, target);
         return AdoptMovedFile(full, target);
+    }
+
+    // ------------------------------------------------------------- anexos
+    //
+    // Imagem colada e arquivo solto no editor viram anexo na pasta da nota
+    // (a regra "mesma pasta do arquivo" do Obsidian). So para nota que esta
+    // sessao ja pode gravar, so de tipos de midia, e nunca por cima de outro.
+
+    private static readonly HashSet<string> AttachmentExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".avif",
+        ".mp3", ".wav", ".ogg", ".m4a", ".flac",
+        ".mp4", ".webm", ".mov", ".mkv",
+        ".pdf"
+    };
+
+    private const long AttachmentMaxBytes = 50L * 1024 * 1024;
+
+    private string AttachmentFolder(string notePath)
+    {
+        var nota = Path.GetFullPath(notePath);
+        if (!_writablePaths.Contains(nota))
+            throw new UnauthorizedAccessException("gravacao bloqueada: a nota nao foi aberta para edicao nesta sessao.");
+        return Path.GetDirectoryName(nota)!;
+    }
+
+    private static string FreeName(string folder, string name)
+    {
+        var target = Path.Combine(folder, name);
+        var bare = Path.GetFileNameWithoutExtension(name);
+        var ext = Path.GetExtension(name);
+        for (var n = 1; File.Exists(target) && n <= 999; n++)
+            target = Path.Combine(folder, bare + " " + n + ext);
+        if (File.Exists(target)) throw new IOException("ja ha arquivos demais com esse nome na pasta.");
+        return target;
+    }
+
+    private object SaveAttachment(string notePath, string name, string base64)
+    {
+        var folder = AttachmentFolder(notePath);
+        var clean = Path.GetFileName(name ?? "");
+        if (string.IsNullOrWhiteSpace(clean) || clean != name || clean.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+            throw new ArgumentException("nome de anexo invalido.");
+        if (!AttachmentExtensions.Contains(Path.GetExtension(clean)))
+            throw new UnauthorizedAccessException("so imagem, audio, video ou PDF viram anexo.");
+
+        byte[] bytes;
+        try { bytes = Convert.FromBase64String(base64 ?? ""); }
+        catch (FormatException) { throw new ArgumentException("o conteudo do anexo veio corrompido."); }
+        if (bytes.Length == 0) throw new ArgumentException("o anexo veio vazio.");
+        if (bytes.Length > AttachmentMaxBytes) throw new ArgumentException("anexo grande demais (limite de 50 MB).");
+
+        var target = FreeName(folder, clean);
+        var temp = Path.Combine(folder, "." + Path.GetFileName(target) + ".markpad-tmp");
+        using (var fs = new FileStream(temp, FileMode.Create, FileAccess.Write, FileShare.None))
+        {
+            fs.Write(bytes, 0, bytes.Length);
+            fs.Flush(true);
+        }
+        File.Move(temp, target);
+        return new { path = target, name = Path.GetFileName(target), copied = true };
+    }
+
+    private object CopyAttachment(string notePath, string source)
+    {
+        var folder = AttachmentFolder(notePath);
+        var origin = Path.GetFullPath(source);
+        // So o que a pessoa soltou na janela (o drop poe na lista).
+        if (!_writablePaths.Contains(origin))
+            throw new UnauthorizedAccessException("so arquivo solto na janela vira anexo.");
+        if (!File.Exists(origin)) throw new FileNotFoundException("o arquivo solto nao esta mais no disco.");
+        if (!AttachmentExtensions.Contains(Path.GetExtension(origin)))
+            throw new UnauthorizedAccessException("so imagem, audio, video ou PDF viram anexo.");
+        if (new FileInfo(origin).Length > AttachmentMaxBytes)
+            throw new ArgumentException("anexo grande demais (limite de 50 MB).");
+
+        if (string.Equals(Path.GetDirectoryName(origin), folder, StringComparison.OrdinalIgnoreCase))
+            return new { path = origin, name = Path.GetFileName(origin), copied = false };
+
+        var target = FreeName(folder, Path.GetFileName(origin));
+        File.Copy(origin, target, false);
+        return new { path = target, name = Path.GetFileName(target), copied = true };
     }
 
     private object DuplicateFile(string path)

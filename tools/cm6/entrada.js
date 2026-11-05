@@ -13,6 +13,10 @@ export * as lezerMarkdown from '@lezer/markdown';
 export * as highlight from '@lezer/highlight';
 export * as common from '@lezer/common';
 
+// HTML colado vira Markdown (o mesmo que o Obsidian usa).
+export { default as TurndownService } from 'turndown';
+export { gfm as turndownGfm } from 'turndown-plugin-gfm';
+
 import { LanguageDescription, LanguageSupport, StreamLanguage } from '@codemirror/language';
 import { javascript } from '@codemirror/lang-javascript';
 import { python } from '@codemirror/lang-python';
