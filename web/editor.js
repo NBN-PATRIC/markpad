@@ -572,7 +572,7 @@
       var cb = document.createElement('input');
       cb.type = 'checkbox';
       cb.checked = this.marcada;
-      if (this.char && this.char !== ' ' && this.char.toLowerCase() !== 'x') w.setAttribute('data-task', this.char);
+      if (this.char && this.char !== ' ' && this.char.toLowerCase() !== 'x') { w.setAttribute('data-task', this.char); cb.setAttribute('data-task', this.char); }
       cb.tabIndex = -1;
       cb.addEventListener('mousedown', function (e) { e.preventDefault(); });
       cb.addEventListener('click', function (e) {
@@ -866,7 +866,15 @@
               var tamMarca = mk.to - mk.from + 1;
               var task = no.node.getChild('Task');
               var tm = task && task.getChild('TaskMarker');
-              if (tm && /^\[[xX]\]$/.test(doc.sliceString(tm.from, tm.to))) linhaClasse(lLi.from, 'cm-tarefa-feita');
+              // O GFM so conhece [ ] e [x]; os estados do Obsidian ([?], [/],
+              // [-], [>]...) viram tarefa aqui, como no leitor.
+              if (!tm) {
+                var outro = /^ \[([^\]\s\\])\](?= |$)/.exec(doc.sliceString(mk.to, Math.min(lLi.to, mk.to + 6)));
+                if (outro) tm = { from: mk.to + 1, to: mk.to + 4 };
+              }
+              var estadoTarefa = tm ? doc.sliceString(tm.from + 1, tm.from + 2) : '';
+              if (/^[xX]$/.test(estadoTarefa)) linhaClasse(lLi.from, 'cm-tarefa-feita');
+              else if (/^[-~]$/.test(estadoTarefa)) linhaClasse(lLi.from, 'cm-tarefa-cancelada');
               var w = vivo ? (recuo * 0.32 + (tm ? 1.6 : (doc.sliceString(mk.from, mk.to).length > 1 ? tamMarca * 0.55 : 1.2))) : 0;
               linhaClasse(lLi.from, 'cm-linha-lista', vivo ? { style: 'padding-left:' + w.toFixed(2) + 'em;text-indent:-' + w.toFixed(2) + 'em' } : null);
               if (!vivo) return;
@@ -1504,6 +1512,7 @@
       { key: 'Enter', run: navegaTabela(0, true) },
       { key: 'Enter', run: tecladoEnter },
       { key: 'Backspace', run: function (v) { return !v.state.readOnly && MD.deleteMarkupBackward(v); } },
+      { key: 'Tab', run: function (v) { return AC.completionStatus(v.state) === 'active' && AC.acceptCompletion(v); } },
       { key: 'Tab', run: navegaTabela(1, false), shift: navegaTabela(-1, false) },
       { key: 'Tab', run: tecladoTab, shift: tecladoShiftTab },
       { key: 'Mod-b', run: alternaMarca('**'), preventDefault: true },

@@ -3070,3 +3070,18 @@ button.hotkey-key { cursor: pointer; border: 1px solid transparent; font: inheri
 button.hotkey-key:hover { border-color: var(--background-modifier-border-hover); }
 .hotkey-key.is-meu { color: var(--text-accent); }
 .hotkey-key.is-capturando { border-color: var(--color-accent); color: var(--text-normal); }
+
+/* estados de tarefa do Obsidian no ao vivo ([?] [/] [-] [>]...), como no leitor */
+.cm-tarefa-caixa input[data-task] {
+  appearance: none; -webkit-appearance: none;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--background-modifier-border); border-radius: 3px;
+  background: var(--background-primary); color: var(--text-muted);
+  font-size: 10px; font-weight: 700; line-height: 1;
+}
+.cm-tarefa-caixa input[data-task]::before { content: attr(data-task); }
+.cm-tarefa-caixa input[data-task="/"], .cm-tarefa-caixa input[data-task=">"], .cm-tarefa-caixa input[data-task="<"] { color: var(--text-accent); border-color: var(--text-accent); }
+.cm-tarefa-caixa input[data-task="?"] { color: #d29922; border-color: #d29922; }
+.cm-tarefa-caixa input[data-task="!"] { color: #e5534b; border-color: #e5534b; }
+.cm-modo-vivo .cm-tarefa-cancelada { color: var(--text-muted); text-decoration: line-through; }
+.cm-modo-vivo .cm-tarefa-cancelada .cm-tarefa-caixa { text-decoration: none; }

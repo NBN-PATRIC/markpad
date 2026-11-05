@@ -4608,6 +4608,7 @@
     var antes = tab.content;
     if (!tab.locked && ed && ed.aba === tab) {
       ed.trocaTexto(novo);   // o Ctrl+Z do editor desfaz
+      ed.foco();             // e o foco volta a ele, para o Ctrl+Z do aviso valer
     } else {
       tab.content = novo;
       scheduleBackup(tab);
@@ -4634,10 +4635,9 @@
   // ------------------------------------------------- operacoes com linhas
   //
   // Ordenar, remover duplicadas, unir, aparar, recuo, maiusculas: as funcoes
-  // puras moram em textops.js (testadas no node). Aqui so se aplica: no
-  // editor que tem o foco (codigo-fonte ou o bloco aberto no modo ao vivo),
-  // pelo insertText, para o Ctrl+Z do proprio editor desfazer; sem editor
-  // aberto, no documento inteiro, com o Ctrl+Z de fora desfazendo.
+  // puras moram em textops.js (testadas no node). Aqui so se aplica, no
+  // editor, como edicao (o Ctrl+Z dele desfaz): na selecao, ou, sem selecao,
+  // no documento inteiro (ordenar, limpar) ou na linha (duplicar, mover).
 
   function editorEmUso() {
     var tab = activeTab();
@@ -4656,7 +4656,11 @@
     var edUso = editorEmUso();
     if (edUso) {
       var texto = edUso.texto(), sl = edUso.selecao();
-      var r = fn(texto, sl.inicio, sl.fim);
+      // Como no Notepad++: ordenar e limpar sem selecao valem para o
+      // documento inteiro; duplicar, mover, unir e caixa, para a linha.
+      var ini = sl.inicio, fim = sl.fim;
+      if (!soNoEditor && ini === fim) { ini = 0; fim = texto.length; }
+      var r = fn(texto, ini, fim);
       if (!r || r.texto === texto.slice(r.ini, r.fim)) { toast(t('Nada a mudar.'), '', 1400); return; }
       edUso.troca(r.ini, r.fim, r.texto, r.selIni, r.selFim);
       edUso.foco();

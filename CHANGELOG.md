@@ -172,8 +172,8 @@ Versionamento [SemVer](https://semver.org/lang/pt-BR/).
   sem desfazer a quebra forçada de dois espaços e sem tocar em bloco de
   código; recuo de TAB para espaços e o contrário; MAIÚSCULAS, minúsculas,
   título em português (deixa "de", "da", "e" minúsculos) e frase. Valem na
-  seleção (ou na linha) do editor; sem editor aberto, no documento inteiro, e
-  Ctrl+Z desfaz.
+  seleção; sem seleção, ordenar e limpar valem para o documento inteiro (como
+  no Notepad++) e caixa, para a palavra ou a linha. Ctrl+Z desfaz.
 - **Atalhos do Notepad++ no editor:** Ctrl+D duplica a seleção (sem seleção,
   a linha), Alt+↑/↓ e Ctrl+Shift+↑/↓ movem todas as linhas da seleção,
   Ctrl+Shift+K apaga a linha, Ctrl+J une a linha com a de baixo (ou as
