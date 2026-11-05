@@ -321,6 +321,59 @@ body.sem-esquerda .sidebar-resizer:not(.is-direita) { display: none; }
 .graph-empty { position: absolute; inset: auto 0 0 0; margin: 0; }
 body.sidebar-hidden .main { border-left: none; border-radius: var(--radius-m) var(--radius-m) 0 0; }
 
+/* ====================================================== tela dividida */
+
+.grupos { flex: 1; min-width: 0; min-height: 0; display: flex; }
+.grupos.is-vertical { flex-direction: column; }
+.grupo { flex: 1 1 0; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.grupo[hidden] { display: none; }
+.grupo-corpo { flex: 1; min-width: 0; min-height: 0; display: flex; }
+.grupo-abas { display: none; }
+body.dividido .grupo-abas {
+  display: flex;
+  flex-shrink: 0;
+  height: 34px;
+  padding: 0 6px;
+  background: var(--background-secondary);
+  border-bottom: 1px solid var(--background-modifier-border);
+  overflow-x: auto;
+}
+body.dividido .tab-bar .tab-list { visibility: hidden; }
+body.dividido .grupo:not(.is-foco) .grupo-abas { opacity: 0.75; }
+body.dividido .grupo.is-foco .grupo-abas .tab.is-active { box-shadow: inset 0 2px 0 var(--color-accent); }
+.grupo-abas.is-alvo-aba, .grupo-corpo.is-alvo-aba { box-shadow: inset 0 0 0 2px var(--color-accent); }
+.grupo-divisor { flex: 0 0 4px; cursor: col-resize; background: var(--background-modifier-border); }
+.grupos.is-vertical .grupo-divisor { cursor: row-resize; }
+.grupo-divisor:hover, .grupo-divisor.is-dragging { background: var(--color-accent); }
+.view-body.is-alvo-divisao { box-shadow: inset -40% 0 0 0 color-mix(in srgb, var(--color-accent) 18%, transparent); }
+.view-body.is-alvo-divisao::after {
+  content: "";
+  position: absolute;
+  inset: 0 0 0 55%;
+  background: color-mix(in srgb, var(--color-accent) 14%, transparent);
+  border-left: 2px solid var(--color-accent);
+  pointer-events: none;
+}
+/* a metade sem foco: a leitura da aba dela, um tom abaixo */
+.main-copia { cursor: default; }
+.main-copia[hidden] { display: none; }
+.copia-cab { gap: 7px; }
+.copia-dica { color: var(--text-faint); font-size: var(--font-ui-smaller); margin-left: 6px; }
+.copia-fonte {
+  max-width: none;
+  margin: 0;
+  padding: 24px 28px 40vh;
+  font-family: var(--font-mono);
+  font-size: var(--font-text-size);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--text-normal);
+}
+body.dividido .grupo:not(.is-foco) .main { opacity: 0.92; }
+.tab-estado.is-espelho { color: var(--text-accent); }
+.tab.is-espelho .tab-name { font-style: italic; }
+
 /* =============================================================== abas */
 
 .tab-bar {

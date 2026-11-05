@@ -6,6 +6,20 @@ Versionamento [SemVer](https://semver.org/lang/pt-BR/).
 ## [Não lançado]
 
 ### Adicionado
+- **Tela dividida** (Obsidian e Notepad++). "Dividir à direita" e "Dividir
+  abaixo" (paleta e menu da aba) põem a nota nas duas metades, cada uma com a
+  sua fileira de abas. Abrir arquivo vai para a metade com o foco; "Abrir à
+  direita" no menu da árvore e Ctrl+Alt+clique num link abrem na outra
+  metade. Arrastar uma aba para a fileira ou para o corpo da outra metade a
+  leva para lá; sem divisão, arrastar a aba para a borda direita do documento
+  divide. F8 passa o foco de uma metade para a outra (como no Notepad++), a
+  divisória se arrasta (duplo clique volta ao meio), e dá para alternar entre
+  lado a lado e em cima e embaixo ou juntar as metades. Fechar a última aba de
+  uma metade desfaz a divisão, e a divisão volta na próxima abertura.
+- **A mesma nota nas duas metades** fica ligada: só a metade com o foco edita,
+  e a outra acompanha o texto enquanto se digita (aba em itálico com o ícone
+  de elo). Clicar na outra metade passa a edição para ela. Fechar uma das duas
+  deixa a outra com tudo, inclusive o que não foi salvo, sem perguntar.
 - **Barra lateral da direita** (como a do Obsidian). Sumário, tags e o grafo
   local passam a morar à direita; arquivos, busca, marcadores e recentes
   ficam à esquerda. Qualquer painel muda de lado pelo clique direito no ícone

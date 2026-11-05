@@ -145,7 +145,11 @@
     // Pilha do Ctrl+Shift+T. O conteudo vai junto porque uma nota que nunca
     // foi salva morre no fechar e nao teria de onde voltar.
     fechadas: [],
-    closing: false
+    closing: false,
+    // Tela dividida: no maximo dois grupos de abas (o Notepad++ tem duas
+    // vistas). Cada aba sabe o seu (tab.grupo); o grupo lembra a aba da vez.
+    grupos: [{ id: 1, ativa: null }],
+    grupoAtivo: 1
   };
 
   function activeTab() {
@@ -184,6 +188,7 @@
 
   function scheduleBackup(tab) {
     if (!tab) return;
+    atualizaEspelhos(tab);
     var chave = chaveDeRascunho(tab);
 
     clearTimeout(backupTimers[tab.id]);
@@ -431,6 +436,10 @@
       settings.sessionCores = {};
       app.tabs.forEach(function (t) { if (t.path && t.cor) settings.sessionCores[t.path] = t.cor; });
       settings.lastFolder = app.folder;
+      // A divisao volta na proxima abertura: quais caminhos moram na metade 2.
+      settings.sessaoGrupo2 = dividido()
+        ? app.tabs.filter(function (t) { return t.path && !t.espelhoDe && grupoDe(t) === 2; }).map(function (t) { return t.path; })
+        : [];
       bridge.call('saveSettings', { json: JSON.stringify(settings) }).catch(function () {});
     }, 400);
   }
@@ -920,6 +929,14 @@
     if (idx === -1) return Promise.resolve(true);
 
     var tab = app.tabs[idx];
+    // Fechar uma metade de uma nota aberta nas duas: o espelho herda tudo
+    // (inclusive o que nao foi salvo) e nada e perguntado.
+    if (!tab.espelhoDe && espelhosDe(tab).length) {
+      promoveEspelhos(tab);
+      app.tabs.splice(app.tabs.indexOf(tab), 1);
+      depoisDeFechar(tab, idx);
+      return Promise.resolve(true);
+    }
     var dirty = tab.content !== tab.savedContent;
     // Apagado por fora (Notepad++): o texto so existe nesta aba, entao
     // fechar pergunta como se houvesse alteracao.
@@ -945,16 +962,10 @@
 
         if (tab.path) bridge.call('unwatchFile', { path: tab.path }).catch(function () {});
         dropBackup(tab);
-        guardaFechada(tab);
-        app.tabs.splice(idx, 1);
+        if (!tab.espelhoDe) guardaFechada(tab);
+        app.tabs.splice(app.tabs.indexOf(tab), 1);
         if (tab.monitorar) ajustaRelogioMonitor();
-
-        if (app.activeId === id) {
-          var next = app.tabs[Math.min(idx, app.tabs.length - 1)];
-          app.activeId = next ? next.id : null;
-        }
-        renderAll();
-        persist();
+        depoisDeFechar(tab, idx);
         return true;
       });
     });
@@ -1041,6 +1052,7 @@
   }
 
   function insereAba(tab) {
+    if (!tab.grupo) tab.grupo = dividido() ? app.grupoAtivo : 1;
     var ativa = activeTab();
     var idx = ativa ? app.tabs.indexOf(ativa) + 1 : app.tabs.length;
     if (idx <= 0) idx = app.tabs.length;
@@ -1206,6 +1218,9 @@
       novo.historico = historicoDe(tab);
       novo.fixada = tab.fixada;
       novo.cor = tab.cor;
+      novo.grupo = tab.grupo;
+      // A aba saiu da nota: o espelho dela na outra metade vira a propria nota.
+      promoveEspelhos(tab);
       app.tabs[idx] = novo;
       if (tab.path && !mesmoArquivo(tab.path, data.path)) {
         bridge.call('unwatchFile', { path: tab.path }).catch(function () {});
@@ -1227,6 +1242,7 @@
    */
   function abreDestino(path, nav) {
     nav = nav || {};
+    if (nav.outroGrupo) return abreNoOutroGrupo(path, nav.secao);
     var origem = nav.origem && app.tabs.indexOf(nav.origem) !== -1 ? nav.origem : null;
     var jaAberta = tabByPath(path);
 
@@ -1334,7 +1350,23 @@
   function selectTab(id) {
     if (live) live.commit();
     var current = activeTab();
+    // Espelho (a mesma nota na outra metade) nunca fica com a visao viva:
+    // escolher o espelho troca de lugar com o original, e quem edita passa a
+    // ser a metade em que se clicou.
+    var escolhida = tabById(id);
+    if (escolhida && escolhida.espelhoDe) {
+      var original = tabById(escolhida.espelhoDe);
+      if (original) { trocaEspelho(escolhida, original); id = original.id; escolhida = original; }
+      else escolhida.espelhoDe = null;
+    }
     if (current && current.id !== id) stashScroll(current);
+    if (current && current.id !== id && $('readingScroll')) stashReadingScroll(current);
+    if (escolhida) {
+      var gid = grupoDe(escolhida);
+      var g = grupoPorId(gid);
+      if (g) g.ativa = id;
+      app.grupoAtivo = gid;
+    }
 
     app.activeId = id;
     app.usoAbas = [id].concat((app.usoAbas || []).filter(function (x) { return x !== id; }));
@@ -1906,6 +1938,7 @@
   // =========================================================== renderizacao
 
   function renderAll() {
+    renderGrupos();
     renderTabs();
     renderQuickBar();
     renderHeader();
@@ -1917,13 +1950,27 @@
   }
 
   function renderTabs() {
-    var list = $('tabList');
+    // Dividido, cada metade tem a sua fileira de abas (como no Notepad++ e
+    // no Obsidian); inteiro, a fileira de sempre, no alto.
+    var fileiras = dividido()
+      ? [[$('grupo1').querySelector('.grupo-abas'), 1], [$('grupo2').querySelector('.grupo-abas'), 2]]
+      : [[$('tabList'), 0]];
+    if (dividido()) $('tabList').textContent = '';
+    else { $('grupo1').querySelector('.grupo-abas').textContent = ''; $('grupo2').querySelector('.grupo-abas').textContent = ''; }
+    fileiras.forEach(function (par) { desenhaFileira(par[0], par[1]); });
+  }
+
+  function desenhaFileira(list, gid) {
     list.textContent = '';
+    var g = gid ? grupoPorId(gid) : null;
 
     app.tabs.forEach(function (tab) {
+      if (gid && grupoDe(tab) !== gid) return;
+      var ativaAqui = gid ? (g && g.ativa === tab.id) : tab.id === app.activeId;
       var el = document.createElement('div');
       el.className = 'tab' +
-        (tab.id === app.activeId ? ' is-active' : '') +
+        (ativaAqui ? ' is-active' : '') +
+        (tab.espelhoDe ? ' is-espelho' : '') +
         (!tab.locked ? ' is-unlocked' : '') +
         (tab.fixada ? ' is-pinned' : '');
       el.title = tab.path || tab.name;
@@ -1948,9 +1995,18 @@
         el.appendChild(ic);
       }
 
+      if (tab.espelhoDe) {
+        var elo = document.createElement('span');
+        elo.className = 'tab-estado is-espelho';
+        elo.title = t('A mesma nota da outra metade (clique para editar aqui)');
+        var svgElo = window.MarkPadIcons.build('link', 12);
+        if (svgElo) elo.appendChild(svgElo);
+        el.appendChild(elo);
+      }
+
       var name = document.createElement('span');
       name.className = 'tab-name';
-      name.textContent = tab.name;
+      name.textContent = tab.espelhoDe ? ((tabById(tab.espelhoDe) || tab).name) : tab.name;
       el.appendChild(name);
 
       if (tab.content !== tab.savedContent) {
@@ -2010,6 +2066,8 @@
         var movida = arrastoAba;
         if (app.tabs.indexOf(movida) < alvo) alvo--; // tirar a aba desloca o alvo
         arrastoAba = null;
+        // Soltou na fileira da outra metade: a aba muda de grupo.
+        if (grupoDe(movida) !== grupoDe(tab)) { mudaDeGrupo(movida, grupoDe(tab)); alvo = app.tabs.indexOf(tab) + (e.clientX > r.left + r.width / 2 ? 1 : 0); if (app.tabs.indexOf(movida) < alvo) alvo--; }
         moveAba(movida, alvo);
       };
 
@@ -3619,7 +3677,8 @@
       }
 
       // Ctrl+clique ou botao do meio: aba nova. Clique simples: navega na aba.
-      var navLink = { origem: tab, novaAba: !!(e.ctrlKey || e.metaKey || e.button === 1) };
+      var navLink = { origem: tab, novaAba: !!(e.ctrlKey || e.metaKey || e.button === 1),
+        outroGrupo: !!((e.ctrlKey || e.metaKey) && e.altKey) };
 
       if (el.hasAttribute('data-tag')) {
         openFolderSearch('#' + el.getAttribute('data-tag'));
@@ -6343,6 +6402,394 @@
     persist();
   }
 
+  // ======================================================= tela dividida
+  //
+  // Duas metades lado a lado (ou uma em cima da outra), cada uma com a sua
+  // fileira de abas, como as duas vistas do Notepad++ e a divisao do
+  // Obsidian. So uma visao e viva por vez (o editor de hoje, com tudo o que
+  // ele sabe): a metade com o foco. A outra mostra a aba dela desenhada pelo
+  // mesmo leitor, sempre atualizada; clicar nela passa o foco e o editor muda
+  // de lado. A mesma nota nas duas metades e um espelho: so uma edita por vez
+  // (a do foco) e a outra acompanha o texto enquanto se digita.
+
+  function dividido() { return app.grupos.length > 1; }
+  function grupoDe(tab) { return (tab && tab.grupo) || 1; }
+  function grupoPorId(id) {
+    for (var i = 0; i < app.grupos.length; i++) if (app.grupos[i].id === id) return app.grupos[i];
+    return null;
+  }
+  function abasDoGrupo(gid) { return app.tabs.filter(function (t) { return grupoDe(t) === gid; }); }
+  function outroGrupoDe(gid) { return gid === 1 ? 2 : 1; }
+  function espelhosDe(tab) { return app.tabs.filter(function (t) { return t.espelhoDe === tab.id; }); }
+
+  function garanteDivisao() {
+    if (!dividido()) app.grupos.push({ id: 2, ativa: null });
+  }
+
+  function criaEspelho(tab, gid) {
+    var esp = makeTab({ name: tab.name, content: '' });
+    esp.espelhoDe = tab.id;
+    esp.grupo = gid;
+    esp.locked = true;
+    esp.readingScrollTop = tab.readingScrollTop || 0;
+    // Entra logo depois da ultima aba daquela metade.
+    var abas = abasDoGrupo(gid);
+    var depois = abas.length ? app.tabs.indexOf(abas[abas.length - 1]) + 1 : app.tabs.length;
+    app.tabs.splice(depois, 0, esp);
+    var g = grupoPorId(gid);
+    if (g) g.ativa = esp.id;
+    return esp;
+  }
+
+  /** O espelho e o original trocam de metade (e de rolagem). */
+  function trocaEspelho(esp, orig) {
+    var i = app.tabs.indexOf(esp), j = app.tabs.indexOf(orig);
+    app.tabs[i] = orig;
+    app.tabs[j] = esp;
+    var g1 = esp.grupo; esp.grupo = orig.grupo; orig.grupo = g1;
+    var r = esp.readingScrollTop; esp.readingScrollTop = orig.readingScrollTop; orig.readingScrollTop = r;
+    // Na metade para onde o espelho foi, ele so vira a aba da vez se o
+    // original era a aba da vez de la.
+    var ge = grupoPorId(esp.grupo), go = grupoPorId(orig.grupo);
+    if (ge && ge.ativa === orig.id) ge.ativa = esp.id;
+    if (go) go.ativa = orig.id;
+  }
+
+  /*
+   * A aba original vai sair da nota (navegou ou fechou): o primeiro espelho
+   * vira a propria nota, com texto, estado de salvo e historico; os outros
+   * passam a espelhar ele.
+   */
+  function promoveEspelhos(tab) {
+    var esps = espelhosDe(tab);
+    if (!esps.length) return null;
+    var novo = esps[0];
+    ['path', 'name', 'dir', 'content', 'savedContent', 'originContent', 'encoding', 'eol', 'mtime', 'discoVisto',
+      'readOnlyOnDisk', 'staleOnDisk', 'suspeita', 'apagadoNoDisco', 'rascunhoId', 'cor'].forEach(function (k) {
+      if (tab[k] !== undefined) novo[k] = tab[k];
+    });
+    novo.locked = tab.locked;
+    novo.showSource = tab.showSource;
+    novo.espelhoDe = null;
+    esps.slice(1).forEach(function (e) { e.espelhoDe = novo.id; });
+    return novo;
+  }
+
+  function mudaDeGrupo(tab, gid) {
+    if (grupoDe(tab) === gid) return;
+    garanteDivisao();
+    var origem = grupoDe(tab);
+    tab.grupo = gid;
+    // Espelho que caiu na mesma metade do original nao serve para nada.
+    app.tabs.slice().forEach(function (t) {
+      var par = t.espelhoDe ? tabById(t.espelhoDe) : null;
+      if (par && grupoDe(par) === grupoDe(t)) app.tabs.splice(app.tabs.indexOf(t), 1);
+    });
+    var go = grupoPorId(origem);
+    if (go && go.ativa === tab.id) {
+      var resto = abasDoGrupo(origem);
+      go.ativa = resto.length ? resto[0].id : null;
+    }
+    var gd = grupoPorId(gid);
+    if (gd) gd.ativa = tab.id;
+    recolheGrupoVazio();
+    selectTab(tab.id);
+  }
+
+  /** Metade sem aba nenhuma some; se era a 1, a 2 vira a 1. */
+  function recolheGrupoVazio() {
+    if (!dividido()) return;
+    var vazio1 = !abasDoGrupo(1).length, vazio2 = !abasDoGrupo(2).length;
+    if (!vazio1 && !vazio2) return;
+    if (vazio1) app.tabs.forEach(function (t) { t.grupo = 1; });
+    var ativa = vazio1 ? grupoPorId(2).ativa : grupoPorId(1).ativa;
+    app.grupos = [{ id: 1, ativa: ativa }];
+    app.grupoAtivo = 1;
+  }
+
+  function depoisDeFechar(tab, idx) {
+    var gid = grupoDe(tab);
+    var g = grupoPorId(gid);
+    var resto = abasDoGrupo(gid);
+    if (g && g.ativa === tab.id) g.ativa = resto.length ? resto[Math.min(Math.max(0, idx - app.tabs.indexOf(resto[0])), resto.length - 1)].id : null;
+    recolheGrupoVazio();
+    if (app.activeId === tab.id) {
+      var gf = grupoPorId(app.grupoAtivo) || app.grupos[0];
+      var prox = gf && gf.ativa ? tabById(gf.ativa) : null;
+      if (!prox) { var lista = abasDoGrupo(app.grupoAtivo); prox = lista[0] || app.tabs[0] || null; }
+      if (prox && prox.espelhoDe) { var o = tabById(prox.espelhoDe); if (o) { trocaEspelho(prox, o); prox = o; } }
+      app.activeId = prox ? prox.id : null;
+      if (prox) app.grupoAtivo = grupoDe(prox);
+    }
+    renderAll();
+    persist();
+  }
+
+  /** Dividir a direita ou abaixo: a mesma nota na nova metade, com o foco nela. */
+  function dividir(direcao, tab) {
+    tab = tab || activeTab();
+    if (!tab) return;
+    if (tab.espelhoDe) tab = tabById(tab.espelhoDe) || tab;
+    settings.layoutDirecao = direcao;
+    if (dividido()) {
+      // Ja dividido: so muda a direcao, e a nota vai para a outra metade.
+      mudaDeGrupo(tab, outroGrupoDe(grupoDe(tab)));
+      persist();
+      return;
+    }
+    garanteDivisao();
+    var esp = criaEspelho(tab, 2);
+    renderAll();
+    selectTab(esp.id);   // a troca deixa o original (vivo) na metade nova
+    persist();
+  }
+
+  function juntaMetades() {
+    if (!dividido()) return;
+    app.tabs.slice().forEach(function (t) {
+      if (t.espelhoDe) app.tabs.splice(app.tabs.indexOf(t), 1);
+      else t.grupo = 1;
+    });
+    var ativa = activeTab();
+    app.grupos = [{ id: 1, ativa: ativa ? ativa.id : null }];
+    app.grupoAtivo = 1;
+    renderAll();
+    persist();
+  }
+
+  function focaOutraMetade() {
+    if (!dividido()) return;
+    var g = grupoPorId(outroGrupoDe(app.grupoAtivo));
+    var tab = g && (tabById(g.ativa) || abasDoGrupo(g.id)[0]);
+    if (tab) selectTab(tab.id);
+  }
+
+  function abreNoOutroGrupo(path, secao) {
+    var ja = tabByPath(path);
+    if (ja && !ja.espelhoDe && grupoDe(ja) !== app.grupoAtivo && dividido()) {
+      selectTab(ja.id);
+      saltaParaSecao(secao);
+      return Promise.resolve(ja);
+    }
+    garanteDivisao();
+    var destino = outroGrupoDe(app.grupoAtivo);
+    if (ja) { mudaDeGrupo(ja, destino); saltaParaSecao(secao); return Promise.resolve(ja); }
+    app.grupoAtivo = destino;
+    return openPath(path).then(function (aba) {
+      recolheGrupoVazio();
+      renderAll();
+      saltaParaSecao(secao);
+      persist();
+      return aba;
+    });
+  }
+
+  function restauraGrupos() {
+    var dois = (settings.sessaoGrupo2 || []).map(function (p) { return p.toLowerCase(); });
+    if (!dois.length) return;
+    var algum = false;
+    app.tabs.forEach(function (t) {
+      if (t.path && dois.indexOf(t.path.toLowerCase()) !== -1) { t.grupo = 2; algum = true; }
+    });
+    if (!algum || !abasDoGrupo(1).length) { app.tabs.forEach(function (t) { t.grupo = 1; }); return; }
+    app.grupos = [{ id: 1, ativa: abasDoGrupo(1)[0].id }, { id: 2, ativa: abasDoGrupo(2)[0].id }];
+    var ativa = activeTab();
+    app.grupoAtivo = grupoDe(ativa);
+    grupoPorId(app.grupoAtivo).ativa = ativa ? ativa.id : null;
+    renderAll();
+  }
+
+  /** Posiciona a visao viva na metade do foco e desenha a outra. */
+  function renderGrupos() {
+    var div = dividido();
+    document.body.classList.toggle('dividido', div);
+    var caixa = $('grupos');
+    if (!caixa) return;
+    caixa.classList.toggle('is-vertical', div && settings.layoutDirecao === 'v');
+    $('grupo2').hidden = !div;
+    $('grupoDivisor').hidden = !div;
+    var foco = div ? app.grupoAtivo : 1;
+    var corpo = $('grupo' + foco).querySelector('.grupo-corpo');
+    var main = $('main');
+    if (main.parentNode !== corpo) {
+      var velha = corpo.querySelector('.main-copia');
+      if (velha) velha.hidden = true;
+      corpo.appendChild(main);
+    }
+    var prop = Math.max(0.15, Math.min(0.85, settings.layoutProporcao || 0.5));
+    $('grupo1').style.flex = div ? prop + ' 1 0' : '';
+    $('grupo2').style.flex = div ? (1 - prop) + ' 1 0' : '';
+    [1, 2].forEach(function (gid) {
+      $('grupo' + gid).classList.toggle('is-foco', div && gid === foco);
+      var copia = $('grupo' + gid).querySelector('.main-copia');
+      if (copia && (!div || gid === foco)) copia.hidden = true;
+    });
+    if (div) renderCopia(outroGrupoDe(foco));
+  }
+
+  function criaCopia(gid) {
+    var copia = document.createElement('div');
+    copia.className = 'main main-copia';
+    copia.setAttribute('data-grupo', String(gid));
+    var cab = document.createElement('header');
+    cab.className = 'view-header copia-cab';
+    var ic = document.createElement('span');
+    ic.className = 'view-icon';
+    var svg = window.MarkPadIcons.build('file-text', 15);
+    if (svg) ic.appendChild(svg);
+    var nome = document.createElement('span');
+    nome.className = 'view-name copia-nome';
+    var dica = document.createElement('span');
+    dica.className = 'copia-dica';
+    cab.appendChild(ic);
+    cab.appendChild(nome);
+    cab.appendChild(dica);
+    var rol = document.createElement('div');
+    rol.className = 'reading-scroll copia-scroll';
+    var alvo = document.createElement('div');
+    alvo.className = 'copia-conteudo markdown-preview';
+    rol.appendChild(alvo);
+    copia.appendChild(cab);
+    copia.appendChild(rol);
+    rol.addEventListener('scroll', function () {
+      var tab = tabById(copia.__tabId);
+      if (tab) tab.readingScrollTop = rol.scrollTop;
+    }, { passive: true });
+    // Clicar na metade sem foco passa o foco para ela (depois do clique: um
+    // link clicado aqui navega esta metade, como no Obsidian).
+    copia.addEventListener('click', function () {
+      setTimeout(function () {
+        var g = grupoPorId(gid);
+        var tab = g && tabById(g.ativa);
+        if (tab && dividido() && app.grupoAtivo !== gid) selectTab(tab.id);
+      }, 0);
+    });
+    return copia;
+  }
+
+  function renderCopia(gid) {
+    var corpo = $('grupo' + gid).querySelector('.grupo-corpo');
+    var copia = corpo.querySelector('.main-copia');
+    if (!copia) { copia = criaCopia(gid); corpo.appendChild(copia); }
+    copia.hidden = false;
+    var g = grupoPorId(gid);
+    var tab = (g && tabById(g.ativa)) || abasDoGrupo(gid)[0] || null;
+    if (g) g.ativa = tab ? tab.id : null;
+    var doc = tab && tab.espelhoDe ? tabById(tab.espelhoDe) : tab;
+    copia.querySelector('.copia-nome').textContent = doc ? doc.name : '';
+    copia.querySelector('.copia-dica').textContent = tab && tab.espelhoDe ? t('mesma nota da outra metade') : '';
+    copia.title = t('Clique para trabalhar nesta metade');
+    var rol = copia.querySelector('.copia-scroll');
+    var alvo = copia.querySelector('.copia-conteudo');
+    var mesma = copia.__tabId === (tab && tab.id);
+    var rolagem = mesma ? rol.scrollTop : (tab ? (tab.readingScrollTop || 0) : 0);
+    copia.__tabId = tab ? tab.id : null;
+    if (!doc) { alvo.className = 'copia-conteudo'; alvo.textContent = ''; return; }
+    if (doc.showSource && !doc.locked && !tab.espelhoDe) {
+      alvo.className = 'copia-conteudo copia-fonte';
+      alvo.textContent = doc.content;
+    } else {
+      alvo.className = 'copia-conteudo markdown-preview';
+      renderPreview(alvo, doc);
+      // Tarefa marcada aqui iria para a aba errada: na metade sem foco, vitrine.
+      var tarefas = alvo.querySelectorAll('[data-task-line]');
+      for (var i = 0; i < tarefas.length; i++) tarefas[i].removeAttribute('data-task-line');
+      if (tab.espelhoDe) {
+        // Link clicado no espelho navegaria o original na outra metade.
+        alvo.onclick = function (e) { if (e.target.closest && e.target.closest('[data-wikilink],[data-file]')) e.preventDefault(); };
+      }
+    }
+    rol.scrollTop = rolagem;
+  }
+
+  var espelhoTimer = null;
+  /** Digitou na metade viva: o espelho da outra metade acompanha (com espera). */
+  function atualizaEspelhos(tab) {
+    if (!dividido() || !espelhosDe(tab).length) return;
+    clearTimeout(espelhoTimer);
+    espelhoTimer = setTimeout(function () {
+      var outro = outroGrupoDe(app.grupoAtivo);
+      var g = grupoPorId(outro);
+      var mostrada = g && tabById(g.ativa);
+      if (mostrada && mostrada.espelhoDe === tab.id) renderCopia(outro);
+    }, 300);
+  }
+
+  function ligaDivisor() {
+    var div = $('grupoDivisor');
+    div.addEventListener('mousedown', function (e) {
+      e.preventDefault();
+      div.classList.add('is-dragging');
+      var caixa = $('grupos').getBoundingClientRect();
+      var vertical = settings.layoutDirecao === 'v';
+      function move(ev) {
+        var p = vertical ? (ev.clientY - caixa.top) / caixa.height : (ev.clientX - caixa.left) / caixa.width;
+        settings.layoutProporcao = Math.max(0.15, Math.min(0.85, p));
+        $('grupo1').style.flex = settings.layoutProporcao + ' 1 0';
+        $('grupo2').style.flex = (1 - settings.layoutProporcao) + ' 1 0';
+      }
+      function up() {
+        div.classList.remove('is-dragging');
+        document.removeEventListener('mousemove', move);
+        document.removeEventListener('mouseup', up);
+        persist();
+      }
+      document.addEventListener('mousemove', move);
+      document.addEventListener('mouseup', up);
+    });
+    div.addEventListener('dblclick', function () {
+      settings.layoutProporcao = 0.5;
+      renderGrupos();
+      persist();
+    });
+    // Soltar aba na fileira (fora de outra aba) ou no corpo da outra metade:
+    // a aba vai para aquela metade. No corpo, sem divisao: divide.
+    [1, 2].forEach(function (gid) {
+      var fileira = $('grupo' + gid).querySelector('.grupo-abas');
+      var corpo = $('grupo' + gid).querySelector('.grupo-corpo');
+      [fileira, corpo].forEach(function (zona) {
+        zona.addEventListener('dragover', function (e) {
+          if (!arrastoAba) return;
+          if (zona === corpo && dividido() && grupoDe(arrastoAba) === gid) return;
+          e.preventDefault();
+          zona.classList.add('is-alvo-aba');
+        });
+        zona.addEventListener('dragleave', function () { zona.classList.remove('is-alvo-aba'); });
+        zona.addEventListener('drop', function (e) {
+          zona.classList.remove('is-alvo-aba');
+          if (!arrastoAba || e.defaultPrevented) return;
+          e.preventDefault();
+          var aba = arrastoAba;
+          arrastoAba = null;
+          if (!dividido()) { dividir('h', aba); return; }
+          mudaDeGrupo(aba, gid);
+          persist();
+        });
+      });
+    });
+    // Sem divisao: arrastar a aba para a borda direita do documento divide.
+    var vb = $('viewBody');
+    vb.addEventListener('dragover', function (e) {
+      if (!arrastoAba || dividido()) return;
+      var r = vb.getBoundingClientRect();
+      if (e.clientX < r.left + r.width * 0.6) { vb.classList.remove('is-alvo-divisao'); return; }
+      e.preventDefault();
+      vb.classList.add('is-alvo-divisao');
+    });
+    vb.addEventListener('dragleave', function () { vb.classList.remove('is-alvo-divisao'); });
+    vb.addEventListener('drop', function (e) {
+      if (!vb.classList.contains('is-alvo-divisao')) return;
+      vb.classList.remove('is-alvo-divisao');
+      e.preventDefault();
+      var aba = arrastoAba;
+      arrastoAba = null;
+      if (!aba) return;
+      if (abasDoGrupo(1).length > 1) { garanteDivisao(); settings.layoutDirecao = 'h'; mudaDeGrupo(aba, 2); }
+      else dividir('h', aba);
+      persist();
+    });
+  }
+
   // ============================================================ marcadores
   //
   // Os favoritos do Obsidian (plugin Bookmarks): arquivo, titulo, busca e
@@ -6847,6 +7294,12 @@
       { id: 'bookmarksPane', label: t('Mostrar marcadores'), icon: 'bookmark', action: function () {
           setPane('bookmarks');
         } },
+      { id: 'splitRight', label: t('Dividir à direita'), icon: 'columns', enabled: !!tab, action: function () { dividir('h'); } },
+      { id: 'splitDown', label: t('Dividir abaixo'), icon: 'columns', enabled: !!tab, action: function () { dividir('v'); } },
+      { id: 'otherHalf', label: t('Ir para a outra metade'), key: 'F8', icon: 'columns', enabled: dividido(), action: focaOutraMetade },
+      { id: 'moveHalf', label: t('Mover aba para a outra metade'), icon: 'columns', enabled: !!tab && dividido(), action: function () { var a = activeTab(); mudaDeGrupo(a, outroGrupoDe(grupoDe(a))); persist(); } },
+      { id: 'joinHalves', label: t('Juntar as metades'), icon: 'columns', enabled: dividido(), action: juntaMetades },
+      { id: 'flipHalves', label: t('Alternar divisão lado a lado / em cima e embaixo'), icon: 'columns', enabled: dividido(), action: function () { settings.layoutDirecao = settings.layoutDirecao === 'v' ? 'h' : 'v'; renderGrupos(); persist(); } },
       { id: 'monitor', label: t('Monitorar (tail -f)'), icon: 'eye', checked: !!(tab && tab.monitorar), enabled: !!(tab && tab.path), action: function () { alternaMonitorar(activeTab()); } },
       { id: 'revealTree', label: t('Revelar na árvore'), icon: 'folder-open', enabled: !!(tab && tab.path && app.folder), action: function () { revelaNaArvore(activeTab().path); } },
       { id: 'openWith', label: t('Abrir no app padrao do Windows'), icon: 'external', enabled: !!(tab && tab.path), action: function () { openWithDefaultApp(activeTab().path); } },
@@ -7955,6 +8408,7 @@
       { label: t('Historico de versoes...'), icon: 'clock', action: function () { abreVersoes(path); } },
       { label: marcadorDoArquivo(path) ? t('Desmarcar') : t('Marcar'), icon: 'bookmark', action: function () { alternaMarcadorArquivo(path); } },
       '-',
+      { label: t('Abrir à direita'), icon: 'columns', action: function () { abreNoOutroGrupo(path); } },
       { label: t('Abrir em nova janela'), icon: 'columns', action: function () { novaJanela([path]); } },
       { label: t('Abrir no app padrao'), icon: 'external', action: function () { openWithDefaultApp(path); } },
       { label: t('Mostrar no Explorer'), icon: 'reveal', action: function () { bridge.call('revealInExplorer', { path: path }); } },
@@ -8007,6 +8461,10 @@
       { label: tab.path && marcadorDoArquivo(tab.path) ? t('Desmarcar') : t('Marcar'), icon: 'bookmark', disabled: !tab.path, action: function () { alternaMarcadorArquivo(tab.path); } },
       { label: t('Revelar na árvore'), icon: 'folder-open', disabled: !tab.path || !app.folder, action: function () { revelaNaArvore(tab.path); } },
       { label: t('Monitorar (tail -f)'), icon: 'eye', checked: !!tab.monitorar, disabled: !tab.path, action: function () { alternaMonitorar(tab); } },
+      '-',
+      { label: t('Dividir à direita'), icon: 'columns', action: function () { dividir('h', tab); } },
+      { label: t('Dividir abaixo'), icon: 'columns', action: function () { dividir('v', tab); } },
+      { label: t('Mover para a outra metade'), icon: 'columns', disabled: !dividido(), action: function () { mudaDeGrupo(tab, outroGrupoDe(grupoDe(tab))); persist(); } },
       '-',
       { label: t('Abrir em nova janela'), icon: 'columns', disabled: !tab.path, action: function () { novaJanela([tab.path]); } },
       // Mover leva o arquivo do disco: com alteracao pendente, a outra janela
@@ -9188,6 +9646,13 @@
 
     if (ctrl && e.altKey && e.key.toLowerCase() === 'p') { e.preventDefault(); doPrint(); return; }
 
+    // F8: a outra metade da tela dividida (como no Notepad++).
+    if (e.key === 'F8' && !ctrl && !e.altKey && !e.shiftKey && dividido()) {
+      e.preventDefault();
+      focaOutraMetade();
+      return;
+    }
+
     // F11: tela inteira (o lado nativo tira a moldura e cobre a barra de tarefas).
     if (e.key === 'F11' && !ctrl && !e.altKey && !e.shiftKey) {
       e.preventDefault();
@@ -9629,6 +10094,7 @@
 
     $('btnToggleSidebar').onclick = function () { toggleSidebar(); };
     $('btnToggleSidebarDireita').onclick = function () { toggleSidebarDireita(); };
+    ligaDivisor();
     ligaGrafo();
     $('btnNewTab').onclick = newTab;
     $('btnCommandPalette').onclick = openPalette;
@@ -10247,6 +10713,7 @@
       renderAll();
       var monitorar = (info.monitorar || []).map(function (p) { return p.toLowerCase(); });
       return openPaths(toOpen).then(app.janelaExtra ? null : restauraFixadas).then(function () {
+        if (!app.janelaExtra && !(info.openPaths || []).length) restauraGrupos();
         app.tabs.forEach(function (aba) {
           if (aba.path && monitorar.indexOf(aba.path.toLowerCase()) !== -1) alternaMonitorar(aba, true);
         });
