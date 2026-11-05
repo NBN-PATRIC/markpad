@@ -24,7 +24,7 @@ html = html.replace(/\s*<meta http-equiv="Content-Security-Policy"[\s\S]*?>\n/,
 html = html.replace('<title>MarkPad</title>',
   '<title>MarkPad — preview de desenvolvimento</title>');
 
-html = html.replace('href="style.css"', 'href="../web/style.css"');
+html = html.replace(/href="(?!\.\.\/)([^"]+\.css)"/g, 'href="../web/$1"');
 html = html.replace(/<script src="(?!\.\.\/)([^"]+)"><\/script>/g,
   '<script src="../web/$1"></script>');
 

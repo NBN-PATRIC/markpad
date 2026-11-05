@@ -368,6 +368,13 @@ function conferaLinhasDeTarefa(src, html) {
 }
 
 let fails = 0;
+// Matematica: o TeX chega cru ao KaTeX (o escape do Markdown comia a barra:
+// \, virava virgula) e \$ escapado nao abre formula.
+checks.push(['matematica inline guarda a barra do TeX', /<code class="math">\\frac\{a\}\{b\}\\,x<\/code>/.test(r('vale $\\frac{a}{b}\\,x$ aqui').html)]);
+checks.push(['bloco $$ guarda a barra do TeX', /<code class="math math-block">\\int x\\,dx<\/code>/.test(r('$$\\int x\\,dx$$').html)]);
+checks.push(['\\$ escapado nao abre formula', !/class="math/.test(r('custa \\$5 e \\$10').html)]);
+checks.push(['$5 e $10 nao e formula', !/class="math/.test(r('custa $5 e $10').html)]);
+
 for (const [name, ok] of checks) {
   if (!ok) fails++;
   console.log(`  ${ok ? 'ok  ' : 'FALHA'} ${name}`);

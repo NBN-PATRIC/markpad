@@ -214,23 +214,26 @@
     // que o escape abaixo transforme a barra em texto.
     text = text.replace(/\[\[([^\]\n]*?)\\\|([^\]\n]*)\]\]/g, '[[$1|$2]]');
 
-    // 1b. escapes de barra invertida: qualquer pontuacao ASCII (CommonMark).
-    // Antes dos comentarios (\%% nao abre um), da matematica (\$) e dos links.
+    // 1b. matematica: $$bloco$$ e $inline$, guardada crua para o KaTeX. Antes
+    // dos escapes: o TeX e cheio de barra invertida (\, \{ \frac) e o escape
+    // do Markdown comeria a barra (o \, virava virgula). Um \$ escapado nao
+    // abre formula, la nem aqui.
+    text = text.replace(/(?<!\\)\$\$([\s\S]+?)\$\$/g, function (_, m) {
+      return self.stash('<code class="math math-block">' + escapeHtml(m.trim()) + '</code>');
+    });
+    text = text.replace(/(^|[^\\$\w])\$(?!\s)([^$\n]+?)(?<![\s\\])\$(?![\w$])/g, function (_, pre, m) {
+      return pre + self.stash('<code class="math">' + escapeHtml(m) + '</code>');
+    });
+
+    // 1c. escapes de barra invertida: qualquer pontuacao ASCII (CommonMark).
+    // Antes dos comentarios (\%% nao abre um) e dos links.
     text = text.replace(/\\([!"#$%&'()*+,\-./:;<=>?@\[\\\]^_`{|}~])/g, function (_, ch) {
       return self.stash(escapeHtml(ch));
     });
 
-    // 1c. comentarios do Obsidian: %%isto some%%. Depois do codigo inline de
+    // 1d. comentarios do Obsidian: %%isto some%%. Depois do codigo inline de
     // proposito — `%%assim%%` dentro de crase continua aparecendo.
     text = text.replace(/%%[\s\S]*?%%/g, '');
-
-    // 2. matematica: $$bloco$$ e $inline$ (sem TeX real, mas preserva e destaca)
-    text = text.replace(/\$\$([\s\S]+?)\$\$/g, function (_, m) {
-      return self.stash('<code class="math math-block">' + escapeHtml(m.trim()) + '</code>');
-    });
-    text = text.replace(/(^|[^\\$\w])\$(?!\s)([^$\n]+?)(?<!\s)\$(?![\w$])/g, function (_, pre, m) {
-      return pre + self.stash('<code class="math">' + escapeHtml(m) + '</code>');
-    });
 
     // Daqui ate o passo 10, links, imagens e wikilinks sao reconhecidos no
     // texto CRU, antes do escape geral (passo 12), e cada funcao (image, link,

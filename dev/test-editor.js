@@ -207,6 +207,25 @@ teste('numeracao preguicosa (1. 1.) vira sequencia ao editar', () => {
   igual(st.update({ changes: { from: 9, insert: 'x' } }).state.doc.toString(), '1. a\n2. bx');
 });
 
+console.log('realce de codigo (leitor e editor)');
+const R = global.MarkPadEditor.realcaCodigo;
+teste('PowerShell separa cmdlet, variavel, parametro e operador', () => {
+  const h = R('Get-ChildItem -Path $pasta | Where-Object { $_.Length -gt 10 }', 'powershell');
+  igual(/tok-fn">Get-ChildItem</.test(h), true);
+  igual(/tok-attr">-Path</.test(h), true);
+  igual(/tok-var">\$pasta</.test(h), true);
+  igual(/tok-op">-gt</.test(h), true);
+});
+teste('shell: comando no comeco, opcao e variavel', () => {
+  const h = R('ping -c 4 $ALVO && echo ok', 'bash');
+  igual(/tok-fn">ping</.test(h), true);
+  igual(/tok-attr">-c</.test(h), true);
+  igual(/tok-var">\$ALVO</.test(h), true);
+  igual(/tok-fn">echo</.test(h), true);
+});
+teste('escapa o HTML do codigo', () => igual(/&lt;div&gt;/.test(R('x = "<div>"', 'python')), true));
+teste('linguagem desconhecida devolve null (o leitor usa o realce antigo)', () => igual(R('x', 'klingon'), null));
+
 console.log('links');
 teste('classificacao do destino', () => {
   igual(E.atributosDoLink('https://x.com'), { 'data-external': 'https://x.com' });

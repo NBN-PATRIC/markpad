@@ -6,6 +6,15 @@ Versionamento [SemVer](https://semver.org/lang/pt-BR/).
 ## [Não lançado]
 
 ### Adicionado
+- **Matemática desenhada** (KaTeX embutido, sem rede): `$...$` e `$$...$$`
+  viram fórmula na leitura e no modo ao vivo (com o cursor em cima, volta o
+  TeX para editar). Fórmula com erro aparece em vermelho com o TeX, sem
+  quebrar a página.
+- **Realce de código igual na leitura e na edição**, com 27 linguagens
+  (antes eram 20 só na leitura): entram Kotlin, Lua, Perl, TOML, Dockerfile,
+  nginx, protobuf e XML. PowerShell e shell ganharam gramática própria:
+  cmdlet, `$variável`, `-Parâmetro`, operadores (`-eq`, `-gt`), tipo
+  (`[string]`) e o comando do começo da linha, cada um com a sua cor.
 - **Colar HTML vira Markdown** (como no Obsidian): texto copiado do
   navegador, Teams, Outlook, Word ou Google Docs entra com título, negrito,
   itálico, link, lista (com subitens e numeração), tarefa e tabela em
@@ -356,6 +365,10 @@ Versionamento [SemVer](https://semver.org/lang/pt-BR/).
   interface.
 
 ### Corrigido
+- Dentro de fórmula (`$...$`, `$$...$$`) o leitor aplicava os escapes do
+  Markdown e comia a barra do TeX: `\,` virava vírgula, `\{` virava chave.
+  Agora a fórmula é separada antes dos escapes, e `\$` continua não abrindo
+  fórmula.
 - **Trocar e Trocar tudo no modo ao vivo** usavam o texto velho da caixa de
   texto escondida do modo fonte e podiam gravar por cima da edição feita no
   ao vivo (ou trazer texto de outra aba). Com o editor único isso não existe

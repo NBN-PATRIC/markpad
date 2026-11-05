@@ -297,10 +297,64 @@
     })]
   };
 
+  // PowerShell e shell com gramatica propria: os modos antigos do CodeMirror
+  // nao separam cmdlet, variavel e parametro, e sao as linguagens do NOC.
+  var modoPowerShell = {
+    name: 'powershell',
+    startState: function () { return { bloco: false }; },
+    token: function (st, e) {
+      if (e.bloco) {
+        if (st.skipTo('#>')) { st.next(); st.next(); e.bloco = false; } else st.skipToEnd();
+        return 'comment';
+      }
+      if (st.eatSpace()) return null;
+      if (st.match('<#')) { e.bloco = true; return 'comment'; }
+      if (st.peek() === '#') { st.skipToEnd(); return 'comment'; }
+      if (st.match(/^\$(?:true|false|null)\b/i)) return 'atom';
+      if (st.match(/^\$\{[^}]*\}/) || st.match(/^\$[\w:?]+/) || st.match(/^\$_/)) return 'variable-2';
+      if (st.match(/^"(?:[^"`]|`.)*"?/) || st.match(/^'(?:[^']|'')*'?/)) return 'string';
+      if (st.match(/^-(?:eq|ne|gt|ge|lt|le|like|notlike|match|notmatch|contains|notcontains|in|notin|and|or|not|xor|band|bor|replace|split|join|is|isnot|as|f)\b/i)) return 'operator';
+      if (st.match(/^-[A-Za-z][\w]*/)) return 'attribute';
+      if (st.match(/^0x[\da-f]+\b/i) || st.match(/^\d+(?:\.\d+)?(?:[kmgtp]b)?\b/i)) return 'number';
+      if (st.match(/^\[[\w.\[\]]+\]/)) return 'type';
+      if (st.match(/^[A-Za-z]+-[A-Za-z][\w]*/)) return 'builtin';
+      if (st.match(/^(?:function|param|begin|process|end|if|elseif|else|switch|foreach|for|while|do|until|break|continue|return|try|catch|finally|throw|trap|filter|class|enum|using|exit)\b/i)) return 'keyword';
+      if (st.match(/^[|=+*\/%<>!&,;.]/)) return 'operator';
+      if (st.match(/^[{}()\[\]]/)) return 'bracket';
+      st.next();
+      return null;
+    }
+  };
+
+  var modoShell = {
+    name: 'shell',
+    startState: function () { return { comando: true }; },
+    token: function (st, e) {
+      if (st.sol()) e.comando = true;
+      if (st.eatSpace()) return null;
+      if (st.peek() === '#') { st.skipToEnd(); return 'comment'; }
+      if (st.match(/^"(?:[^"\\]|\\.)*"?/) || st.match(/^'[^']*'?/)) { e.comando = false; return 'string'; }
+      if (st.match(/^\$\{[^}]*\}/) || st.match(/^\$[\w@#?$!*]+/) || st.match(/^\$\(/)) { e.comando = false; return 'variable-2'; }
+      if (st.match(/^(?:if|then|else|elif|fi|for|in|do|done|while|until|case|esac|function|return|exit|export|local|readonly|unset|sudo|time)\b/)) { e.comando = true; return 'keyword'; }
+      if (st.match(/^(?:&&|\|\||[|;&]|\$\(|\))/)) { e.comando = true; return 'operator'; }
+      if (st.match(/^[<>]+/)) return 'operator';
+      if (st.match(/^-{1,2}[\w-]+=?/)) return 'attribute';
+      if (st.match(/^\d+\b/)) return 'number';
+      if (st.match(/^[\w.\/~:@%+=,-]+/)) { var era = e.comando; e.comando = false; return era ? 'builtin' : null; }
+      st.next();
+      return null;
+    }
+  };
+
+  var linguagensDeCodigo = CM.codeLanguages.filter(function (d) { return d.name !== 'powershell' && d.name !== 'shell'; }).concat([
+    L.LanguageDescription.of({ name: 'powershell', alias: ['ps1', 'pwsh', 'posh'], support: new L.LanguageSupport(L.StreamLanguage.define(modoPowerShell)) }),
+    L.LanguageDescription.of({ name: 'shell', alias: ['sh', 'bash', 'zsh', 'console', 'fish'], support: new L.LanguageSupport(L.StreamLanguage.define(modoShell)) })
+  ]);
+
   function linguagemMarkdown() {
     return MD.markdown({
       base: MD.commonmarkLanguage,
-      codeLanguages: CM.codeLanguages,
+      codeLanguages: linguagensDeCodigo,
       extensions: [LM.GFM, WikiLinks, Destaque, Comentarios, Hashtags, Rodapes, Matematica, Propriedades, DobraDoObsidian],
       addKeymap: false
     });
@@ -346,7 +400,8 @@
     { tag: [tags.bool, tags.null, tags.atom, tags.self], class: 'tok-bi' },
     { tag: [tags.function(tags.variableName), tags.function(tags.propertyName)], class: 'tok-fn' },
     { tag: [tags.typeName, tags.className, tags.namespace], class: 'tok-type' },
-    { tag: [tags.definition(tags.variableName)], class: 'tok-var' },
+    { tag: [tags.definition(tags.variableName), tags.special(tags.variableName)], class: 'tok-var' },
+    { tag: [tags.standard(tags.variableName)], class: 'tok-fn' },
     { tag: [tags.propertyName], class: 'tok-prop' },
     { tag: [tags.operator], class: 'tok-op' },
     { tag: [tags.punctuation, tags.bracket, tags.separator], class: 'tok-punc' },
@@ -590,10 +645,10 @@
       this.ctx = ctx; this.src = src; this.tipo = tipo; this.linhas = linhas || 1;
     }
     eq(o) { return o.src === this.src && o.tipo === this.tipo; }
-    get estimatedHeight() { return this.tipo === 'imagem' || this.tipo === 'embed-inline' ? -1 : this.linhas * 26; }
+    get estimatedHeight() { return this.tipo === 'imagem' || this.tipo === 'embed-inline' || this.tipo === 'math-inline' ? -1 : this.linhas * 26; }
     toDOM(view) {
       var self = this;
-      var bloco = this.tipo !== 'imagem' && this.tipo !== 'embed-inline';
+      var bloco = this.tipo !== 'imagem' && this.tipo !== 'embed-inline' && this.tipo !== 'math-inline';
       var el = document.createElement(bloco ? 'div' : 'span');
       el.className = 'cm-trecho cm-trecho-' + this.tipo + ' markdown-preview';
       try { this.ctx.renderTrecho(el, this.src, this.tipo); }
@@ -829,8 +884,7 @@
             case 'StrongEmphasis':
             case 'Strikethrough':
             case 'Destaque':
-            case 'InlineCode':
-            case 'MathInline': {
+            case 'InlineCode': {
               if (revela(state, no.from, no.to)) return;
               var c = no.node.firstChild;
               for (; c; c = c.nextSibling) {
@@ -911,6 +965,12 @@
               marca(no.from, no.to, { class: 'cm-lp-tag', attributes: { 'data-tag': doc.sliceString(no.from + 1, no.to) } });
               return;
             }
+            case 'MathInline': {
+              // Formula desenhada (KaTeX) fora do cursor; dentro, o TeX.
+              if (revela(state, no.from, no.to)) return false;
+              troca(no.from, no.to, new Trecho(ctx, doc.sliceString(no.from, no.to), 'math-inline', 1));
+              return false;
+            }
           }
         }
       });
@@ -990,6 +1050,7 @@
         var nome = no.name;
         if (nome === 'Table') bloco(deco, state, no, 'tabela');
         else if (nome === 'Frontmatter') bloco(deco, state, no, 'propriedades');
+        else if (nome === 'MathBloco') bloco(deco, state, no, 'math');
         else if (nome === 'HTMLBlock') {
           if (doc.sliceString(no.from, Math.min(no.to, no.from + 4)) !== '<!--') bloco(deco, state, no, 'html');
         } else if (nome === 'Blockquote') {
@@ -1839,8 +1900,28 @@
     return api;
   }
 
+  /*
+   * Realce de um bloco de codigo com a gramatica da linguagem (as mesmas 27
+   * do editor), em HTML com as classes tok-*. null se a linguagem nao e
+   * conhecida aqui: o leitor cai no realce antigo (highlight.js).
+   */
+  function realcaCodigo(codigo, lang) {
+    if (!lang || !H.highlightCode) return null;
+    var desc = L.LanguageDescription.matchLanguageName(linguagensDeCodigo, String(lang).trim().toLowerCase(), true);
+    if (!desc || !desc.support) return null;
+    var tree;
+    try { tree = desc.support.language.parser.parse(codigo); } catch (err) { return null; }
+    var out = '';
+    var esc = function (t) { return t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); };
+    H.highlightCode(codigo, tree, estiloRealce, function (texto, classes) {
+      out += classes ? '<span class="' + classes + '">' + esc(texto) + '</span>' : esc(texto);
+    }, function () { out += '\n'; });
+    return out;
+  }
+
   global.MarkPadEditor = {
     create: create,
+    realcaCodigo: realcaCodigo,
     // Para os testes de Node: o dialeto e os comandos sem DOM.
     _interno: {
       linguagemMarkdown: linguagemMarkdown,

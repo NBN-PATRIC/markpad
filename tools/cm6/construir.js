@@ -40,9 +40,24 @@ execSync('"' + esbuild + '" entrada.js --bundle --format=iife --global-name=CM -
 const pacotes = Object.keys(lock.packages)
   .filter((k) => k.indexOf('node_modules/') === 0)
   .map((k) => ({ nome: k.slice('node_modules/'.length), info: lock.packages[k] }))
-  // domino e o DOM do turndown fora do navegador: no pacote (navegador) nao entra.
-  .filter((p) => !/^(@esbuild\/|esbuild$|@mixmark-io\/domino$)/.test(p.nome) && !p.info.dev)
+  // Fora do que vai para o app: o compilador, o DOM do turndown fora do
+  // navegador (no pacote do navegador nao entra) e a linha de comando do KaTeX.
+  .filter((p) => !/^(@esbuild\/|esbuild$|@mixmark-io\/domino$|commander$)/.test(p.nome) && !p.info.dev)
   .sort((a, b) => (a.nome < b.nome ? -1 : 1));
+
+// KaTeX vai a parte (web/katex): o JS ja minificado, a folha e so as fontes
+// woff2 (o WebView2 sempre aceita woff2; woff e ttf sairiam como peso morto).
+const katexDist = path.join(DIR, 'node_modules', 'katex', 'dist');
+const katexDest = path.join(RAIZ, 'web', 'katex');
+fs.rmSync(katexDest, { recursive: true, force: true });
+fs.mkdirSync(path.join(katexDest, 'fonts'), { recursive: true });
+fs.copyFileSync(path.join(katexDist, 'katex.min.js'), path.join(katexDest, 'katex.min.js'));
+const folhaKatex = fs.readFileSync(path.join(katexDist, 'katex.min.css'), 'utf8')
+  .replace(/,url\(fonts\/[^)]+\.(?:woff|ttf)\) format\("(?:woff|truetype)"\)/g, '');
+fs.writeFileSync(path.join(katexDest, 'katex.min.css'), folhaKatex);
+for (const f of fs.readdirSync(path.join(katexDist, 'fonts'))) {
+  if (/\.woff2$/.test(f)) fs.copyFileSync(path.join(katexDist, 'fonts', f), path.join(katexDest, 'fonts', f));
+}
 
 const cabecalho = '/*! MarkPad: CodeMirror 6, Lezer e Turndown (licenca MIT), embutidos para o editor funcionar sem rede.\n' +
   ' * Gerado por tools/cm6/construir.js; versoes e licencas em THIRD-PARTY-NOTICES.md.\n' +
@@ -50,8 +65,9 @@ const cabecalho = '/*! MarkPad: CodeMirror 6, Lezer e Turndown (licenca MIT), em
 fs.writeFileSync(path.join(RAIZ, 'web', 'codemirror.js'), cabecalho + fs.readFileSync(saida, 'utf8'));
 
 let avisos = '# Componentes de terceiros\n\n' +
-  'O MarkPad embute no executavel (arquivo `web/codemirror.js`) as bibliotecas abaixo, todas sob a licenca MIT.\n' +
-  'Elas sao o editor de texto dos modos ao vivo e fonte e a conversao de HTML colado em Markdown. Gerado por `tools/cm6/construir.js`.\n\n' +
+  'O MarkPad embute no executavel as bibliotecas abaixo, todas sob a licenca MIT: em `web/codemirror.js`, o editor\n' +
+  'de texto dos modos ao vivo e fonte e a conversao de HTML colado em Markdown; em `web/katex/`, a matematica\n' +
+  '(KaTeX e as fontes dele). Gerado por `tools/cm6/construir.js`.\n\n' +
   '| Pacote | Versao | Licenca |\n|---|---|---|\n';
 const textos = new Map();
 for (const p of pacotes) {

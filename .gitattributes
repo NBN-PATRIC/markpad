@@ -25,6 +25,8 @@
 # Pacote minificado do CodeMirror: tem texto com quebra de linha dentro de
 # template; CRLF no checkout mudaria o conteudo desses textos.
 web/codemirror.js text eol=lf
+web/katex/*.js text eol=lf
+web/katex/*.css text eol=lf
 
 # Binarios de verdade
 *.ico     binary
@@ -34,3 +36,4 @@ web/codemirror.js text eol=lf
 *.exe     binary
 *.msi     binary
 *.zip     binary
+*.woff2   binary

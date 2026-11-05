@@ -2942,3 +2942,10 @@ body.wide-lines .cm-modo-vivo .cm-content { max-width: none; padding-right: 40px
   cursor: pointer;
 }
 @media (prefers-reduced-motion: reduce) { .cm-seta-dobra { transition: none; } }
+
+/* matematica (KaTeX): a formula herda a cor do texto, o bloco centraliza */
+.math-render { color: inherit; }
+.math-render-bloco { display: block; margin: 0.6em 0 var(--p-spacing); overflow-x: auto; overflow-y: hidden; text-align: center; }
+.math-render .katex-error { color: var(--color-red); font-family: var(--font-mono); font-size: 0.9em; }
+.cm-editor .cm-trecho-math-inline { padding: 0 1px; }
+.cm-editor .cm-trecho-math.markdown-preview { padding: 2px 0; }

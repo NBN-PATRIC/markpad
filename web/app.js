@@ -2425,6 +2425,7 @@
     container.__toc = result.toc;
 
     montaIconesCallout(container);
+    renderMatematica(container);
 
     if (settings.showProperties !== false) renderProperties(container, result.frontmatter);
     liberaTarefas(container, tab);
@@ -2439,6 +2440,31 @@
     if (container.id === 'preview') renderBacklinks(container, tab);
 
     if (container.id === 'preview' && app.find.open && app.find.query) applyFindHighlights();
+  }
+
+  /*
+   * Matematica com o KaTeX embutido: o parser marca $...$ e $$...$$ como
+   * code.math (o TeX como texto, ja escapado); aqui ele vira formula. O
+   * KaTeX desenha a partir do texto, com \href e afins desligados (trust
+   * falso), entao a peneira do leitor continua valendo para o resto.
+   */
+  function renderMatematica(container) {
+    if (!window.katex) return;
+    var nos = container.querySelectorAll('code.math');
+    for (var i = 0; i < nos.length; i++) {
+      var c = nos[i];
+      var bloco = c.classList.contains('math-block');
+      var el = document.createElement(bloco ? 'div' : 'span');
+      el.className = bloco ? 'math-render math-render-bloco' : 'math-render';
+      try {
+        window.katex.render(c.textContent, el, { displayMode: bloco, throwOnError: false, trust: false, strict: 'ignore', output: 'htmlAndMathml' });
+      } catch (err) { continue; }
+      el.setAttribute('data-tex', c.textContent);
+      var pai = c.parentNode;
+      // Bloco sozinho num paragrafo: o paragrafo sai (div dentro de p nao vale).
+      if (bloco && pai && pai.tagName === 'P' && pai.childNodes.length === 1) pai.parentNode.replaceChild(el, pai);
+      else pai.replaceChild(el, c);
+    }
   }
 
   // Icones dos callouts: criados por nos, depois da peneira. O botao Copiar
@@ -10441,6 +10467,15 @@
   var statusQuadro = 0;
 
   function criaEditor() {
+    if (window.MarkPadEditor && window.MarkPadEditor.realcaCodigo && window.MarkPadHighlight && !window.MarkPadHighlight._doEditor) {
+      var realceAntigo = window.MarkPadHighlight.highlight;
+      window.MarkPadHighlight.highlight = function (codigo, lang) {
+        var h = null;
+        try { h = window.MarkPadEditor.realcaCodigo(codigo, lang); } catch (err) { h = null; }
+        return h != null ? h : realceAntigo(codigo, lang);
+      };
+      window.MarkPadHighlight._doEditor = true;
+    }
     if (!window.MarkPadEditor) {
       console.error('MarkPad: o editor (codemirror.js) nao carregou');
       return;
@@ -10582,6 +10617,7 @@
       }
     }
     montaIconesCallout(el);
+    renderMatematica(el);
     if (tipo === 'propriedades') renderProperties(el, r.frontmatter);
     var caixas = el.querySelectorAll('input[type="checkbox"]');
     for (var i = 0; i < caixas.length; i++) caixas[i].disabled = true;
