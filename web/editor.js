@@ -1922,6 +1922,31 @@
       dobraTudo: function () { return L.foldAll(view); },
       desdobraTudo: function () { return L.unfoldAll(view); },
 
+      /** O cursor esta dentro de uma tabela (aberta em texto)? */
+      naTabela: function () { return !!tabelaNoCursor(view.state); },
+
+      /** Operacao de tabela (textops.operaTabela) na celula do cursor. */
+      operaTabela: function (opNome) {
+        var st = view.state, Tx = global.MarkPadTextOps;
+        var tabela = tabelaNoCursor(st);
+        if (!tabela || !Tx || !Tx.operaTabela) return false;
+        var doc = st.doc;
+        var l1 = doc.lineAt(tabela.from), l2 = doc.lineAt(tabela.to);
+        var ultima = l2.text.trim() === '' && l2.number > l1.number ? l2.number - 1 : l2.number;
+        var head = st.selection.main.head;
+        var lc = doc.lineAt(head);
+        var de = l1.from, ate = doc.line(ultima).to;
+        var r = Tx.operaTabela(doc.sliceString(de, ate), lc.number - l1.number, Tx.colunaNaLinha(lc.text, head - lc.from), opNome);
+        if (!r) return false;
+        var linhas = r.texto.split('\n');
+        var off = 0;
+        for (var i = 0; i < r.linha && i < linhas.length; i++) off += linhas[i].length + 1;
+        var faixa = Tx.faixaDaCelula(linhas[Math.min(r.linha, linhas.length - 1)], r.col);
+        view.dispatch({ changes: { from: de, to: ate, insert: r.texto }, selection: { anchor: de + off + faixa.ini }, userEvent: 'input', scrollIntoView: true });
+        view.focus();
+        return true;
+      },
+
       /** Poe o cursor no ponto da tela (x, y); false se o ponto nao cai no texto. */
       cursorNoPonto: function (x, y) {
         var pos = view.posAtCoords({ x: x, y: y });

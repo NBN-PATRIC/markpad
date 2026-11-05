@@ -6,6 +6,11 @@ Versionamento [SemVer](https://semver.org/lang/pt-BR/).
 ## [Não lançado]
 
 ### Adicionado
+- **Menu de tabela** (o do Obsidian) no clique direito com o cursor numa
+  tabela: inserir linha acima ou abaixo, inserir coluna à esquerda ou à
+  direita, mover linha e coluna, alinhar a coluna (esquerda, centro,
+  direita) e apagar linha ou coluna. A tabela se realinha a cada operação, e
+  Ctrl+Z desfaz.
 - **Apresentação** (o "Slides" do Obsidian), pela paleta: a nota vira
   apresentação em tela inteira, um slide por trecho separado por `---` (o
   `---` dentro de bloco de código e o das propriedades não contam). Setas,

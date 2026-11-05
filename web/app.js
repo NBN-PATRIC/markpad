@@ -11640,6 +11640,16 @@
         } },
       { label: t('Selecionar tudo'), action: function () { ed.seleciona(0, ed.texto().length, { rolar: false }); ed.foco(); } }
     ];
+    if (ed.naTabela()) {
+      var tb = function (label, op) { return { label: label, action: function () { if (!ed.operaTabela(op)) toast(t('Nao cabe nesta celula.'), '', 1600); } }; };
+      itens.push('-', { label: t('Tabela'), header: true },
+        tb(t('Inserir linha abaixo'), 'linhaAbaixo'), tb(t('Inserir linha acima'), 'linhaAcima'),
+        tb(t('Inserir coluna a direita'), 'colunaDireita'), tb(t('Inserir coluna a esquerda'), 'colunaEsquerda'),
+        tb(t('Mover linha para cima'), 'linhaSobe'), tb(t('Mover linha para baixo'), 'linhaDesce'),
+        tb(t('Mover coluna para a esquerda'), 'colunaParaEsquerda'), tb(t('Mover coluna para a direita'), 'colunaParaDireita'),
+        tb(t('Alinhar coluna a esquerda'), 'alinhaEsquerda'), tb(t('Centralizar coluna'), 'alinhaCentro'), tb(t('Alinhar coluna a direita'), 'alinhaDireita'),
+        tb(t('Apagar a linha da tabela'), 'apagaLinha'), tb(t('Apagar coluna'), 'apagaColuna'));
+    }
     var titulos = { fmt: t('Formatar'), par: t('Parágrafo'), ins: t('Inserir') };
     var grupo = null;
     comandosDoEditor().forEach(function (cmd) {

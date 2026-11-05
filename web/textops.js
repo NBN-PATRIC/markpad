@@ -442,7 +442,63 @@
     return /^\s*\|/.test(linha) ? Math.max(0, n - 1) : n;
   }
 
+  /*
+   * Operacoes de tabela (o menu de tabela do Obsidian), sobre o texto das
+   * linhas da tabela. `linha` e `col` sao a celula do cursor (linha 0 = o
+   * cabecalho, 1 = a de tracos). Devolve { texto, linha, col } ja formatado,
+   * com a celula onde o cursor deve ficar, ou null se a operacao nao cabe.
+   */
+  function operaTabela(texto, linha, col, op) {
+    var linhas = String(texto).split('\n');
+    if (linhas.length < 2) return null;
+    var recuo = /^[ \t]*/.exec(linhas[0])[0];
+    var rows = linhas.map(celulasDaLinha);
+    if (!eDelimitador(rows[1])) return null;
+    var n = 0;
+    rows.forEach(function (r) { n = Math.max(n, r.length); });
+    rows.forEach(function (r, k) { while (r.length < n) r.push(k === 1 ? '---' : ''); });
+    rows[1] = rows[1].map(function (c) { return c || '---'; });
+    var L = linha, C = Math.max(0, Math.min(col, n - 1));
+    function vazia() { var v = []; for (var k = 0; k < n; k++) v.push(''); return v; }
+    switch (op) {
+      case 'linhaAbaixo':
+        rows.splice(Math.max(2, L + 1), 0, vazia()); L = Math.max(2, L + 1); break;
+      case 'linhaAcima':
+        if (L < 2) return null;
+        rows.splice(L, 0, vazia()); break;
+      case 'apagaLinha':
+        if (L < 2) return null;
+        rows.splice(L, 1); L = Math.min(L, rows.length - 1); if (L < 2) L = 0; break;
+      case 'linhaSobe':
+        if (L < 3) return null;
+        var s = rows[L]; rows[L] = rows[L - 1]; rows[L - 1] = s; L--; break;
+      case 'linhaDesce':
+        if (L < 2 || L >= rows.length - 1) return null;
+        var d = rows[L]; rows[L] = rows[L + 1]; rows[L + 1] = d; L++; break;
+      case 'colunaDireita':
+        rows.forEach(function (r, k) { r.splice(C + 1, 0, k === 1 ? '---' : ''); }); C++; break;
+      case 'colunaEsquerda':
+        rows.forEach(function (r, k) { r.splice(C, 0, k === 1 ? '---' : ''); }); break;
+      case 'apagaColuna':
+        if (n < 2) return null;
+        rows.forEach(function (r) { r.splice(C, 1); }); C = Math.min(C, n - 2); break;
+      case 'colunaParaEsquerda':
+        if (C < 1) return null;
+        rows.forEach(function (r) { var x = r[C]; r[C] = r[C - 1]; r[C - 1] = x; }); C--; break;
+      case 'colunaParaDireita':
+        if (C >= n - 1) return null;
+        rows.forEach(function (r) { var x = r[C]; r[C] = r[C + 1]; r[C + 1] = x; }); C++; break;
+      case 'alinhaEsquerda': rows[1][C] = ':---'; break;
+      case 'alinhaCentro': rows[1][C] = ':---:'; break;
+      case 'alinhaDireita': rows[1][C] = '---:'; break;
+      default: return null;
+    }
+    var bruto = rows.map(function (r) { return recuo + '| ' + r.join(' | ') + ' |'; }).join('\n');
+    return { texto: formataTabela(bruto), linha: L, col: C };
+  }
+
   global.MarkPadTextOps = {
+    operaTabela: operaTabela,
     celulasDaLinha: celulasDaLinha,
     formataTabela: formataTabela,
     faixaDaCelula: faixaDaCelula,

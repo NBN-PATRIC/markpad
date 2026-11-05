@@ -123,6 +123,16 @@ igual('sem linha de tracos nao mexe', T.formataTabela('| a | b |\n| c | d |'), '
 igual('acento conta como um caractere', T.formataTabela('| ação | b |\n|---|---|\n| x | y |'), '| ação | b   |\n| ---- | --- |\n| x    | y   |');
 var f = T.faixaDaCelula('| abc | de  |', 1);
 igual('faixa da celula sem os espacos', [f.ini, f.fim].join(','), '8,10');
+var TB = '| a | b |\n|---|--:|\n| 1 | 2 |\n| 3 | 4 |';
+var op = T.operaTabela(TB, 2, 0, 'linhaAbaixo');
+igual('tabela: linha abaixo', op.texto.split('\n').length + ':' + op.linha, '5:3');
+igual('tabela: apaga linha', T.operaTabela(TB, 3, 0, 'apagaLinha').texto.split('\n').length, 3);
+igual('tabela: nao apaga o cabecalho', T.operaTabela(TB, 0, 0, 'apagaLinha'), null);
+igual('tabela: linha sobe', T.operaTabela(TB, 3, 0, 'linhaSobe').texto.split('\n')[2], '| 3   |   4 |');
+igual('tabela: coluna a direita', T.operaTabela(TB, 2, 0, 'colunaDireita').texto.split('\n')[0], '| a   |     |   b |');
+igual('tabela: apaga coluna', T.operaTabela(TB, 2, 1, 'apagaColuna').texto, '| a   |\n| --- |\n| 1   |\n| 3   |');
+igual('tabela: move coluna para a esquerda', T.operaTabela(TB, 2, 1, 'colunaParaEsquerda').texto.split('\n')[0], '|   b | a   |');
+igual('tabela: alinha ao centro', T.operaTabela(TB, 2, 0, 'alinhaCentro').texto.split('\n')[1], '| :-: | --: |');
 var fv = T.faixaDaCelula('|      |       |', 0);
 igual('celula vazia: cursor depois do espaco da borda', [fv.ini, fv.fim].join(','), '2,2');
 igual('coluna do cursor', T.colunaNaLinha('| a | b | c |', 9), 2);
