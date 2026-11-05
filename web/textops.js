@@ -336,7 +336,117 @@
     return { ini: ini, fim: fim, texto: '', selIni: ini, selFim: ini };
   }
 
+  // ------------------------------------------------------------- tabelas
+  //
+  // Tabela GFM como texto: celulas separadas por '|' que nao esteja escapado
+  // ('\|' fica dentro da celula, como no [[nota\|apelido]]).
+
+  function celulasDaLinha(linha) {
+    var s = String(linha).trim();
+    if (s.charAt(0) === '|') s = s.slice(1);
+    if (s.length && s.charAt(s.length - 1) === '|' && s.charAt(s.length - 2) !== '\\') s = s.slice(0, -1);
+    var celulas = [], atual = '';
+    for (var i = 0; i < s.length; i++) {
+      var ch = s.charAt(i);
+      if (ch === '\\' && i + 1 < s.length) { atual += ch + s.charAt(i + 1); i++; continue; }
+      if (ch === '|') { celulas.push(atual.trim()); atual = ''; continue; }
+      atual += ch;
+    }
+    celulas.push(atual.trim());
+    return celulas;
+  }
+
+  function eDelimitador(celulas) {
+    return celulas.length > 0 && celulas.every(function (c) { return /^:?-+:?$/.test(c.replace(/\s+/g, '')); });
+  }
+
+  function larguraVisual(s) { return Array.from(s).length; }
+
+  function repete(ch, n) { return n > 0 ? new Array(n + 1).join(ch) : ''; }
+
+  /**
+   * Alinha as colunas de uma tabela (o texto das linhas dela), respeitando o
+   * alinhamento da linha de tracos (:--, :-:, --:). Sem linha de tracos na
+   * segunda linha, devolve o texto como veio.
+   */
+  function formataTabela(texto) {
+    var linhas = String(texto).split('\n');
+    if (linhas.length < 2) return texto;
+    var recuo = /^[ \t]*/.exec(linhas[0])[0];
+    var linhasCel = linhas.map(celulasDaLinha);
+    if (!eDelimitador(linhasCel[1])) return texto;
+    var n = 0;
+    linhasCel.forEach(function (r) { n = Math.max(n, r.length); });
+    var alin = [], larg = [];
+    for (var c = 0; c < n; c++) {
+      var d = (linhasCel[1][c] || '---').replace(/\s+/g, '');
+      alin[c] = /^:.*:$/.test(d) ? 'c' : /:$/.test(d) ? 'd' : /^:/.test(d) ? 'e' : '';
+      var w = 3;
+      for (var r = 0; r < linhasCel.length; r++) {
+        if (r === 1) continue;
+        w = Math.max(w, larguraVisual(linhasCel[r][c] || ''));
+      }
+      larg[c] = w;
+    }
+    return linhasCel.map(function (r, i) {
+      var partes = [];
+      for (var c2 = 0; c2 < n; c2++) {
+        var x = larg[c2], a = alin[c2];
+        if (i === 1) {
+          partes.push(a === 'c' ? ':' + repete('-', x - 2) + ':' : a === 'e' ? ':' + repete('-', x - 1) : a === 'd' ? repete('-', x - 1) + ':' : repete('-', x));
+          continue;
+        }
+        var t = r[c2] || '';
+        var folga = x - larguraVisual(t);
+        partes.push(a === 'd' ? repete(' ', folga) + t
+          : a === 'c' ? repete(' ', Math.floor(folga / 2)) + t + repete(' ', Math.ceil(folga / 2))
+          : t + repete(' ', folga));
+      }
+      return recuo + '| ' + partes.join(' | ') + ' |';
+    }).join('\n');
+  }
+
+  /** Inicio (sem os espacos da borda) e fim do texto da celula n de uma linha. */
+  function faixaDaCelula(linha, n) {
+    var p = 0;
+    if (/^\s*\|/.test(linha)) p = linha.indexOf('|') + 1;
+    for (var col = 0; p < linha.length && col < n; p++) {
+      var ch = linha.charAt(p);
+      if (ch === '\\') { p++; continue; }
+      if (ch === '|') col++;
+    }
+    var q = p;
+    while (q < linha.length) {
+      var c = linha.charAt(q);
+      if (c === '\\') { q += 2; continue; }
+      if (c === '|') break;
+      q++;
+    }
+    q = Math.min(q, linha.length);
+    var ini = p, fim = q;
+    while (ini < fim && linha.charAt(ini) === ' ') ini++;
+    while (fim > ini && linha.charAt(fim - 1) === ' ') fim--;
+    // Celula vazia: o cursor fica depois do espaco da borda, nao colado na barra.
+    if (ini === q && ini > p) ini = fim = p + 1;
+    return { ini: ini, fim: fim };
+  }
+
+  /** Quantas barras de coluna ha antes da posicao (a da borda esquerda conta). */
+  function colunaNaLinha(linha, pos) {
+    var n = 0;
+    for (var i = 0; i < pos && i < linha.length; i++) {
+      var ch = linha.charAt(i);
+      if (ch === '\\') { i++; continue; }
+      if (ch === '|') n++;
+    }
+    return /^\s*\|/.test(linha) ? Math.max(0, n - 1) : n;
+  }
+
   global.MarkPadTextOps = {
+    celulasDaLinha: celulasDaLinha,
+    formataTabela: formataTabela,
+    faixaDaCelula: faixaDaCelula,
+    colunaNaLinha: colunaNaLinha,
     expandReplacement: expandReplacement,
     replaceAll: replaceAll,
     replacementAt: replacementAt,

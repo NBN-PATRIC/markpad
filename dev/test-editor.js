@@ -150,6 +150,63 @@ teste('citacao continua', () => igual(enter('> linha'), '> linha\n> '));
 teste('item vazio aninhado volta um nivel', () => igual(enter('- a\n    - '), '- a\n- '));
 teste('citacao vazia sai da citacao', () => igual(enter('> a\n> '), '> a\n'));
 
+console.log('tabela (Tab, Shift+Tab, Enter)');
+function editorTabela(doc, pos) {
+  // o editor de verdade tem o textops carregado antes
+  if (!global.MarkPadTextOps) (0, eval)(fs.readFileSync(path.join(WEB, 'textops.js'), 'utf8'));
+  return editor(doc, pos);
+}
+const TAB = '| a | b |\n|---|---|\n| 1 | 2 |';
+teste('Tab vai para a proxima celula e realinha', () => {
+  const v = editorTabela(TAB, 2);
+  E.navegaTabela(1, false)(v);
+  igual(v.state.doc.toString(), '| a   | b   |\n| --- | --- |\n| 1   | 2   |');
+  igual(v.state.doc.sliceString(sel(v)[0], sel(v)[1]), 'b');
+});
+teste('Tab na ultima celula da linha pula a linha de tracos', () => {
+  const v = editorTabela(TAB, 6);
+  E.navegaTabela(1, false)(v);
+  igual(v.state.doc.sliceString(sel(v)[0], sel(v)[1]), '1');
+});
+teste('Tab na ultima celula da tabela cria uma linha', () => {
+  const v = editorTabela(TAB, TAB.length - 2);
+  E.navegaTabela(1, false)(v);
+  igual(v.state.doc.toString().split('\n').length, 4);
+  igual(v.state.doc.lineAt(sel(v)[0]).number, 4);
+});
+teste('Shift+Tab volta uma celula', () => {
+  const v = editorTabela(TAB, TAB.length - 2);
+  E.navegaTabela(-1, false)(v);
+  igual(v.state.doc.sliceString(sel(v)[0], sel(v)[1]), '1');
+});
+teste('Enter desce na mesma coluna', () => {
+  const v = editorTabela(TAB, 6);
+  E.navegaTabela(0, true)(v);
+  igual(v.state.doc.sliceString(sel(v)[0], sel(v)[1]), '2');
+});
+teste('fora de tabela nao age', () => {
+  const v = editorTabela('texto', 2);
+  igual(E.navegaTabela(1, false)(v), false);
+});
+
+console.log('lista numerada');
+function editorRenumera(doc) {
+  return EditorState.create({ doc, extensions: [E.linguagemMarkdown(), E.renumeraListas] });
+}
+teste('apagar um item renumera os seguintes', () => {
+  const st = editorRenumera('1. a\n2. b\n3. c\n4. d');
+  const tr = st.update({ changes: { from: 5, to: 10 } });
+  igual(tr.state.doc.toString(), '1. a\n2. c\n3. d');
+});
+teste('comeca do numero do primeiro item', () => {
+  const st = editorRenumera('5. a\n6. b');
+  igual(st.update({ changes: { from: 9, insert: '\n9. c' } }).state.doc.toString(), '5. a\n6. b\n7. c');
+});
+teste('numeracao preguicosa (1. 1.) vira sequencia ao editar', () => {
+  const st = editorRenumera('1. a\n1. b');
+  igual(st.update({ changes: { from: 9, insert: 'x' } }).state.doc.toString(), '1. a\n2. bx');
+});
+
 console.log('links');
 teste('classificacao do destino', () => {
   igual(E.atributosDoLink('https://x.com'), { 'data-external': 'https://x.com' });

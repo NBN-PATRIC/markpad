@@ -107,5 +107,26 @@ igual('apaga as linhas da selecao (fim no comeco da linha nao a inclui)', aplica
 igual('apaga duas linhas', aplica(tx, T.apagaLinhas(tx, 2, 5)), 'a\nd');
 igual('apaga a ultima linha', aplica(tx, T.apagaLinhas(tx, 6, 6)), 'a\nb\nc');
 
+// tabelas
+igual('celulas com barra escapada', T.celulasDaLinha('| [[a\\|b]] | 2 |').join(' # '), '[[a\\|b]] # 2');
+igual('celulas sem bordas', T.celulasDaLinha('a | b').join(' # '), 'a # b');
+igual('formata alinhando as colunas',
+  T.formataTabela('|a|bbbb|\n|-|-|\n|ccc|d|'),
+  '| a   | bbbb |\n| --- | ---- |\n| ccc | d    |');
+igual('respeita o alinhamento da linha de tracos',
+  T.formataTabela('| n | v |\n|:-:|--:|\n| x | 10 |\n| yy | 2 |'),
+  '|  n  |   v |\n| :-: | --: |\n|  x  |  10 |\n| yy  |   2 |');
+igual('linha curta ganha as celulas que faltam',
+  T.formataTabela('| a | b | c |\n|---|---|---|\n| 1 |'),
+  '| a   | b   | c   |\n| --- | --- | --- |\n| 1   |     |     |');
+igual('sem linha de tracos nao mexe', T.formataTabela('| a | b |\n| c | d |'), '| a | b |\n| c | d |');
+igual('acento conta como um caractere', T.formataTabela('| ação | b |\n|---|---|\n| x | y |'), '| ação | b   |\n| ---- | --- |\n| x    | y   |');
+var f = T.faixaDaCelula('| abc | de  |', 1);
+igual('faixa da celula sem os espacos', [f.ini, f.fim].join(','), '8,10');
+var fv = T.faixaDaCelula('|      |       |', 0);
+igual('celula vazia: cursor depois do espaco da borda', [fv.ini, fv.fim].join(','), '2,2');
+igual('coluna do cursor', T.colunaNaLinha('| a | b | c |', 9), 2);
+igual('coluna com barra escapada', T.colunaNaLinha('| a\\|x | b |', 9), 1);
+
 console.log(ok + '/' + (ok + falhas) + ' passaram');
 process.exit(falhas ? 1 : 0);

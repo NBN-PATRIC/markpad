@@ -6,6 +6,31 @@ Versionamento [SemVer](https://semver.org/lang/pt-BR/).
 ## [Não lançado]
 
 ### Adicionado
+- **Dobrar no editor**, como no Obsidian: seta ao lado do título (aparece ao
+  passar o mouse), do item de lista com filhos, do bloco de código e das
+  propriedades; a seção dobrada vira "…" e o clique abre. Ctrl+Shift+- e
+  Ctrl+Shift++ recolhem e expandem tudo também no modo de edição;
+  Ctrl+Shift+[ e Ctrl+Shift+] dobram e desdobram onde está o cursor. A dobra
+  fica guardada por aba enquanto o app está aberto.
+- **Lista numerada se renumera sozinha** depois de qualquer edição (apagar,
+  mover, colar ou acrescentar item), começando do número do primeiro item.
+  Ctrl+Z desfaz as duas coisas juntas.
+- **Tabela editável pelo teclado**: com o cursor dentro da tabela, Tab e
+  Shift+Tab andam de célula em célula (selecionando o texto dela), Enter desce
+  para a linha de baixo na mesma coluna, e Tab na última célula cria uma linha
+  nova. A cada passo a tabela se realinha, respeitando `:--`, `:-:` e `--:`.
+- **Comandos com `/`** (os "slash commands" do Obsidian): `/` no começo da
+  linha ou depois de um espaço lista a formatação e as inserções (título,
+  listas, tarefa, citação, tabela, bloco de código, callout, régua, nota de
+  rodapé, data de hoje, data e hora); digitar filtra, Enter aplica.
+- **Sugestão de tags**: `#` seguido de letras lista as tags da pasta, as mais
+  usadas primeiro. Não aparece dentro de código nem em título.
+- **Verificar ortografia** (Configurações > Editor, e na paleta): sublinha as
+  palavras com erro com o dicionário do Windows. Desligado por padrão.
+- **Fechar pares automaticamente** pode ser desligado em Configurações > Editor.
+- O menu do clique direito no editor e os comandos com `/` agora aparecem
+  traduzidos em inglês e espanhol (negrito, riscado, tabela, citação e os
+  demais estavam fixos em português).
 - **Editor novo, o mesmo do Obsidian por baixo (CodeMirror 6)** nos modos ao
   vivo e fonte. O ao vivo deixou de trocar o bloco inteiro por uma caixa de
   texto em letra de máquina: a página continua com cara de leitura enquanto se

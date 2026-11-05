@@ -2757,11 +2757,15 @@ body.no-anim *::after {
 .cm-modo-vivo .cm-content {
   box-sizing: border-box;
   width: 100%;
-  max-width: var(--file-line-width);
-  margin: 0 auto;
-  padding: 32px 40px 60vh;
+  max-width: calc(var(--file-line-width) - 72px);
+  margin: 0;
+  padding: 32px 0 60vh 8px;
 }
-body.wide-lines .cm-modo-vivo .cm-content { max-width: none; }
+/* A coluna de texto fica no mesmo lugar da leitura; a margem das setas de
+   dobrar (a unica "gutter" do ao vivo) encosta nela pelo lado de fora. */
+.cm-modo-vivo .cm-scroller { padding-left: calc(max(40px, (100% - var(--file-line-width)) / 2 + 40px) - 26px); }
+body.wide-lines .cm-modo-vivo .cm-content { max-width: none; padding-right: 40px; }
+.cm-modo-vivo .cm-gutters { background: transparent; border: none; }
 .cm-modo-vivo .cmt-marca { color: var(--text-faint); }
 
 .cm-modo-vivo .cm-linha-h { line-height: 1.3; font-weight: 600; padding-top: 0.45em; padding-bottom: 0.1em; }
@@ -2886,7 +2890,7 @@ body.wide-lines .cm-modo-vivo .cm-content { max-width: none; }
 .cm-modo-vivo .cm-line.cm-ch-mod::before, .cm-modo-vivo .cm-line.cm-ch-saved::before {
   content: "";
   position: absolute;
-  left: -14px; top: 2px; bottom: 2px;
+  left: -8px; top: 2px; bottom: 2px;
   width: 3px;
   border-radius: 2px;
 }
@@ -2910,3 +2914,31 @@ body.wide-lines .cm-modo-vivo .cm-content { max-width: none; }
 .cm-editor .cm-tooltip-autocomplete > ul > li[aria-selected] { background: var(--background-modifier-hover); color: var(--text-normal); }
 .cm-editor .cm-completionDetail { color: var(--text-faint); font-style: normal; margin-left: 10px; font-size: 0.85em; }
 .cm-editor .cm-completionMatchedText { text-decoration: none; color: var(--text-accent); }
+
+/* dobrar secoes e listas: seta ao lado do titulo, visivel ao passar o mouse */
+.cm-editor .cm-foldGutter .cm-gutterElement { display: flex; align-items: center; justify-content: center; padding: 0 2px; cursor: pointer; }
+.cm-seta-dobra {
+  display: inline-block;
+  width: 7px; height: 7px;
+  border-right: 1.5px solid var(--text-faint);
+  border-bottom: 1.5px solid var(--text-faint);
+  transform: rotate(45deg) translate(-1px, -1px);
+  opacity: 0;
+  transition: opacity var(--anim-fast, 0.12s) ease;
+}
+.cm-seta-dobra.is-fechada { transform: rotate(-45deg); opacity: 1; }
+.cm-editor:hover .cm-seta-dobra { opacity: 0.7; }
+.cm-editor .cm-foldGutter .cm-gutterElement:hover .cm-seta-dobra { opacity: 1; border-color: var(--text-normal); }
+.cm-modo-vivo .cm-foldGutter .cm-gutterElement { width: 18px; }
+.cm-editor .cm-dobrado {
+  display: inline-block;
+  margin: 0 4px;
+  padding: 0 6px;
+  border-radius: var(--radius-s);
+  background: var(--background-modifier-hover);
+  color: var(--text-muted);
+  font-size: 0.8em;
+  line-height: 1.4;
+  cursor: pointer;
+}
+@media (prefers-reduced-motion: reduce) { .cm-seta-dobra { transition: none; } }

@@ -82,6 +82,8 @@
     sideReader: false,
     wordWrap: true,
     lineNumbers: true,
+    corretor: false,
+    autoPar: true,
     fontSize: 16,
     editorFontSize: 14,
     wideLines: false,
@@ -2394,13 +2396,7 @@
       ed.defineTexto(tab.content);
     }
     ed.modo(tab.showSource ? 'fonte' : 'vivo');
-    ed.opcoes({
-      quebra: !!settings.wordWrap,
-      numeros: settings.lineNumbers !== false,
-      editavel: !tab.locked,
-      corretor: !!settings.corretor,
-      autoPar: settings.autoPar !== false
-    });
+    ed.opcoes(opcoesDoEditor(tab));
     document.body.classList.toggle('wrap-on', !!settings.wordWrap);
     ed.defineStatusLinhas(lineStatus(tab));
   }
@@ -2602,6 +2598,12 @@
   function setAllFolds(collapsed) {
     var tab = activeTab();
     if (!tab) return;
+
+    // Destravado: quem dobra e o editor (secoes, listas e blocos de codigo).
+    if (!tab.locked && ed && ed.aba === tab) {
+      if (collapsed) ed.dobraTudo(); else ed.desdobraTudo();
+      return;
+    }
 
     if (!collapsed) {
       tab.folds = Object.create(null);
@@ -3927,10 +3929,21 @@
 
   // ------------------------------------------------------------- editor
 
-  /** Margem de alteracoes do editor (laranja nao salvo, verde salvo). */
+  function opcoesDoEditor(tab) {
+    return {
+      quebra: !!settings.wordWrap,
+      numeros: settings.lineNumbers !== false,
+      editavel: !!tab && !tab.locked,
+      corretor: !!settings.corretor,
+      autoPar: settings.autoPar !== false
+    };
+  }
+
+  /** Margem de alteracoes do editor (laranja nao salvo, verde salvo) e as opcoes dele. */
   function renderEditorHighlight() {
     var tab = activeTab();
     if (!tab || tab.locked || !ed || ed.aba !== tab) return;
+    ed.opcoes(opcoesDoEditor(tab));
     ed.defineStatusLinhas(lineStatus(tab));
   }
 
@@ -7530,6 +7543,7 @@
       { id: 'wrap', label: t('Quebra automatica de linha'), key: 'Alt+Z', icon: 'wrap', checked: settings.wordWrap, action: function () { settings.wordWrap = !settings.wordWrap; applyWrap(); renderEditorHighlight(); renderStatus(); persist(); } },
       { id: 'properties', label: t('Mostrar propriedades'), icon: 'list', checked: settings.showProperties !== false, action: function () { settings.showProperties = settings.showProperties === false; renderViews(); persist(); } },
       { id: 'gutter', label: t('Numeros de linha'), icon: 'list', checked: settings.lineNumbers, action: function () { settings.lineNumbers = !settings.lineNumbers; renderEditorHighlight(); persist(); } },
+      { id: 'corretor', label: t('Verificar ortografia'), icon: 'text', checked: !!settings.corretor, action: function () { settings.corretor = !settings.corretor; renderEditorHighlight(); persist(); } },
       { id: 'wide', label: t('Largura total da linha'), icon: 'columns', checked: settings.wideLines, action: function () { settings.wideLines = !settings.wideLines; applyFontSizes(); persist(); } },
       { id: 'lockOnOpen', label: t('Abrir sempre travado'), icon: 'lock', checked: settings.lockOnOpen, action: function () { settings.lockOnOpen = !settings.lockOnOpen; persist(); toast(settings.lockOnOpen ? t('Novos arquivos abrirao travados.') : t('Novos arquivos abrirao destravados.'), 'ok'); } },
       { id: 'confirmUnlock', label: t('Pedir confirmacao ao destravar'), icon: 'unlock', checked: settings.confirmUnlock, action: function () { settings.confirmUnlock = !settings.confirmUnlock; persist(); } },
@@ -8147,6 +8161,14 @@
     setToggle(setLinha(pai, t('Numeros de linha'), t('Na margem do painel de codigo-fonte.')),
       function () { return settings.lineNumbers; },
       function (v) { settings.lineNumbers = v; renderEditorHighlight(); persist(); });
+
+    setToggle(setLinha(pai, t('Verificar ortografia'), t('Sublinha as palavras com erro enquanto se edita, com o dicionario do Windows.')),
+      function () { return !!settings.corretor; },
+      function (v) { settings.corretor = v; renderEditorHighlight(); persist(); });
+
+    setToggle(setLinha(pai, t('Fechar pares automaticamente'), t('Parenteses, colchetes, chaves, aspas e crase. Com texto selecionado, digitar * _ = ~ envolve a selecao.')),
+      function () { return settings.autoPar !== false; },
+      function (v) { settings.autoPar = v; renderEditorHighlight(); persist(); });
   }
 
   function abaArquivos(pai) {
@@ -10436,7 +10458,7 @@
       travado: function () { toast(t('Edicao travada. Ctrl+E para liberar.'), '', 1600); },
       textoColado: textoColado,
       alternaComentario: function () { toggleComment(); return true; },
-      sugestoes: fonteSugestoes
+      sugestoes: [fonteSugestoes, fonteTags, fonteComandosBarra]
     });
     ed.aba = null;
     ed.view.scrollDOM.addEventListener('scroll', function () {
@@ -10509,17 +10531,54 @@
     return !!window.MarkPadLinkIndex.resolve(idx, { tipo: 'wiki', alvo: alvo }, origem);
   }
 
+  function hojeIso(comHora) {
+    var d = new Date();
+    var p2 = function (n) { return (n < 10 ? '0' : '') + n; };
+    var dia = d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate());
+    return comHora ? dia + ' ' + p2(d.getHours()) + ':' + p2(d.getMinutes()) : dia;
+  }
+
+  /*
+   * Os comandos de formatacao do editor: o mesmo conjunto no clique direito e
+   * na barra (digitar / no comeco da linha ou depois de um espaco, como os
+   * "slash commands" do Obsidian).
+   */
+  function comandosDoEditor() {
+    function c(grupo, label, icon, acao, atalho) { return { grupo: grupo, label: label, icon: icon, acao: acao, atalho: atalho }; }
+    return [
+      c('fmt', t('Negrito'), 'bold', function () { ed.envolve('**', '**'); }, 'Ctrl+B'),
+      c('fmt', t('Itálico'), 'italic', function () { ed.envolve('*', '*'); }, 'Ctrl+I'),
+      c('fmt', t('Riscado'), 'strike', function () { ed.envolve('~~', '~~'); }),
+      c('fmt', t('Destaque'), 'highlight', function () { ed.envolve('==', '=='); }, 'Ctrl+Shift+H'),
+      c('fmt', t('Código'), 'code', function () { ed.envolve('`', '`'); }),
+      c('par', t('Título 1'), 'heading', function () { ed.prefixoLinha('# '); }),
+      c('par', t('Título 2'), 'heading', function () { ed.prefixoLinha('## '); }),
+      c('par', t('Título 3'), 'heading', function () { ed.prefixoLinha('### '); }),
+      c('par', t('Texto normal'), 'text', function () { ed.prefixoLinha(''); }),
+      c('par', t('Citação'), 'quote', function () { ed.prefixoLinha('> '); }),
+      c('par', t('Lista'), 'list', function () { ed.prefixoLinha('- '); }),
+      c('par', t('Lista numerada'), 'list', function () { ed.prefixoLinha('', { ordenada: true }); }),
+      c('par', t('Tarefa'), 'todo', function () { ed.prefixoLinha('- [ ] '); }),
+      c('ins', t('Link'), 'link', function () { ed.insere('[%s](%c)'); }, 'Ctrl+K'),
+      c('ins', t('Link interno'), 'link', function () { ed.insere('[[%c]]'); }),
+      c('ins', t('Tabela'), 'table', function () { ed.insere('\n| %c | Coluna |\n|:--|:--|\n| | |\n'); }),
+      c('ins', t('Bloco de código'), 'code', function () { ed.insere('\n```%c\n\n```\n'); }),
+      c('ins', t('Bloco matemático'), 'sigma', function () { ed.insere('\n$$\n%c\n$$\n'); }),
+      c('ins', t('Destaque (callout)'), 'info', function () { ed.insere('\n> [!note] %c\n> \n'); }),
+      c('ins', t('Tag'), 'hash', function () { ed.insere('#%c'); }),
+      c('ins', t('Régua horizontal'), 'minus', function () { ed.insere('\n---\n%c'); }),
+      c('ins', t('Nota de rodapé'), 'note', function () { ed.insere('[^%c]'); }),
+      c('ins', t('Data de hoje'), 'clock', function () { ed.insere(hojeIso(false) + '%c'); }),
+      c('ins', t('Data e hora'), 'clock', function () { ed.insere(hojeIso(true) + '%c'); })
+    ];
+  }
+
   /** Clique direito no editor: area de transferencia e a formatacao do Obsidian. */
   function menuDoEditor(x, y) {
     var tab = activeTab();
     if (!ed || !tab || tab.locked) return;
     var sel = ed.textoSelecionado();
-
-    function fmt(label, icon, fn) {
-      return { label: label, icon: icon, action: fn };
-    }
-
-    showMenu([
+    var itens = [
       { label: t('Recortar'), icon: 'copy', disabled: !sel, action: function () {
           navigator.clipboard.writeText(sel).then(function () { ed.trocaSelecao(''); ed.foco(); });
         } },
@@ -10530,38 +10589,65 @@
             ed.foco();
           });
         } },
-      { label: t('Selecionar tudo'), action: function () { ed.seleciona(0, ed.texto().length, { rolar: false }); ed.foco(); } },
-      '-',
-      { label: t('Formatar'), header: true },
-      fmt('Negrito', 'bold', function () { ed.envolve('**', '**'); }),
-      fmt(t('Itálico'), 'italic', function () { ed.envolve('*', '*'); }),
-      fmt('Riscado', 'strike', function () { ed.envolve('~~', '~~'); }),
-      fmt('Destaque', 'highlight', function () { ed.envolve('==', '=='); }),
-      fmt(t('Código'), 'code', function () { ed.envolve('`', '`'); }),
-      '-',
-      { label: t('Parágrafo'), header: true },
-      fmt('Título 1', 'heading', function () { ed.prefixoLinha('# '); }),
-      fmt(t('Título 2'), 'heading', function () { ed.prefixoLinha('## '); }),
-      fmt(t('Título 3'), 'heading', function () { ed.prefixoLinha('### '); }),
-      fmt('Texto normal', 'text', function () { ed.prefixoLinha(''); }),
-      fmt('Citação', 'quote', function () { ed.prefixoLinha('> '); }),
-      fmt('Lista', 'list', function () { ed.prefixoLinha('- '); }),
-      fmt('Lista numerada', 'list', function () { ed.prefixoLinha('', { ordenada: true }); }),
-      fmt('Tarefa', 'todo', function () { ed.prefixoLinha('- [ ] '); }),
-      '-',
-      { label: t('Inserir'), header: true },
-      fmt('Link', 'link', function () { ed.insere('[%s](%c)'); }),
-      fmt('Tabela', 'table', function () { ed.insere('\n| %c | Coluna |\n|:--|:--|\n| | |\n'); }),
-      fmt('Bloco de código', 'code', function () { ed.insere('\n```%c\n\n```\n'); }),
-      fmt(t('Bloco matemático'), 'sigma', function () { ed.insere('\n$$\n%c\n$$\n'); }),
-      fmt('Link interno', 'link', function () { ed.insere('[[%c]]'); }),
-      fmt('Tag', 'hash', function () { ed.insere('#%c'); }),
-      fmt(t('Destaque (callout)'), 'info', function () { ed.insere('\n> [!note] %c\n> \n'); }),
-      fmt('Régua horizontal', 'minus', function () { ed.insere('\n---\n%c'); }),
-      fmt('Nota de rodapé', 'note', function () { ed.insere('[^%c]'); }),
-      '-',
-      { label: t('Travar edicao'), icon: 'lock', key: 'Ctrl+E', action: toggleLock }
-    ], x, y);
+      { label: t('Selecionar tudo'), action: function () { ed.seleciona(0, ed.texto().length, { rolar: false }); ed.foco(); } }
+    ];
+    var titulos = { fmt: t('Formatar'), par: t('Parágrafo'), ins: t('Inserir') };
+    var grupo = null;
+    comandosDoEditor().forEach(function (cmd) {
+      if (cmd.grupo !== grupo) { itens.push('-', { label: titulos[cmd.grupo], header: true }); grupo = cmd.grupo; }
+      itens.push({ label: cmd.label, icon: cmd.icon, key: cmd.atalho, action: cmd.acao });
+    });
+    itens.push('-', { label: t('Travar edicao'), icon: 'lock', key: 'Ctrl+E', action: toggleLock });
+    showMenu(itens, x, y);
+  }
+
+  // Dentro de codigo, propriedades e HTML nao se sugere nada.
+  function emCodigo(state, pos) {
+    var no = window.CM.language.syntaxTree(state).resolveInner(pos, -1);
+    for (; no; no = no.parent) {
+      if (/^(FencedCode|CodeBlock|InlineCode|CodeText|Frontmatter|HTMLBlock|CommentBlock|MathInline|MathBloco)$/.test(no.name)) return true;
+    }
+    return false;
+  }
+
+  /** Digitar / depois de espaco (ou no comeco da linha) abre os comandos de formatacao. */
+  function fonteComandosBarra(contexto) {
+    var m = contexto.matchBefore(/(?:^|\s)\/[^\s\/]*$/);
+    if (!m || emCodigo(contexto.state, contexto.pos)) return null;
+    var de = m.from + m.text.lastIndexOf('/') + 1;
+    return {
+      from: de,
+      validFor: /^[^\s\/]*$/,
+      options: comandosDoEditor().map(function (cmd) {
+        return {
+          label: cmd.label,
+          detail: cmd.atalho,
+          apply: function (view, completion, a, b) {
+            view.dispatch({ changes: { from: a - 1, to: b, insert: '' }, userEvent: 'input.complete' });
+            cmd.acao();
+          }
+        };
+      })
+    };
+  }
+
+  /** Digitar #algo lista as tags da pasta (ou das abas abertas), as mais usadas primeiro. */
+  function fonteTags(contexto) {
+    var m = contexto.matchBefore(/(?:^|[\s(])#[^\s#!"$%&'()*+,.:;<=>?@^`{|}~\[\]\\]*$/);
+    if (!m || emCodigo(contexto.state, contexto.pos)) return null;
+    var de = m.from + m.text.lastIndexOf('#') + 1;
+    if (de === contexto.pos && !contexto.explicit && /^\s*#$/.test(contexto.state.doc.lineAt(contexto.pos).text.slice(0, contexto.pos - contexto.state.doc.lineAt(contexto.pos).from))) return null;
+    return Promise.resolve(tagIndex()).then(function (tags) {
+      if (!tags || !tags.length) return null;
+      var lista = tags.slice().sort(function (a, b) { return (b.count || 0) - (a.count || 0); });
+      return {
+        from: de,
+        validFor: /^[^\s#]*$/,
+        options: lista.map(function (tg, i) {
+          return { label: tg.tag, detail: String(tg.count || ''), boost: Math.max(-99, -i), apply: tg.tag + ' ' };
+        })
+      };
+    });
   }
 
   var outlineTimer = null;

@@ -286,11 +286,22 @@
     }]
   };
 
+  // Dobra como a do Obsidian: titulo (secao inteira), item de lista com
+  // filhos, bloco de codigo e propriedades. Paragrafo, citacao e tabela nao
+  // ganham seta (o CodeMirror dobraria qualquer bloco de varias linhas).
+  function semDobra() { return null; }
+  var DobraDoObsidian = {
+    props: [L.foldNodeProp.add({
+      Paragraph: semDobra, Blockquote: semDobra, Table: semDobra, HTMLBlock: semDobra,
+      CommentBlock: semDobra, MathBloco: semDobra, ComentarioBloco: semDobra, LinkReference: semDobra
+    })]
+  };
+
   function linguagemMarkdown() {
     return MD.markdown({
       base: MD.commonmarkLanguage,
       codeLanguages: CM.codeLanguages,
-      extensions: [LM.GFM, WikiLinks, Destaque, Comentarios, Hashtags, Rodapes, Matematica, Propriedades],
+      extensions: [LM.GFM, WikiLinks, Destaque, Comentarios, Hashtags, Rodapes, Matematica, Propriedades, DobraDoObsidian],
       addKeymap: false
     });
   }
@@ -1123,6 +1134,101 @@
     return C.insertNewlineAndIndent(view);
   }
 
+  // Lista numerada se renumera sozinha depois de qualquer edicao (apagar,
+  // mover ou colar item), como no Obsidian. Desfazer volta as duas coisas.
+  var anotRenumera = S.Annotation.define();
+  var renumeraListas = EditorState.transactionFilter.of(function (tr) {
+    if (!tr.docChanged || tr.annotation(anotRenumera) || tr.isUserEvent('undo') || tr.isUserEvent('redo') || tr.annotation(anotExterna)) return tr;
+    var st = tr.state;
+    var tree = L.syntaxTree(st);
+    var mudancas = [];
+    var vistas = Object.create(null);
+    tr.changes.iterChangedRanges(function (fa, ta, fb, tb) {
+      tree.iterate({
+        from: Math.max(0, fb - 1),
+        to: Math.min(st.doc.length, tb + 1),
+        enter: function (no) {
+          if (no.name !== 'OrderedList' || vistas[no.from]) return;
+          vistas[no.from] = true;
+          var n = null;
+          for (var item = no.node.firstChild; item; item = item.nextSibling) {
+            if (item.name !== 'ListItem') continue;
+            var mk = item.getChild('ListMark');
+            if (!mk) continue;
+            var txt = st.doc.sliceString(mk.from, mk.to);
+            var m = /^(\d{1,9})([.)])$/.exec(txt);
+            if (!m) continue;
+            if (n === null) { n = parseInt(m[1], 10); continue; }
+            n++;
+            if (String(n) + m[2] !== txt) mudancas.push({ from: mk.from, to: mk.to, insert: String(n) + m[2] });
+          }
+        }
+      });
+    });
+    if (!mudancas.length) return tr;
+    return [tr, { changes: mudancas, sequential: true, annotations: anotRenumera.of(true) }];
+  });
+
+  // Tabela aberta em texto: Tab e Shift+Tab andam de celula em celula, Enter
+  // desce para a linha de baixo (criando uma nova no fim), e a tabela se
+  // realinha a cada passo, como no editor de tabelas do Obsidian.
+  function tabelaNoCursor(state) {
+    var pos = state.selection.main.head;
+    var no = L.syntaxTree(state).resolveInner(pos, -1);
+    for (; no; no = no.parent) if (no.name === 'Table') return no;
+    no = L.syntaxTree(state).resolveInner(pos, 1);
+    for (; no; no = no.parent) if (no.name === 'Table') return no;
+    return null;
+  }
+
+  function navegaTabela(passo, desce) {
+    return function (view) {
+      var st = view.state;
+      var Tx = global.MarkPadTextOps;
+      if (st.readOnly || st.selection.ranges.length > 1 || !Tx || !Tx.formataTabela) return false;
+      var tabela = tabelaNoCursor(st);
+      if (!tabela) return false;
+      var doc = st.doc;
+      var l1 = doc.lineAt(tabela.from), l2 = doc.lineAt(tabela.to);
+      var ultima = l2.text.trim() === '' && l2.number > l1.number ? l2.number - 1 : l2.number;
+      var head = st.selection.main.head;
+      var lc = doc.lineAt(head);
+      if (lc.number > ultima) return false;
+      var linha = lc.number - l1.number;
+      var col = Tx.colunaNaLinha(lc.text, head - lc.from);
+      var de = l1.from, ate = doc.line(ultima).to;
+      var original = doc.sliceString(de, ate);
+      var novo = Tx.formataTabela(original);
+      var linhas = novo.split('\n');
+      var ncol = Tx.celulasDaLinha(linhas[0]).length;
+      var alvoL = linha, alvoC = Math.min(col, ncol - 1);
+      if (desce) alvoL = linha + 1;
+      else {
+        alvoC = col + passo;
+        if (alvoC >= ncol) { alvoC = 0; alvoL = linha + 1; }
+        else if (alvoC < 0) { alvoC = ncol - 1; alvoL = linha - 1; }
+      }
+      if (alvoL === 1) alvoL = passo < 0 && !desce ? 0 : 2;
+      if (alvoL < 0) { alvoL = 0; alvoC = 0; }
+      if (alvoL >= linhas.length) {
+        novo = Tx.formataTabela(novo + '\n|' + new Array(ncol + 1).join('  |'));
+        linhas = novo.split('\n');
+        alvoL = linhas.length - 1;
+        if (!desce) alvoC = 0;
+      }
+      var off = 0;
+      for (var i = 0; i < alvoL; i++) off += linhas[i].length + 1;
+      var faixa = Tx.faixaDaCelula(linhas[alvoL], alvoC);
+      view.dispatch({
+        changes: novo !== original ? { from: de, to: ate, insert: novo } : [],
+        selection: { anchor: de + off + faixa.ini, head: de + off + faixa.fim },
+        scrollIntoView: true,
+        userEvent: 'input'
+      });
+      return true;
+    };
+  }
+
   // Com texto selecionado, digitar uma marca de Markdown envolve a selecao
   // (como o "pares de Markdown" do Obsidian). Sem selecao, nada muda.
   var MARCAS_ENVOLVE = { '*': '*', '_': '_', '=': '=', '~': '~', '$': '$', '%': '%' };
@@ -1205,8 +1311,10 @@
     }
 
     var teclasMarkdown = S.Prec.high(V.keymap.of([
+      { key: 'Enter', run: navegaTabela(0, true) },
       { key: 'Enter', run: tecladoEnter },
       { key: 'Backspace', run: function (v) { return !v.state.readOnly && MD.deleteMarkupBackward(v); } },
+      { key: 'Tab', run: navegaTabela(1, false), shift: navegaTabela(-1, false) },
       { key: 'Tab', run: tecladoTab, shift: tecladoShiftTab },
       { key: 'Mod-b', run: alternaMarca('**'), preventDefault: true },
       { key: 'Mod-i', run: alternaMarca('*'), preventDefault: true },
@@ -1324,7 +1432,7 @@
     });
 
     var sugestoes = op.sugestoes ? AC.autocompletion({
-      override: [op.sugestoes],
+      override: [].concat(op.sugestoes),
       icons: false,
       defaultKeymap: true,
       closeOnBlur: true,
@@ -1350,6 +1458,10 @@
         campoFoco, campoPonteiro, campoAchados, campoStatus,
         sugestoes,
         teclasMarkdown,
+        renumeraListas,
+        L.codeFolding({ placeholderDOM: function (v, aoClicar) { var s = document.createElement('span'); s.className = 'cm-dobrado'; s.textContent = '…'; s.onclick = aoClicar; return s; } }),
+        L.foldGutter({ markerDOM: function (aberto) { var s = document.createElement('span'); s.className = 'cm-seta-dobra' + (aberto ? '' : ' is-fechada'); return s; } }),
+        V.keymap.of(L.foldKeymap),
         V.keymap.of([].concat(C.historyKeymap, C.standardKeymap)),
         eventos,
         ouvinte,
@@ -1592,6 +1704,9 @@
         return true;
       },
 
+      dobraTudo: function () { return L.foldAll(view); },
+      desdobraTudo: function () { return L.unfoldAll(view); },
+
       desfazer: function () { return C.undo(view); },
       refazer: function () { return C.redo(view); },
 
@@ -1609,6 +1724,8 @@
       alternaMarca: alternaMarca,
       tecladoEnter: tecladoEnter,
       tecladoTab: tecladoTab,
+      navegaTabela: navegaTabela,
+      renumeraListas: renumeraListas,
       insereLink: insereLink,
       atributosDoLink: atributosDoLink
     }
