@@ -1095,14 +1095,25 @@
   }
 
   /** Abre outro MarkPad com estes caminhos (arquivo ou pasta). Promessa de true se abriu. */
-  function novaJanela(caminhos) {
-    return bridge.call('newWindow', { paths: caminhos || [] }).then(function () {
+  function novaJanela(caminhos, solto) {
+    var args = { paths: caminhos || [] };
+    if (solto && solto.x && solto.y) { args.x = solto.x; args.y = solto.y; }
+    return bridge.call('newWindow', args).then(function () {
       toast(t('Abrindo outra janela...'), 'ok', 1400);
       return true;
     }).catch(function (err) {
       toast(t('Não deu para abrir outra janela: ') + (err && err.message || err), 'error', 4000);
       return false;
     });
+  }
+
+  /** Leva a aba para uma janela nova (outra instancia, que edita e salva). */
+  function destacaAba(tab, x, y) {
+    if (!tab) return;
+    if (tab.espelhoDe) tab = tabById(tab.espelhoDe) || tab;
+    if (!tab.path) { toast(t('Salve a nota antes de levá-la para outra janela.'), 'warn', 3000); return; }
+    if (tab.content !== tab.savedContent) { toast(t('Salve as alterações antes de levar a aba para outra janela.'), 'warn', 3000); return; }
+    novaJanela([tab.path], { x: x, y: y }).then(function (ok) { if (ok) closeTab(tab.id); });
   }
 
   function restauraFixadas() {
@@ -2047,7 +2058,15 @@
         try { e.dataTransfer.setData('text/plain', tab.name); } catch (err) {}
         el.classList.add('is-dragging');
       };
-      el.ondragend = function () { arrastoAba = null; limpaMarcasDeArrasto(); };
+      el.ondragend = function (e) {
+        var aba = arrastoAba;
+        arrastoAba = null;
+        limpaMarcasDeArrasto();
+        // Soltou fora da janela (a janela destacada do Obsidian): a aba vai
+        // para uma janela nova, nascida onde foi solta.
+        var fora = e.clientX < 0 || e.clientY < 0 || e.clientX > window.innerWidth || e.clientY > window.innerHeight;
+        if (fora && aba && e.dataTransfer && e.dataTransfer.dropEffect === 'none') destacaAba(aba, e.screenX, e.screenY);
+      };
       el.ondragover = function (e) {
         if (!arrastoAba || arrastoAba === tab) return;
         e.preventDefault();
@@ -7459,6 +7478,7 @@
       { id: 'splitDown', label: t('Dividir abaixo'), icon: 'columns', enabled: !!tab, action: function () { dividir('v'); } },
       { id: 'otherHalf', label: t('Ir para a outra metade'), key: 'F8', icon: 'columns', enabled: dividido(), action: focaOutraMetade },
       { id: 'moveHalf', label: t('Mover aba para a outra metade'), icon: 'columns', enabled: !!tab && dividido(), action: function () { var a = activeTab(); mudaDeGrupo(a, outroGrupoDe(grupoDe(a))); persist(); } },
+      { id: 'popout', label: t('Mover aba para nova janela'), icon: 'external', enabled: !!(tab && tab.path), action: function () { destacaAba(activeTab()); } },
       { id: 'stackTabs', label: t('Empilhar abas'), icon: 'columns', checked: !!(grupoPorId(app.grupoAtivo) || {}).empilhado, action: function () { alternaEmpilhar(); } },
       { id: 'joinHalves', label: t('Juntar as metades'), icon: 'columns', enabled: dividido(), action: juntaMetades },
       { id: 'flipHalves', label: t('Alternar divisão lado a lado / em cima e embaixo'), icon: 'columns', enabled: dividido(), action: function () { settings.layoutDirecao = settings.layoutDirecao === 'v' ? 'h' : 'v'; renderGrupos(); persist(); } },

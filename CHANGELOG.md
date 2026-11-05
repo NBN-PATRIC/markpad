@@ -6,6 +6,12 @@ Versionamento [SemVer](https://semver.org/lang/pt-BR/).
 ## [Não lançado]
 
 ### Adicionado
+- **Arrastar a aba para fora da janela a destaca** (o gesto da janela
+  destacada do Obsidian): solta fora do MarkPad, a nota vai para uma janela
+  nova, nascida onde foi solta, e sai desta. A janela nova edita e salva
+  sozinha, e as duas se enxergam pelo aviso de mudança no disco. Também pela
+  paleta: "Mover aba para nova janela". Nota com alteração não salva pede para
+  salvar antes.
 - **Abas empilhadas** (do Obsidian), pela paleta ou pelo menu da aba: cada
   aba do grupo vira um painel com a largura de leitura, lado a lado, com o
   título na vertical numa lombada à esquerda. Rolando de lado, os painéis que

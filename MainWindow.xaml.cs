@@ -595,6 +595,13 @@ public partial class MainWindow : Window
             ? n
             : fallback;
 
+    /// <summary>Numero opcional (null quando nao veio).</summary>
+    private static double? Num(JsonElement args, string name)
+        => args.ValueKind == JsonValueKind.Object && args.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number
+            && v.TryGetDouble(out var d) && !double.IsNaN(d) && !double.IsInfinity(d)
+            ? d
+            : null;
+
     private static int Int(JsonElement args, string name, int fallback = 0)
         => args.ValueKind == JsonValueKind.Object && args.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number
             ? v.GetInt32()
@@ -745,7 +752,7 @@ public partial class MainWindow : Window
                 return true;
 
             case "newWindow":
-                return AbreNovaJanela(StrList(args, "paths"));
+                return AbreNovaJanela(StrList(args, "paths"), Num(args, "x"), Num(args, "y"));
 
             case "print":
                 Web.CoreWebView2?.ShowPrintUI(CoreWebView2PrintDialogKind.Browser);
@@ -917,7 +924,7 @@ public partial class MainWindow : Window
      * Abre outro MarkPad, com os arquivos ou a pasta dados. So o proprio
      * executavel, so caminho que existe; o resto do pedido e ignorado.
      */
-    private object AbreNovaJanela(List<string>? paths)
+    private object AbreNovaJanela(List<string>? paths, double? soltoX = null, double? soltoY = null)
     {
         var exe = Environment.ProcessPath;
         if (string.IsNullOrEmpty(exe)) throw new InvalidOperationException("nao achei o executavel do MarkPad.");
@@ -926,6 +933,15 @@ public partial class MainWindow : Window
         psi.ArgumentList.Add(App.ArgNovaJanela);
         // Maximizada ou em tela inteira, a escada parte do tamanho normal dela.
         var r = WindowState == WindowState.Normal && !_telaCheia ? new Rect(Left, Top, Width, Height) : RestoreBounds;
+        // Aba arrastada para fora da janela (a janela destacada do Obsidian):
+        // a nova nasce onde a aba foi solta, um pouco menor que esta. O -32
+        // desconta a escada que a janela nova aplica sobre a posicao pedida.
+        if (soltoX is double sx && soltoY is double sy && !r.IsEmpty)
+        {
+            var w = Math.Min(r.Width, 960);
+            var h = Math.Min(r.Height, 820);
+            r = new Rect(sx - 160 - 32, sy - 16 - 32, w, h);
+        }
         if (!r.IsEmpty)
         {
             var ic = System.Globalization.CultureInfo.InvariantCulture;
