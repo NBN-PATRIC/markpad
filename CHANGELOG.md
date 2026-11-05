@@ -5,6 +5,8 @@ Versionamento [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Não lançado]
 
+## [1.4.0] — 2026-11-05
+
 ### Adicionado
 - **HTML em linha no modo ao vivo**: `<kbd>`, `<mark>`, `<u>`, `<sub>`, `<sup>`,
   `<s>`, `<small>` e as tags de ênfase aparecem com o efeito (tecla, marca
@@ -164,7 +166,7 @@ Versionamento [SemVer](https://semver.org/lang/pt-BR/).
 - **Arrastar na árvore** (como o explorador do Obsidian): arquivo solto numa
   pasta, ou no vazio da árvore (a pasta principal), muda de pasta, e os links
   que apontam para ele são atualizados como no "Mover para...". Solto no
-  editor (código-fonte ou bloco aberto no modo ao vivo), vira `[[link]]` no
+  editor (ao vivo ou código-fonte), vira `[[link]]` no
   ponto em que caiu.
 - **Operações com linhas do Notepad++, com a regra do Markdown** (paleta):
   ordenar linhas de A a Z na ordem do português (números em ordem natural,
@@ -181,8 +183,8 @@ Versionamento [SemVer](https://semver.org/lang/pt-BR/).
   a linha), Alt+↑/↓ e Ctrl+Shift+↑/↓ movem todas as linhas da seleção,
   Ctrl+Shift+K apaga a linha, Ctrl+J une a linha com a de baixo (ou as
   selecionadas, tirando recuo, citação e hífen de quebra), Ctrl+U e
-  Ctrl+Shift+U passam para minúsculas e maiúsculas. Valem também no bloco
-  aberto do modo ao vivo.
+  Ctrl+Shift+U passam para minúsculas e maiúsculas. Valem nos dois modos de
+  edição.
 - **Arrastar a aba para fora da janela a destaca** (o gesto da janela
   destacada do Obsidian): solta fora do MarkPad, a nota vai para uma janela
   nova, nascida onde foi solta, e sai desta. A janela nova edita e salva
@@ -973,7 +975,8 @@ dependência de outros aplicativos.
 - Gravação restrita a caminhos abertos na sessão e a extensões de texto.
 - Nenhuma navegação sai do aplicativo.
 
-[Não lançado]: https://github.com/NBN-PATRIC/markpad/compare/v1.3.0...HEAD
+[Não lançado]: https://github.com/NBN-PATRIC/markpad/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/NBN-PATRIC/markpad/releases/tag/v1.4.0
 [1.3.0]: https://github.com/NBN-PATRIC/markpad/releases/tag/v1.3.0
 [1.2.0]: https://github.com/NBN-PATRIC/markpad/releases/tag/v1.2.0
 [1.1.0]: https://github.com/NBN-PATRIC/markpad/releases/tag/v1.1.0

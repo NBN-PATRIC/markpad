@@ -108,7 +108,7 @@ if ($Framework) {
 
 Write-Host ""
 Write-Host "artefatos em $dist" -ForegroundColor Green
-Get-ChildItem $dist | ForEach-Object {
+Get-ChildItem $dist -File | ForEach-Object {
     $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash
     '{0,-46} {1,8:N1} MB  {2}' -f $_.Name, ($_.Length / 1MB), $hash.Substring(0, 16)
 }
