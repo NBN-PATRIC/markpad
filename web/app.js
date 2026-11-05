@@ -10978,13 +10978,14 @@
   }
 
   /** Desenha um trecho do documento como o leitor desenharia (blocos do ao vivo). */
-  function renderTrecho(el, src, tipo, abaDona) {
+  function renderTrecho(el, src, tipo, abaDona, trocar) {
     var tab = abaDona || (ed && ed.aba) || activeTab();
     if (tipo === 'propriedades' && settings.showProperties === false) {
       el.classList.add('cm-trecho-cru');
       el.textContent = src;
       return;
     }
+    if (tipo === 'propriedades' && trocar && formularioDePropriedades(el, src, trocar)) return;
     var r = window.MarkPadMarkdown.render(src, { loadRemoteImages: settings.loadRemoteImages });
     el.innerHTML = r.html;
     window.MarkPadMarkdown.sanitizeDom(el);
@@ -11007,6 +11008,203 @@
     resolveNoteEmbeds(el, tab, [String(tab.path || '').toLowerCase()]);
     wirePreviewClicks(el, tab);
     marcaLinksQuebrados(el, tab);
+  }
+
+  // ------------------------------------------------- propriedades editaveis
+  //
+  // O formulario de propriedades do Obsidian no modo ao vivo: uma linha por
+  // propriedade, lista (tags, aliases) em pilulas, caixa para true/false e
+  // calendario para data. So o YAML simples (chave: valor e listas) vira
+  // formulario; o resto (objeto aninhado, texto em bloco, comentario) fica no
+  // texto, como antes. O bloco so e reescrito quando algo muda de verdade, e
+  // so quando o foco sai do formulario (ou com Enter), para a digitacao nao
+  // perder o campo no meio.
+
+  function tiraAspas(v) {
+    v = String(v).trim();
+    if (/^".*"$/.test(v)) return v.slice(1, -1).replace(/\\"/g, '"');
+    if (/^'.*'$/.test(v)) return v.slice(1, -1).replace(/''/g, "'");
+    return v;
+  }
+
+  function comAspasSePreciso(v) {
+    v = String(v);
+    if (v === '' || /^[\[\]{}#&*!|>'"%@`,?:-]/.test(v) || /:\s|\s#/.test(v) || /^\s|\s$/.test(v)) {
+      return '"' + v.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';
+    }
+    return v;
+  }
+
+  function lePropriedades(src) {
+    var linhas = String(src).replace(/\r\n?/g, '\n').split('\n');
+    if (linhas.length < 2 || !/^---\s*$/.test(linhas[0])) return null;
+    var fim = linhas.length - 1;
+    while (fim > 0 && !/^(---|\.\.\.)\s*$/.test(linhas[fim])) fim--;
+    if (fim <= 0) return null;
+    var props = [], atual = null;
+    for (var i = 1; i < fim; i++) {
+      var l = linhas[i];
+      if (!l.trim()) continue;
+      var item = /^\s*-\s+(.*)$/.exec(l) || /^\s*-$/.exec(l);
+      if (item && atual && (atual.tipo === 'lista' || atual.valor === '')) {
+        atual.tipo = 'lista';
+        if (item[1] != null && item[1].trim()) atual.itens.push(tiraAspas(item[1]));
+        continue;
+      }
+      var kv = /^([^\s#:\-][^:]*?)\s*:(?:\s+(.*))?$/.exec(l);
+      if (!kv || /^\s/.test(l)) return null;
+      var v = (kv[2] || '').trim();
+      if (/^[|>]/.test(v) || /^\{/.test(v) || /\s#/.test(v)) return null;
+      atual = { chave: kv[1].trim(), valor: tiraAspas(v), tipo: 'texto', itens: [] };
+      if (/^\[.*\]$/.test(v)) {
+        atual.tipo = 'lista';
+        atual.itens = v.slice(1, -1).split(',').map(function (x) { return tiraAspas(x); }).filter(Boolean);
+      } else if (/^(true|false)$/i.test(v)) atual.tipo = 'caixa';
+      else if (/^\d{4}-\d{2}-\d{2}$/.test(v)) atual.tipo = 'data';
+      else if (/^-?\d+(?:\.\d+)?$/.test(v)) atual.tipo = 'numero';
+      else if (/^(tags?|aliases?|cssclasses)$/i.test(atual.chave) && v === '') atual.tipo = 'lista';
+      props.push(atual);
+    }
+    return props;
+  }
+
+  function escrevePropriedades(props) {
+    var out = ['---'];
+    props.forEach(function (p) {
+      var chave = String(p.chave || '').trim();
+      if (!chave) return;
+      if (p.tipo === 'lista') {
+        out.push(chave + ':');
+        p.itens.forEach(function (it) { out.push('  - ' + comAspasSePreciso(it)); });
+      } else if (p.tipo === 'caixa') out.push(chave + ': ' + (p.valor === true || p.valor === 'true' ? 'true' : 'false'));
+      else if (p.tipo === 'numero' || p.tipo === 'data') out.push(chave + ': ' + String(p.valor).trim());
+      else out.push(chave + ': ' + (p.valor === '' ? '' : comAspasSePreciso(p.valor)).replace(/: $/, ':'));
+    });
+    out.push('---');
+    return out.join('\n').replace(/: \n/g, ':\n');
+  }
+
+  function formularioDePropriedades(el, src, trocar) {
+    var props = lePropriedades(src);
+    if (!props) return false;
+    var mudou = false;
+
+    function aplica() {
+      if (!mudou) return;
+      mudou = false;
+      var novo = escrevePropriedades(props);
+      if (novo !== src) trocar(novo);
+    }
+
+    var caixa = document.createElement('div');
+    caixa.className = 'properties prop-form';
+    var cab = document.createElement('div');
+    cab.className = 'properties-head prop-form-cab';
+    var rot = document.createElement('span');
+    rot.textContent = t('Propriedades');
+    cab.appendChild(rot);
+    var conta = document.createElement('span');
+    conta.className = 'properties-count';
+    conta.textContent = String(props.length);
+    cab.appendChild(conta);
+    caixa.appendChild(cab);
+
+    var corpo = document.createElement('div');
+    corpo.className = 'properties-body';
+
+    function campoTexto(cls, valor, aoMudar, tipo) {
+      var i = document.createElement('input');
+      i.type = tipo || 'text';
+      i.className = cls;
+      i.value = valor == null ? '' : String(valor);
+      i.spellcheck = false;
+      i.addEventListener('input', function () { aoMudar(i.value); mudou = true; });
+      i.addEventListener('keydown', function (ev) {
+        if (ev.key === 'Enter') { ev.preventDefault(); aplica(); }
+        if (ev.key === 'Escape') { ev.preventDefault(); i.blur(); }
+        ev.stopPropagation();
+      });
+      return i;
+    }
+
+    props.forEach(function (p, idx) {
+      var linha = document.createElement('div');
+      linha.className = 'property prop-linha';
+      var chave = campoTexto('prop-chave', p.chave, function (v) { p.chave = v; });
+      chave.setAttribute('aria-label', t('Nome da propriedade'));
+      linha.appendChild(chave);
+
+      var valor = document.createElement('div');
+      valor.className = 'property-value prop-valor';
+      if (p.tipo === 'lista') {
+        p.itens.forEach(function (it, j) {
+          var pil = document.createElement('span');
+          pil.className = 'prop-pilula';
+          pil.textContent = it;
+          var x = document.createElement('button');
+          x.type = 'button';
+          x.className = 'prop-tira';
+          x.textContent = '\u00d7';
+          x.setAttribute('aria-label', t('Remover {item}', { item: it }));
+          x.onclick = function () { p.itens.splice(j, 1); mudou = true; aplica(); };
+          pil.appendChild(x);
+          valor.appendChild(pil);
+        });
+        var novo = campoTexto('prop-novo-item', '', function () {});
+        novo.placeholder = t('acrescentar');
+        novo.addEventListener('keydown', function (ev) {
+          if (ev.key !== 'Enter' && ev.key !== ',') return;
+          ev.preventDefault();
+          var v = novo.value.trim().replace(/^#/, '');
+          if (!v) { aplica(); return; }
+          p.itens.push(v);
+          mudou = true;
+          aplica();
+        });
+        valor.appendChild(novo);
+      } else if (p.tipo === 'caixa') {
+        var cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.className = 'prop-caixa';
+        cb.checked = /^true$/i.test(String(p.valor));
+        cb.onchange = function () { p.valor = cb.checked ? 'true' : 'false'; mudou = true; aplica(); };
+        valor.appendChild(cb);
+      } else {
+        valor.appendChild(campoTexto('prop-texto', p.valor, function (v) { p.valor = v; }, p.tipo === 'data' ? 'date' : 'text'));
+      }
+      linha.appendChild(valor);
+
+      var tira = document.createElement('button');
+      tira.type = 'button';
+      tira.className = 'prop-apaga';
+      tira.title = t('Remover propriedade');
+      tira.textContent = '\u00d7';
+      tira.onclick = function () { props.splice(idx, 1); mudou = true; aplica(); };
+      linha.appendChild(tira);
+      corpo.appendChild(linha);
+    });
+    caixa.appendChild(corpo);
+
+    var mais = document.createElement('button');
+    mais.type = 'button';
+    mais.className = 'prop-acrescenta';
+    mais.textContent = '+ ' + t('Adicionar propriedade');
+    mais.onclick = function () {
+      var n = 1, nome = t('propriedade');
+      while (props.some(function (p) { return p.chave === (n === 1 ? nome : nome + n); })) n++;
+      props.push({ chave: n === 1 ? nome : nome + n, valor: '', tipo: 'texto', itens: [] });
+      mudou = true;
+      aplica();
+    };
+    caixa.appendChild(mais);
+
+    // Sair do formulario grava o que foi digitado.
+    caixa.addEventListener('focusout', function (ev) {
+      if (ev.relatedTarget && caixa.contains(ev.relatedTarget)) return;
+      setTimeout(aplica, 0);
+    });
+    el.appendChild(caixa);
+    return true;
   }
 
   /*

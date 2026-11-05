@@ -651,11 +651,18 @@
       var bloco = this.tipo !== 'imagem' && this.tipo !== 'embed-inline' && this.tipo !== 'math-inline';
       var el = document.createElement(bloco ? 'div' : 'span');
       el.className = 'cm-trecho cm-trecho-' + this.tipo + ' markdown-preview';
-      try { this.ctx.renderTrecho(el, this.src, this.tipo); }
+      // Propriedades editaveis: o app reescreve o bloco inteiro por aqui.
+      var trocar = this.tipo === 'propriedades' && !view.state.readOnly ? function (novo) {
+        var de = view.posAtDOM(el);
+        if (view.state.doc.sliceString(de, de + self.src.length) !== self.src) return false;
+        view.dispatch({ changes: { from: de, to: de + self.src.length, insert: novo }, userEvent: 'input.propriedades' });
+        return true;
+      } : null;
+      try { this.ctx.renderTrecho(el, this.src, this.tipo, null, trocar); }
       catch (err) { el.textContent = this.src; }
       el.addEventListener('mousedown', function (e) {
         if (e.button !== 0) return;
-        if (e.target.closest && e.target.closest('a,[data-wikilink],[data-file],[data-external],[data-tag],[data-anchor],[data-copy],[data-remote],input,button,summary,video,audio,iframe,.callout-fold,.fold-chevron')) return;
+        if (e.target.closest && e.target.closest('a,[data-wikilink],[data-file],[data-external],[data-tag],[data-anchor],[data-copy],[data-remote],input,button,select,summary,video,audio,iframe,.callout-fold,.fold-chevron,.prop-form')) return;
         e.preventDefault();
         var pos = self.posDoClique(view, e, el);
         view.dispatch({ selection: { anchor: pos }, effects: efAtualiza.of(null) });

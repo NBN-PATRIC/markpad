@@ -6,6 +6,14 @@ Versionamento [SemVer](https://semver.org/lang/pt-BR/).
 ## [Não lançado]
 
 ### Adicionado
+- **Propriedades editáveis em formulário** no modo ao vivo, como no Obsidian:
+  cada propriedade numa linha (nome e valor editáveis), listas como `tags` e
+  `aliases` em pílulas (Enter ou vírgula acrescenta, × tira), caixa para
+  `true`/`false`, calendário para data, "+ Adicionar propriedade" e × para
+  remover. O YAML é reescrito só quando algo muda (ao sair do formulário ou
+  com Enter), com aspas quando o valor precisa, e Ctrl+Z desfaz. Clicar no
+  título "Propriedades" abre o YAML em texto; YAML que o formulário não
+  representa (objeto aninhado, texto em bloco, comentário) continua em texto.
 - **Espaços de trabalho** (o "Workspaces" do Obsidian), pela paleta: "Salvar
   espaço de trabalho..." guarda com um nome a pasta, as abas (na ordem), quais
   moram na outra metade, a divisão, as fixadas e a aba ativa; "Abrir espaço
