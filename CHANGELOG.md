@@ -6,6 +6,19 @@ Versionamento [SemVer](https://semver.org/lang/pt-BR/).
 ## [Não lançado]
 
 ### Adicionado
+- **Nota de hoje** (o "Daily notes" do Obsidian), pela paleta: abre ou cria a
+  nota do dia numa pasta da pasta aberta, com o nome no formato escolhido
+  (`YYYY-MM-DD` de fábrica) e, se houver, a partir de um modelo. Configura em
+  Configurações > Arquivos > Notas novas.
+- **Modelos**: "Inserir modelo..." lista os arquivos da pasta de modelos
+  (`Modelos` de fábrica) e insere no cursor trocando `{{title}}`, `{{date}}` e
+  `{{time}}`, também com formato (`{{date:DD/MM/YYYY}}`, `{{time:HH:mm}}`).
+- **Nota única** (nome com data e hora, `YYYYMMDDHHmm`), **nota aleatória** e
+  **extrair a seleção para uma nota nova** (o trecho vai para a nota nova, na
+  mesma pasta, e fica um `[[link]]` no lugar), todos na paleta.
+- **Menções no fim da nota também no modo ao vivo** (antes só na leitura).
+- **Prévia ao passar o mouse com Ctrl** sobre um link no editor, como no modo
+  de edição do Obsidian (sem Ctrl o cartão não abre enquanto se escreve).
 - **Matemática desenhada** (KaTeX embutido, sem rede): `$...$` e `$$...$$`
   viram fórmula na leitura e no modo ao vivo (com o cursor em cima, volta o
   TeX para editar). Fórmula com erro aparece em vermelho com o TeX, sem

@@ -84,6 +84,12 @@
     lineNumbers: true,
     corretor: false,
     autoPar: true,
+    notaDiariaPasta: '',
+    notaDiariaFormato: 'YYYY-MM-DD',
+    notaDiariaModelo: '',
+    notaUnicaPasta: '',
+    notaUnicaFormato: 'YYYYMMDDHHmm',
+    modelosPasta: 'Modelos',
     fontSize: 16,
     editorFontSize: 14,
     wideLines: false,
@@ -3393,6 +3399,8 @@
     var serve = a && a.closest('.markdown-preview') && !a.closest('.hover-popup') &&
       // O botao do embed abriria a previa do que ja esta na tela.
       !a.classList.contains('embed-open');
+    // No editor, so com Ctrl (passar o mouse escrevendo nao pode abrir cartao).
+    if (!serve && a && a.closest('.cm-content') && (e.ctrlKey || e.metaKey)) serve = true;
 
     // Listas (arvore, busca, mencoes, recentes, marcadores): a previa da nota
     // com Ctrl seguro, como no Obsidian (sem Ctrl, passar o mouse por uma
@@ -5044,10 +5052,14 @@
    * Ctrl+P: abre um arquivo da pasta so pelo nome. Sem pasta aberta ele cai
    * na lista de recentes, que e a unica coisa que ele tem para oferecer.
    */
-  function openSwitcher() {
+  function openSwitcher(opcoes) {
+    opcoes = opcoes || {};
     var box = $('switcher');
     var input = $('switcherInput');
     var listEl = $('switcherList');
+    var escolha = opcoes.escolhe || function (f) { openPath(f.path); };
+    if (!openSwitcher.dicaPadrao) openSwitcher.dicaPadrao = input.placeholder;
+    input.placeholder = opcoes.dica || openSwitcher.dicaPadrao;
     var fonte = [];
     var filtrados = [];
     var active = 0;
@@ -5063,8 +5075,8 @@
       if (!filtrados.length) {
         var vazio = document.createElement('div');
         vazio.className = 'palette-item is-empty';
-        vazio.textContent = app.folder
-          ? t('Nenhum arquivo com esse nome.')
+        vazio.textContent = opcoes.vazio && !input.value.trim() ? opcoes.vazio
+          : app.folder ? t('Nenhum arquivo com esse nome.')
           : t('Abra uma pasta para procurar por nome.');
         listEl.appendChild(vazio);
         return;
@@ -5092,7 +5104,7 @@
           el.appendChild(sub);
         }
 
-        el.onclick = function () { fechar(); openPath(f.path); };
+        el.onclick = function () { fechar(); escolha(f); };
         el.onmousemove = function () { if (active !== i) { active = i; draw(); } };
         listEl.appendChild(el);
       });
@@ -5115,7 +5127,7 @@
         e.preventDefault();
         var f = filtrados[active];
         fechar();
-        if (f) openPath(f.path);
+        if (f) escolha(f);
       }
     }
 
@@ -5151,7 +5163,7 @@
 
     pronto.then(function (arquivos) {
       if (box.hidden) return;
-      fonte = arquivos;
+      fonte = opcoes.filtro ? arquivos.filter(opcoes.filtro) : arquivos;
       filtrados = linhas(input.value.trim());
       draw();
       return app.folder ? indiceLinks() : null;
@@ -7547,6 +7559,11 @@
       { id: 'open', label: t('Abrir arquivo...'), key: 'Ctrl+O', icon: 'file-text', action: doOpen },
       { id: 'openFolder', label: t('Abrir pasta...'), key: 'Ctrl+Shift+O', icon: 'folder-open', action: doOpenFolder },
       { id: 'new', label: t('Nova nota'), key: 'Ctrl+N', icon: 'plus', action: newTab },
+      { id: 'notaDiaria', label: t('Abrir a nota de hoje'), icon: 'clock', action: abreNotaDeHoje },
+      { id: 'notaUnica', label: t('Nova nota única (nome com data e hora)'), icon: 'plus', action: novaNotaUnica },
+      { id: 'modelo', label: t('Inserir modelo...'), icon: 'file-text', enabled: !!unlocked, action: insereModelo },
+      { id: 'aleatoria', label: t('Abrir uma nota aleatória'), icon: 'file-text', action: abreNotaAleatoria },
+      { id: 'extrair', label: t('Extrair a seleção para uma nota nova'), icon: 'file-text', enabled: !!unlocked, action: extraiSelecao },
       { id: 'save', label: t('Salvar'), key: 'Ctrl+S', icon: 'save', enabled: !!unlocked, action: function () { saveTab(); } },
       { id: 'saveAs', label: t('Salvar como...'), key: 'Ctrl+Shift+S', icon: 'save', enabled: !!tab, action: function () { saveTab(activeTab(), true); } },
       { id: 'close', label: t('Fechar aba'), key: 'Ctrl+W', icon: 'x', enabled: !!tab, action: function () { closeTab(app.activeId); } },
@@ -7808,6 +7825,18 @@
     s.onchange = function () { set(s.value); };
     ctl.appendChild(s);
     return s;
+  }
+
+  function setTexto(ctl, get, set, exemplo) {
+    var i = document.createElement('input');
+    i.type = 'text';
+    i.className = 'set-texto';
+    i.spellcheck = false;
+    i.value = String(get() || '');
+    if (exemplo) i.placeholder = exemplo;
+    i.onchange = function () { set(i.value.trim()); };
+    ctl.appendChild(i);
+    return i;
   }
 
   function setRange(ctl, min, max, step, sufixo, get, set) {
@@ -8229,6 +8258,23 @@
     setToggle(setLinha(pai, t('Carregar imagens da internet'), t('Desligado, so imagens do proprio disco aparecem. Mais privado.')),
       function () { return settings.loadRemoteImages; },
       function (v) { settings.loadRemoteImages = v; renderViews(); persist(); });
+
+    setSecao(pai, t('Notas novas'));
+    setTexto(setLinha(pai, t('Pasta da nota diaria'), t('Dentro da pasta aberta; vazio e a propria pasta.')),
+      function () { return settings.notaDiariaPasta || ''; },
+      function (v) { settings.notaDiariaPasta = v; persist(); }, 'Diario');
+    setTexto(setLinha(pai, t('Nome da nota diaria'), t('YYYY ano, MM mes, DD dia, dddd dia da semana; texto entre colchetes fica como esta.')),
+      function () { return settings.notaDiariaFormato || 'YYYY-MM-DD'; },
+      function (v) { settings.notaDiariaFormato = v || 'YYYY-MM-DD'; persist(); }, 'YYYY-MM-DD');
+    setTexto(setLinha(pai, t('Modelo da nota diaria'), t('Arquivo dentro da pasta aberta, por exemplo Modelos/Diaria.md. Vazio, a nota nasce em branco.')),
+      function () { return settings.notaDiariaModelo || ''; },
+      function (v) { settings.notaDiariaModelo = v; persist(); }, 'Modelos/Diaria.md');
+    setTexto(setLinha(pai, t('Pasta dos modelos'), t('De onde o "Inserir modelo" lista os arquivos. Aceita {{title}}, {{date}} e {{time}}.')),
+      function () { return settings.modelosPasta || 'Modelos'; },
+      function (v) { settings.modelosPasta = v || 'Modelos'; persist(); }, 'Modelos');
+    setTexto(setLinha(pai, t('Pasta da nota unica'), t('Onde nasce a nota com nome de data e hora (YYYYMMDDHHmm).')),
+      function () { return settings.notaUnicaPasta || ''; },
+      function (v) { settings.notaUnicaPasta = v; persist(); }, '');
 
     setSecao(pai, t('Windows'));
     var assoc = setLinha(pai, t('Arquivos .md'),
@@ -10494,6 +10540,10 @@
       textoColado: textoColado,
       alternaComentario: function () { toggleComment(); return true; },
       colaImagens: colaImagens,
+      rodape: function (el) {
+        var tab = ed && ed.aba;
+        if (tab && settings.showBacklinks !== false) renderBacklinks(el, tab);
+      },
       sugestoes: [fonteSugestoes, fonteTags, fonteComandosBarra]
     });
     ed.aba = null;
@@ -10504,6 +10554,152 @@
     ed.view.dom.addEventListener('contextmenu', function (e) {
       e.preventDefault();
       menuDoEditor(e.clientX, e.clientY);
+    });
+  }
+
+  // ======================================= nota do dia, nota unica, modelos
+  //
+  // Os plugins centrais do Obsidian que fazem sentido sem cofre, relativos a
+  // pasta aberta: nota diaria, nota unica (nome com data e hora), modelos com
+  // {{title}}, {{date}} e {{time}} (com formato: {{date:DD/MM/YYYY}}), nota
+  // aleatoria e extrair a selecao para uma nota nova (o trecho vira [[link]]).
+
+  function formataData(fmt, d) {
+    d = d || new Date();
+    var p2 = function (n) { return (n < 10 ? '0' : '') + n; };
+    var idioma = (window.MarkPadI18n && window.MarkPadI18n.atual && window.MarkPadI18n.atual()) || 'pt-BR';
+    var nomeDe = function (o) { try { return new Intl.DateTimeFormat(idioma, o).format(d); } catch (e) { return ''; } };
+    var mapa = {
+      YYYY: d.getFullYear(), YY: String(d.getFullYear()).slice(2),
+      MMMM: nomeDe({ month: 'long' }), MMM: nomeDe({ month: 'short' }).replace(/\.$/, ''),
+      MM: p2(d.getMonth() + 1), M: d.getMonth() + 1, DD: p2(d.getDate()), D: d.getDate(),
+      dddd: nomeDe({ weekday: 'long' }), ddd: nomeDe({ weekday: 'short' }).replace(/\.$/, ''),
+      HH: p2(d.getHours()), H: d.getHours(), mm: p2(d.getMinutes()), ss: p2(d.getSeconds())
+    };
+    return String(fmt).replace(/\[([^\]]*)\]|YYYY|YY|MMMM|MMM|MM|M|DD|D|dddd|ddd|HH|H|mm|ss/g, function (m, literal) {
+      return literal !== undefined ? literal : String(mapa[m]);
+    });
+  }
+
+  function aplicaModelo(texto, titulo) {
+    var agora = new Date();
+    return String(texto)
+      .replace(/\{\{\s*title\s*\}\}/gi, titulo)
+      .replace(/\{\{\s*date(?::([^}]*))?\s*\}\}/gi, function (_, f) { return formataData(f ? f.trim() : 'YYYY-MM-DD', agora); })
+      .replace(/\{\{\s*time(?::([^}]*))?\s*\}\}/gi, function (_, f) { return formataData(f ? f.trim() : 'HH:mm', agora); });
+  }
+
+  function caminhoNaPasta(rel) {
+    var raiz = String(app.folder || '').replace(/[\\/]+$/, '');
+    var r = String(rel || '').replace(/^[\\/]+|[\\/]+$/g, '').replace(/\//g, '\\');
+    return r ? raiz + '\\' + r : raiz;
+  }
+
+  function precisaDePasta() {
+    if (app.folder) return true;
+    toast(t('Abra uma pasta antes (Ctrl+Shift+O): a nota nova fica nela.'), 'warn', 3200);
+    return false;
+  }
+
+  function conteudoDoModelo(rel, titulo) {
+    if (!rel) return Promise.resolve('');
+    var caminho = caminhoNaPasta(rel);
+    if (!/\.(md|markdown|txt)$/i.test(caminho)) caminho += '.md';
+    return bridge.call('readFile', { path: caminho })
+      .then(function (d) { return aplicaModelo(d.content || '', titulo); })
+      .catch(function () { toast(t('Modelo nao encontrado: ') + rel, 'warn', 3000); return ''; });
+  }
+
+  /** Cria (ou so abre, se ja existe) e deixa a nota nova destravada. */
+  function criaEAbre(dir, nome, conteudo) {
+    return bridge.call('createNote', { dir: dir, name: nome, content: conteudo || '' }).then(function (r) {
+      return openPath(r.path).then(function (tab) {
+        if (tab && !r.exists) {
+          setLocked(tab, false, true);
+          app.linksEm = 0;
+          refreshTree();
+        }
+        return tab;
+      });
+    }).catch(function (err) {
+      toast(t('Nao consegui criar a nota: ') + ((err && err.message) || err), 'error', 4000);
+    });
+  }
+
+  function abreNotaDeHoje() {
+    if (!precisaDePasta()) return;
+    var nome = formataData(settings.notaDiariaFormato || 'YYYY-MM-DD');
+    var dir = caminhoNaPasta(settings.notaDiariaPasta);
+    var caminho = dir + '\\' + nome + '.md';
+    var aberta = tabByPath(caminho);
+    if (aberta) { selectTab(aberta.id); return; }
+    bridge.call('pathInfo', { path: caminho }).then(function (info) {
+      if (info && info.exists) return openPath(caminho);
+      return conteudoDoModelo(settings.notaDiariaModelo, nome).then(function (txt) {
+        return criaEAbre(dir, nome + '.md', txt);
+      });
+    }).catch(function (err) { toast(t('Nao consegui criar a nota: ') + ((err && err.message) || err), 'error', 4000); });
+  }
+
+  function novaNotaUnica() {
+    if (!precisaDePasta()) return;
+    var nome = formataData(settings.notaUnicaFormato || 'YYYYMMDDHHmm');
+    criaEAbre(caminhoNaPasta(settings.notaUnicaPasta), nome + '.md', '');
+  }
+
+  function editorDaAba(msg) {
+    var tab = activeTab();
+    if (tab && !tab.locked && ed && ed.aba === tab) return tab;
+    toast(msg || t('Destrave a nota (Ctrl+E) para editar.'), 'warn', 2400);
+    return null;
+  }
+
+  function insereModelo() {
+    var tab = editorDaAba(t('Destrave a nota (Ctrl+E) para inserir um modelo.'));
+    if (!tab || !precisaDePasta()) return;
+    var pasta = caminhoNaPasta(settings.modelosPasta || 'Modelos').toLowerCase() + '\\';
+    openSwitcher({
+      dica: t('Escolha o modelo'),
+      vazio: t('Nenhum modelo na pasta {pasta}.', { pasta: settings.modelosPasta || 'Modelos' }),
+      filtro: function (f) { return f.markdown && String(f.path).toLowerCase().indexOf(pasta) === 0; },
+      escolhe: function (f) {
+        bridge.call('readFile', { path: f.path }).then(function (d) {
+          if (ed.aba !== tab) return;
+          ed.trocaSelecao(aplicaModelo(d.content || '', semExtensao(tab.name)));
+          ed.foco();
+        }).catch(function (err) { toast(t('Nao consegui ler o modelo: ') + ((err && err.message) || err), 'error', 4000); });
+      }
+    });
+  }
+
+  function abreNotaAleatoria() {
+    if (!precisaDePasta()) return;
+    fileIndex().then(function (arquivos) {
+      var atual = activeTab() && activeTab().path;
+      var notas = arquivos.filter(function (f) { return f.markdown && !mesmoArquivo(f.path, atual); });
+      if (!notas.length) { toast(t('Nenhuma outra nota na pasta.'), '', 1800); return; }
+      openPath(notas[Math.floor(Math.random() * notas.length)].path);
+    });
+  }
+
+  function extraiSelecao() {
+    var tab = editorDaAba();
+    if (!tab) return;
+    var sel = ed.textoSelecionado();
+    if (!sel.trim()) { toast(t('Selecione o trecho que vai virar nota.'), 'warn', 2000); return; }
+    var dir = tab.path ? tab.path.replace(/[\\/][^\\/]*$/, '') : app.folder;
+    if (!dir) { precisaDePasta(); return; }
+    var sugestao = sel.trim().split('\n')[0].replace(/^#+\s*/, '').replace(/[\\/:*?"<>|#^\[\]]/g, '').slice(0, 60).trim();
+    promptDialog(t('Extrair para uma nota nova'), t('Nome da nota nova (fica na mesma pasta desta):'), { value: sugestao }).then(function (nome) {
+      if (!nome) return;
+      nome = nome.trim().replace(/\.md$/i, '');
+      bridge.call('createNote', { dir: dir, name: nome + '.md', content: sel }).then(function (r) {
+        if (r.exists) { toast(t('Ja existe uma nota com esse nome nesta pasta.'), 'warn', 2600); return; }
+        if (ed.aba === tab) ed.trocaSelecao('[[' + nome + ']]');
+        app.linksEm = 0;
+        refreshTree();
+        toast(t('Trecho extraido para {nome}.', { nome: nome }), 'ok', 2200);
+      }).catch(function (err) { toast(t('Nao consegui criar a nota: ') + ((err && err.message) || err), 'error', 4000); });
     });
   }
 

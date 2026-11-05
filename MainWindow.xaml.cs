@@ -661,6 +661,9 @@ public partial class MainWindow : Window
             case "writeHtml":
                 return WriteHtmlFile(Str(args, "path"), Str(args, "content"));
 
+            case "createNote":
+                return CreateNote(Str(args, "dir"), Str(args, "name"), Str(args, "content"));
+
             case "saveAttachment":
                 return SaveAttachment(Str(args, "notePath"), Str(args, "name"), Str(args, "data"));
 
@@ -2430,6 +2433,36 @@ public partial class MainWindow : Window
         }
         File.Move(temp, target);
         return new { path = target, name = Path.GetFileName(target), copied = true };
+    }
+
+    /*
+     * Nota nova sem dialogo (nota diaria, nota unica, extrair selecao): so
+     * CRIA. Arquivo que ja existe nao e tocado - volta { exists = true } e a
+     * pagina abre o que esta la. So .md ou .txt, numa pasta que existe.
+     */
+    private object CreateNote(string dir, string name, string content)
+    {
+        var folder = Path.GetFullPath(dir);
+        if (!Directory.Exists(folder)) Directory.CreateDirectory(folder);
+        var clean = GuardFileName(name);
+        var ext = Path.GetExtension(clean);
+        if (ext.Length == 0) { clean += ".md"; ext = ".md"; }
+        if (!ext.Equals(".md", StringComparison.OrdinalIgnoreCase) && !ext.Equals(".txt", StringComparison.OrdinalIgnoreCase))
+            throw new UnauthorizedAccessException("nota nova so pode ser .md ou .txt.");
+        var target = Path.Combine(folder, clean);
+        if (File.Exists(target))
+            return new { path = target, exists = true };
+
+        var temp = Path.Combine(folder, "." + clean + ".markpad-tmp");
+        var bytes = new UTF8Encoding(false).GetBytes(content ?? "");
+        using (var fs = new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+        {
+            fs.Write(bytes, 0, bytes.Length);
+            fs.Flush(true);
+        }
+        File.Move(temp, target);
+        _writablePaths.Add(target);
+        return new { path = target, exists = false };
     }
 
     private object CopyAttachment(string notePath, string source)

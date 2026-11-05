@@ -690,6 +690,36 @@
     ignoreEvent() { return true; }
   }
 
+  // Rodape do ao vivo: as mencoes (backlinks) no fim da nota, como no leitor.
+  // O app desenha; versao nova (efAtualizaRodape) troca o widget.
+  var efAtualizaRodape = S.StateEffect.define();
+  class Rodape extends WidgetType {
+    constructor(ctx, versao) { super(); this.ctx = ctx; this.versao = versao; }
+    eq(o) { return o.versao === this.versao; }
+    get estimatedHeight() { return 80; }
+    toDOM() {
+      var el = document.createElement('div');
+      el.className = 'cm-rodape markdown-preview';
+      try { if (this.ctx.rodape) this.ctx.rodape(el); } catch (err) { el.textContent = ''; }
+      return el;
+    }
+    ignoreEvent() { return true; }
+  }
+  function campoRodape(ctx) {
+    var versao = 0;
+    function monta(state) {
+      return Decoration.set([Decoration.widget({ widget: new Rodape(ctx, versao), block: true, side: 1 }).range(state.doc.length)]);
+    }
+    return S.StateField.define({
+      create: function (state) { return monta(state); },
+      update: function (v, tr) {
+        if (tr.effects.some(function (ef) { return ef.is(efAtualizaRodape); })) { versao++; return monta(tr.state); }
+        return tr.docChanged ? monta(tr.state) : v;
+      },
+      provide: function (f) { return EditorView.decorations.from(f); }
+    });
+  }
+
   // Deslocamento do inicio do texto da celula n (0-based) numa linha de tabela.
   function posDaCelula(txt, n) {
     var p = 0;
@@ -1404,6 +1434,7 @@
       t: op.t || function (s) { return s; },
       renderTrecho: op.renderTrecho || function (el, src) { el.textContent = src; },
       wikiExiste: op.wikiExiste || null,
+      rodape: op.rodape || null,
       podeEditar: function () { return !view || !view.state.readOnly; },
       travado: op.travado || null
     };
@@ -1420,11 +1451,12 @@
     var pluginVivo = pluginDecoracoes(ctx, true);
     var pluginFonte = pluginDecoracoes(ctx, false);
     var blocos = campoBlocos(ctx);
+    var rodape = op.rodape ? campoRodape(ctx) : [];
 
     function extModo() {
       if (conf.modo === 'vivo') {
         return [
-          pluginVivo, blocos, intervalosAtomicos(pluginVivo), linhasStatus,
+          pluginVivo, blocos, rodape, intervalosAtomicos(pluginVivo), linhasStatus,
           EditorView.lineWrapping,
           EditorView.editorAttributes.of({ class: 'cm-modo-vivo' })
         ];
@@ -1813,8 +1845,8 @@
         view.dispatch({ effects: efStatus.of(arr || []) });
       },
 
-      /** Redesenha as decoracoes (o indice da pasta mudou, por exemplo). */
-      atualiza: function () { view.dispatch({ effects: efAtualiza.of(null) }); },
+      /** Redesenha as decoracoes (o indice da pasta mudou, por exemplo) e o rodape. */
+      atualiza: function () { view.dispatch({ effects: [efAtualiza.of(null), efAtualizaRodape.of(null)] }); },
 
       coordsDoCursor: function () { return view.coordsAtPos(view.state.selection.main.head); },
 
