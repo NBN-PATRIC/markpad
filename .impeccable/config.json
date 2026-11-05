@@ -11,6 +11,16 @@
         ],
         "createdAt": "2026-08-31T10:32:18.736Z",
         "reason": "Convencao do dominio: MarkPad emula o Obsidian, onde borda lateral e a linguagem estabelecida — embed usa a mesma borda de 2px do proprio Obsidian (--embed-border-left), callouts codificam o tipo pela cor da borda, blockquote segue o markdown universal, toasts/faixa usam a borda como sinal de severidade (error/warn/ok); tudo design ja lancado na v1.2.0, anterior a esta sessao"
+      },
+      {
+        "rule": "layout-transition",
+        "value": "margin-right",
+        "createdAt": "2026-11-05T07:34:34.720Z"
+      },
+      {
+        "rule": "layout-transition",
+        "value": "margin-left",
+        "createdAt": "2026-11-05T07:34:35.993Z"
       }
     ]
   }
