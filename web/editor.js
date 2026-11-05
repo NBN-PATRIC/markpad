@@ -761,6 +761,22 @@
     return c;
   }
 
+  // Mede texto com a fonte do conteudo do editor (cache por fonte).
+  var medidorCache = { fonte: null, fn: null };
+  function medidor(view) {
+    var cs = getComputedStyle(view.contentDOM);
+    var fonte = cs.fontStyle + ' ' + cs.fontWeight + ' ' + cs.fontSize + ' ' + cs.fontFamily;
+    if (medidorCache.fonte === fonte && medidorCache.fn) return medidorCache.fn;
+    var cv = document.createElement('canvas').getContext('2d');
+    cv.font = fonte;
+    var tab = cv.measureText('    ').width;
+    var fn = function (txt) { return txt ? cv.measureText(String(txt).replace(/\t/g, '    ')).width : 0; };
+    fn.em = parseFloat(cs.fontSize) || 16;
+    void tab;
+    medidorCache = { fonte: fonte, fn: fn };
+    return fn;
+  }
+
   // Constroi as decoracoes da area visivel. vivo=false: so as de linha.
   function montaDecoracoes(view, ctx, vivo) {
     var state = view.state;
@@ -903,8 +919,20 @@
               var estadoTarefa = tm ? doc.sliceString(tm.from + 1, tm.from + 2) : '';
               if (/^[xX]$/.test(estadoTarefa)) linhaClasse(lLi.from, 'cm-tarefa-feita');
               else if (/^[-~]$/.test(estadoTarefa)) linhaClasse(lLi.from, 'cm-tarefa-cancelada');
-              var w = vivo ? (recuo * 0.32 + (tm ? 1.6 : (doc.sliceString(mk.from, mk.to).length > 1 ? tamMarca * 0.55 : 1.2))) : 0;
-              linhaClasse(lLi.from, 'cm-linha-lista', vivo ? { style: 'padding-left:' + w.toFixed(2) + 'em;text-indent:-' + w.toFixed(2) + 'em' } : null);
+              // Recuo pendurado: a linha que quebra comeca onde comeca o texto
+              // do item. Medido com a fonte do editor (o recuo em espacos e o
+              // numero sao texto; a bala e a caixa tem largura fixa).
+              var w = 0;
+              if (vivo) {
+                var mede = medidor(view);
+                var marcaTxt = doc.sliceString(mk.from, mk.to);
+                w = mede(doc.sliceString(lLi.from, mk.from)) +
+                  (tm && /^\d/.test(marcaTxt) ? mede(marcaTxt + ' ') + mede.em * 1.6
+                    : tm ? mede.em * 1.6
+                    : /^\d/.test(marcaTxt) ? mede(marcaTxt + ' ')
+                    : mede.em * 1.2);
+              }
+              linhaClasse(lLi.from, 'cm-linha-lista', vivo ? { style: 'padding-left:' + w.toFixed(1) + 'px;text-indent:-' + w.toFixed(1) + 'px' } : null);
               if (!vivo) return;
               var ordenada = /^\d/.test(doc.sliceString(mk.from, mk.to));
               if (tm && tm.from === mk.to + 1) {
