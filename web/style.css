@@ -290,7 +290,35 @@ body.sidebar-hidden .sidebar {
   transition: margin-left var(--anim-moderate) var(--anim-ease),
               visibility 0s linear var(--anim-moderate);
 }
-body.sidebar-hidden .sidebar-resizer { display: none; }
+body.sidebar-hidden .sidebar-resizer:not(.is-direita) { display: none; }
+
+/* barra da direita: o espelho da esquerda (faixa de icones na borda de fora) */
+.sidebar.sidebar-direita {
+  width: var(--sidebar-direita-width, 260px);
+  transition: margin-right var(--anim-moderate) var(--anim-ease);
+}
+.sidebar-direita .sidebar-body { padding-right: 0; padding-left: 4px; }
+body.sidebar-direita-hidden .sidebar-direita,
+body.sem-direita .sidebar-direita {
+  margin-right: calc(-1 * var(--sidebar-direita-width, 260px));
+  visibility: hidden;
+  transition: margin-right var(--anim-moderate) var(--anim-ease),
+              visibility 0s linear var(--anim-moderate);
+}
+body.sidebar-direita-hidden .sidebar-resizer.is-direita,
+body.sem-direita .sidebar-resizer.is-direita { display: none; }
+body:not(.sidebar-direita-hidden):not(.sem-direita) .main {
+  border-right: 1px solid var(--background-modifier-border);
+  border-top-right-radius: var(--radius-m);
+}
+/* sem painel nenhum na esquerda, a barra some como se estivesse fechada */
+body.sem-esquerda .sidebar:not(.sidebar-direita) { display: none; }
+body.sem-esquerda .sidebar-resizer:not(.is-direita) { display: none; }
+
+/* grafo local */
+.graph-box { position: relative; flex: 1; min-height: 0; }
+.graph-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; cursor: grab; }
+.graph-empty { position: absolute; inset: auto 0 0 0; margin: 0; }
 body.sidebar-hidden .main { border-left: none; border-radius: var(--radius-m) var(--radius-m) 0 0; }
 
 /* =============================================================== abas */

@@ -17,6 +17,7 @@
     <div class="tab-list" id="tabList"></div>
     <button class="icon-btn tab-bar-btn" id="btnNewTab" data-icon="plus" title="Nova nota (Ctrl+N)"></button>
     <div class="tab-bar-spacer"></div>
+    <button class="icon-btn tab-bar-btn" id="btnToggleSidebarDireita" data-icon="panel-right" title="Painel da direita (Ctrl+Shift+\)"></button>
     <button class="icon-btn tab-bar-btn" id="btnCommandPalette" data-icon="command" title="Paleta de comandos (Ctrl+Shift+P)"></button>
   </div>
 
@@ -29,16 +30,17 @@
   <div class="workspace">
 
     <aside class="sidebar" id="sidebar">
-      <div class="sidebar-tabs">
+      <div class="sidebar-tabs" id="sidebarTabsEsquerda">
         <button class="sidebar-tab is-active" data-pane="files" data-icon="folder" title="Arquivos"></button>
         <button class="sidebar-tab" data-pane="search" data-icon="search" title="Buscar na pasta (Ctrl+Shift+F)"></button>
         <button class="sidebar-tab" data-pane="outline" data-icon="list" title="Sumario"></button>
         <button class="sidebar-tab" data-pane="tags" data-icon="hash" title="Tags"></button>
         <button class="sidebar-tab" data-pane="recent" data-icon="clock" title="Recentes"></button>
         <button class="sidebar-tab" data-pane="bookmarks" data-icon="bookmark" title="Marcadores"></button>
+        <button class="sidebar-tab" data-pane="graph" data-icon="graph" title="Grafo local"></button>
       </div>
 
-      <div class="sidebar-body">
+      <div class="sidebar-body" id="sidebarBodyEsquerda">
 
         <section class="pane" data-pane="files">
           <header class="pane-head">
@@ -122,6 +124,19 @@
           </header>
           <div class="pane-scroll">
             <div class="bookmark-list" id="bookmarkList" role="tree"></div>
+          </div>
+        </section>
+
+        <section class="pane" data-pane="graph" hidden>
+          <header class="pane-head">
+            <span class="pane-title">Grafo local</span>
+            <button class="chip" id="btnGrafoProfundidade" title="Profundidade: 1 = vizinhos diretos, 2 = vizinhos dos vizinhos">1</button>
+            <button class="icon-btn small is-on" id="btnGrafoQuebrados" data-icon="link" title="Mostrar links para notas que não existem"></button>
+            <button class="icon-btn small" id="btnGrafoCentro" data-icon="refresh" title="Voltar ao centro"></button>
+          </header>
+          <div class="graph-box">
+            <canvas class="graph-canvas" id="graphCanvas"></canvas>
+            <p class="pane-empty graph-empty" id="graphEmpty" hidden></p>
           </div>
         </section>
 
@@ -238,6 +253,14 @@
       </div>
 
     </main>
+
+    <!-- Barra da direita (Obsidian): os paineis sobre a nota aberta. Cada
+         painel muda de lado pelo clique direito no icone. -->
+    <div class="sidebar-resizer is-direita" id="sidebarResizerDireita"></div>
+    <aside class="sidebar sidebar-direita" id="sidebarDireita">
+      <div class="sidebar-body" id="sidebarBodyDireita"></div>
+      <div class="sidebar-tabs" id="sidebarTabsDireita"></div>
+    </aside>
   </div>
 
   <!-- ------------------------------------------------------ barra de status -->

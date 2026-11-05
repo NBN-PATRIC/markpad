@@ -6,6 +6,17 @@ Versionamento [SemVer](https://semver.org/lang/pt-BR/).
 ## [Não lançado]
 
 ### Adicionado
+- **Barra lateral da direita** (como a do Obsidian). Sumário, tags e o grafo
+  local passam a morar à direita; arquivos, busca, marcadores e recentes
+  ficam à esquerda. Qualquer painel muda de lado pelo clique direito no ícone
+  dele. Abre e fecha pelo botão no canto da barra de abas, por Ctrl+Shift+\
+  ou pela paleta, e a largura se ajusta arrastando a borda.
+- **Grafo local da nota** (painel novo, sem biblioteca externa): a nota aberta
+  no centro, quem ela cita e quem cita ela, em profundidade 1 ou 2, e os links
+  para notas que ainda não existem como pontos apagados (dá para esconder).
+  Passar o mouse destaca os vizinhos; clique abre a nota como um link
+  (Ctrl+clique em aba nova); arrastar move um ponto ou a vista, e a roda
+  aproxima. Conta com o texto não salvo da aba.
 - **Monitorar (tail -f)**, do Notepad++: no menu da aba, no menu ⋯ e na
   paleta, ou `MarkPad.exe arquivo.log --monitorar` na linha de comando. A aba
   fica travada, recarrega a cada mudança e vai para o fim, com um olho verde

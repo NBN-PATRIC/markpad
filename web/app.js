@@ -1913,6 +1913,7 @@
     renderStatus();
     renderOutline();
     markTreeActive();
+    renderGrafo();
   }
 
   function renderTabs() {
@@ -5086,7 +5087,6 @@
       toast(t('Fica fora da pasta aberta.'), '', 2200);
       return;
     }
-    if (!settings.sidebarVisible) toggleSidebar(true);
     setPane('files');
     if (app.treeFilter) toggleTreeFilter(false);
 
@@ -5202,19 +5202,373 @@
     });
   }
 
-  function setPane(name) {
-    settings.sidebarPane = name;
-    var tabs = document.querySelectorAll('.sidebar-tab');
-    for (var i = 0; i < tabs.length; i++) {
-      tabs[i].classList.toggle('is-active', tabs[i].getAttribute('data-pane') === name);
+  /*
+   * Duas barras laterais, como no Obsidian: a da esquerda (navegar: arquivos,
+   * busca, marcadores, recentes) e a da direita (sobre a nota aberta:
+   * sumario, tags, grafo local). Cada painel mora num lado e muda de lado pelo
+   * clique direito no icone; cada lado tem o seu painel ativo.
+   */
+  var ORDEM_PAINEIS = ['files', 'search', 'bookmarks', 'recent', 'outline', 'tags', 'graph'];
+  var PADRAO_DIREITA = ['outline', 'tags', 'graph'];
+
+  function paineisDireita() {
+    return Array.isArray(settings.paineisDireita) ? settings.paineisDireita : PADRAO_DIREITA;
+  }
+
+  function ladoDe(id) { return paineisDireita().indexOf(id) !== -1 ? 'direita' : 'esquerda'; }
+
+  function paineisDoLado(lado) {
+    return ORDEM_PAINEIS.filter(function (id) {
+      return ladoDe(id) === lado && document.querySelector('section.pane[data-pane="' + id + '"]');
+    });
+  }
+
+  function distribuiPaineis() {
+    ORDEM_PAINEIS.forEach(function (id) {
+      var bt = document.querySelector('.sidebar-tab[data-pane="' + id + '"]');
+      var sec = document.querySelector('section.pane[data-pane="' + id + '"]');
+      if (!bt || !sec) return;
+      var direita = ladoDe(id) === 'direita';
+      $(direita ? 'sidebarTabsDireita' : 'sidebarTabsEsquerda').appendChild(bt);
+      $(direita ? 'sidebarBodyDireita' : 'sidebarBodyEsquerda').appendChild(sec);
+    });
+    var esq = paineisDoLado('esquerda'), dir = paineisDoLado('direita');
+    document.body.classList.toggle('sem-esquerda', !esq.length);
+    document.body.classList.toggle('sem-direita', !dir.length);
+    if (esq.indexOf(settings.sidebarPane) === -1) settings.sidebarPane = esq[0] || null;
+    if (dir.indexOf(settings.sidebarPaneDireita) === -1) settings.sidebarPaneDireita = dir[0] || null;
+    ativaNoLado('esquerda', settings.sidebarPane);
+    ativaNoLado('direita', settings.sidebarPaneDireita);
+  }
+
+  function ativaNoLado(lado, name) {
+    var aside = $(lado === 'direita' ? 'sidebarDireita' : 'sidebar');
+    if (!aside) return;
+    var tabs = aside.querySelectorAll('.sidebar-tab');
+    for (var i = 0; i < tabs.length; i++) tabs[i].classList.toggle('is-active', tabs[i].getAttribute('data-pane') === name);
+    var panes = aside.querySelectorAll('section.pane');
+    for (var j = 0; j < panes.length; j++) panes[j].hidden = panes[j].getAttribute('data-pane') !== name;
+  }
+
+  /** Mostra o painel no lado dele (abrindo a barra, se estava fechada). */
+  function setPane(name, semMostrar) {
+    var lado = ladoDe(name);
+    if (lado === 'direita') {
+      settings.sidebarPaneDireita = name;
+      if (!semMostrar && settings.sidebarDireitaVisivel === false) toggleSidebarDireita(true);
+    } else {
+      settings.sidebarPane = name;
+      if (!semMostrar && !settings.sidebarVisible) toggleSidebar(true);
     }
-    var panes = document.querySelectorAll('.pane');
-    for (var j = 0; j < panes.length; j++) {
-      panes[j].hidden = panes[j].getAttribute('data-pane') !== name;
-    }
+    ativaNoLado(lado, name);
     if (name === 'tags') renderTags();
     if (name === 'bookmarks') renderMarcadores();
+    if (name === 'graph') renderGrafo(true);
     persist();
+  }
+
+  function moveDeLado(id) {
+    var dir = paineisDireita().slice();
+    var i = dir.indexOf(id);
+    if (i === -1) dir.push(id); else dir.splice(i, 1);
+    settings.paineisDireita = dir;
+    distribuiPaineis();
+    setPane(id);
+  }
+
+  function toggleSidebarDireita(force) {
+    var visivel = settings.sidebarDireitaVisivel !== false;
+    settings.sidebarDireitaVisivel = force === undefined ? !visivel : force;
+    document.body.classList.toggle('sidebar-direita-hidden', !settings.sidebarDireitaVisivel);
+    if (settings.sidebarDireitaVisivel && settings.sidebarPaneDireita === 'graph') renderGrafo(true);
+    persist();
+  }
+
+  // ============================================================ grafo local
+  //
+  // O grafo local do Obsidian, em Canvas 2D proprio (sem biblioteca): a nota
+  // aberta no centro, quem ela cita e quem cita ela (profundidade 1 ou 2), e
+  // os links quebrados como pontos apagados. Arrastar move um no, arrastar o
+  // fundo move a vista, a roda aproxima, clique abre a nota como um link.
+
+  var grafo = { de: null, nos: [], arestas: [], cam: { x: 0, y: 0, z: 1 }, quente: 0, raf: null,
+    sobre: null, arrasto: null, profundidade: 1, quebrados: true };
+
+  function grafoVisivel() {
+    var sec = document.querySelector('section.pane[data-pane="graph"]');
+    if (!sec || sec.hidden) return false;
+    var lado = ladoDe('graph');
+    if (lado === 'direita') return settings.sidebarDireitaVisivel !== false && !document.body.classList.contains('sem-direita');
+    return !!settings.sidebarVisible;
+  }
+
+  function renderGrafo(forcar) {
+    if (!grafoVisivel()) return;
+    var tab = activeTab();
+    var chaveAtual = (tab && tab.path ? tab.path.toLowerCase() : '') + '|' + grafo.profundidade + '|' + grafo.quebrados;
+    if (!forcar && chaveAtual === grafo.de) return;
+    grafo.de = chaveAtual;
+    var aviso = $('graphEmpty');
+    if (!tab || !tab.path || !app.folder) {
+      montaGrafo([], []);
+      aviso.hidden = false;
+      aviso.textContent = t('Abra uma nota de uma pasta para ver as ligações dela.');
+      return;
+    }
+    indiceLinks().then(function (idx) {
+      if (activeTab() !== tab) return;
+      var LI = window.MarkPadLinkIndex;
+      var arq = idx && LI.arquivoDe(idx, tab.path);
+      if (!idx || !arq) {
+        montaGrafo([], []);
+        aviso.hidden = false;
+        aviso.textContent = t('Esta nota está fora da pasta aberta.');
+        return;
+      }
+      var nos = {}, arestas = [], vistas = {};
+      function no(a, nivel) {
+        var k = a.rel.toLowerCase();
+        if (!nos[k]) nos[k] = { id: k, nome: semExtensao(a.name), path: a.path, existe: true, nivel: nivel, grau: 0 };
+        else nos[k].nivel = Math.min(nos[k].nivel, nivel);
+        return nos[k];
+      }
+      function quebrado(alvo, nivel) {
+        var k = 'q:' + String(alvo).toLowerCase();
+        if (!nos[k]) nos[k] = { id: k, nome: String(alvo).split('/').pop(), path: null, existe: false, nivel: nivel, grau: 0 };
+        return nos[k];
+      }
+      function liga(a, b) {
+        if (a === b) return;
+        var k = a.id < b.id ? a.id + '>' + b.id : b.id + '>' + a.id;
+        if (vistas[k]) return;
+        vistas[k] = 1;
+        arestas.push({ a: a, b: b });
+        a.grau++; b.grau++;
+      }
+      // As saidas da nota aberta vem do texto da aba (salvo ou nao).
+      function saidasDe(a) {
+        if (a === arq) return LI.saidas(idx, tab.content, arq.rel);
+        return (a.saidas || []).map(function (x) { return { alvo: x.link.alvo, para: x.para }; });
+      }
+      var fila = [[arq, 0]], feitos = {};
+      no(arq, 0);
+      while (fila.length) {
+        var par = fila.shift(), a = par[0], nivel = par[1];
+        if (feitos[a.rel.toLowerCase()]) continue;
+        feitos[a.rel.toLowerCase()] = 1;
+        if (nivel >= grafo.profundidade) continue;
+        var origem = no(a, nivel);
+        saidasDe(a).forEach(function (x) {
+          if (!x.alvo) return;
+          if (x.para) { liga(origem, no(x.para, nivel + 1)); fila.push([x.para, nivel + 1]); }
+          else if (grafo.quebrados) liga(origem, quebrado(x.alvo, nivel + 1));
+        });
+        (idx.entradas[a.rel.toLowerCase()] || []).forEach(function (e) {
+          liga(no(e.de, nivel + 1), origem);
+          fila.push([e.de, nivel + 1]);
+        });
+      }
+      var lista = Object.keys(nos).map(function (k) { return nos[k]; });
+      aviso.hidden = lista.length > 1;
+      aviso.textContent = t('Nenhuma ligação: esta nota não cita nem é citada por outra.');
+      montaGrafo(lista, arestas, nos[arq.rel.toLowerCase()]);
+    });
+  }
+
+  function montaGrafo(nos, arestas, centro) {
+    var cv = $('graphCanvas');
+    var w = cv.clientWidth || 260, h = cv.clientHeight || 260;
+    // Posicao inicial em circulos por nivel, com o centro fixo no meio.
+    nos.forEach(function (n, i) {
+      var ang = (i / Math.max(1, nos.length)) * Math.PI * 2;
+      var raio = n === centro ? 0 : 60 + n.nivel * 55;
+      n.x = Math.cos(ang) * raio; n.y = Math.sin(ang) * raio;
+      n.vx = 0; n.vy = 0;
+      n.fixo = n === centro;
+    });
+    grafo.nos = nos;
+    grafo.arestas = arestas;
+    grafo.centro = centro || null;
+    grafo.cam = { x: w / 2, y: h / 2, z: 1 };
+    grafo.quente = 1;
+    animaGrafo();
+  }
+
+  function passoGrafo() {
+    var nos = grafo.nos, k = grafo.quente;
+    for (var i = 0; i < nos.length; i++) {
+      var a = nos[i];
+      for (var j = i + 1; j < nos.length; j++) {
+        var b = nos[j];
+        var dx = b.x - a.x, dy = b.y - a.y;
+        var d2 = dx * dx + dy * dy || 0.01;
+        var f = 1600 / d2;   // repulsao
+        var d = Math.sqrt(d2);
+        var fx = f * dx / d, fy = f * dy / d;
+        a.vx -= fx; a.vy -= fy; b.vx += fx; b.vy += fy;
+      }
+      a.vx -= a.x * 0.004; a.vy -= a.y * 0.004;   // gravidade para o centro
+    }
+    grafo.arestas.forEach(function (e) {
+      var dx = e.b.x - e.a.x, dy = e.b.y - e.a.y;
+      var d = Math.sqrt(dx * dx + dy * dy) || 0.01;
+      var f = (d - 70) * 0.03;   // mola
+      var fx = f * dx / d, fy = f * dy / d;
+      e.a.vx += fx; e.a.vy += fy; e.b.vx -= fx; e.b.vy -= fy;
+    });
+    nos.forEach(function (n) {
+      if (n.fixo || n === (grafo.arrasto && grafo.arrasto.no)) { n.vx = 0; n.vy = 0; return; }
+      n.vx *= 0.55; n.vy *= 0.55;
+      n.x += Math.max(-12, Math.min(12, n.vx * k));
+      n.y += Math.max(-12, Math.min(12, n.vy * k));
+    });
+    grafo.quente = Math.max(0, k - 0.012);
+  }
+
+  function animaGrafo() {
+    if (grafo.raf) return;
+    (function quadro() {
+      grafo.raf = null;
+      if (!grafoVisivel()) return;
+      if (grafo.quente > 0) passoGrafo();
+      desenhaGrafo();
+      if (grafo.quente > 0 || grafo.arrasto) grafo.raf = requestAnimationFrame(quadro);
+    })();
+  }
+
+  function corCss(nome, reserva) {
+    var v = getComputedStyle(document.body).getPropertyValue(nome).trim();
+    return v || reserva;
+  }
+
+  function desenhaGrafo() {
+    var cv = $('graphCanvas');
+    var dpr = window.devicePixelRatio || 1;
+    var w = cv.clientWidth, h = cv.clientHeight;
+    if (!w || !h) return;
+    if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) {
+      cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+    }
+    var c = cv.getContext('2d');
+    c.setTransform(dpr, 0, 0, dpr, 0, 0);
+    c.clearRect(0, 0, w, h);
+    var cam = grafo.cam;
+    var linha = corCss('--background-modifier-border', '#444');
+    var texto = corCss('--text-muted', '#999');
+    var normal = corCss('--text-faint', '#777');
+    var acento = corCss('--color-accent', '#8a5cf5');
+    var sobre = grafo.sobre;
+    var vizinhos = {};
+    if (sobre) grafo.arestas.forEach(function (e) {
+      if (e.a === sobre) vizinhos[e.b.id] = 1;
+      if (e.b === sobre) vizinhos[e.a.id] = 1;
+    });
+
+    c.lineWidth = 1;
+    grafo.arestas.forEach(function (e) {
+      var liga = sobre && (e.a === sobre || e.b === sobre);
+      c.strokeStyle = liga ? acento : linha;
+      c.globalAlpha = sobre && !liga ? 0.35 : 1;
+      c.beginPath();
+      c.moveTo(cam.x + e.a.x * cam.z, cam.y + e.a.y * cam.z);
+      c.lineTo(cam.x + e.b.x * cam.z, cam.y + e.b.y * cam.z);
+      c.stroke();
+    });
+    c.globalAlpha = 1;
+    c.font = '11px ' + (corCss('--font-interface', '') || 'system-ui, sans-serif');
+    c.textAlign = 'center';
+    c.textBaseline = 'top';
+    grafo.nos.forEach(function (n) {
+      var x = cam.x + n.x * cam.z, y = cam.y + n.y * cam.z;
+      var r = (n === grafo.centro ? 7 : 4 + Math.min(4, n.grau * 0.6)) * Math.max(0.6, Math.min(1.6, cam.z));
+      var apagado = sobre && n !== sobre && !vizinhos[n.id];
+      c.globalAlpha = apagado ? 0.3 : (n.existe ? 1 : 0.5);
+      c.fillStyle = n === grafo.centro || n === sobre ? acento : normal;
+      c.beginPath();
+      c.arc(x, y, r, 0, Math.PI * 2);
+      c.fill();
+      if (!n.existe) { c.strokeStyle = normal; c.stroke(); }
+      if (cam.z > 0.55 || n === sobre || n === grafo.centro) {
+        c.fillStyle = n === sobre ? corCss('--text-normal', '#ddd') : texto;
+        c.fillText(n.nome.length > 28 ? n.nome.slice(0, 27) + '…' : n.nome, x, y + r + 3);
+      }
+    });
+    c.globalAlpha = 1;
+  }
+
+  function noNoPonto(px, py) {
+    var cam = grafo.cam, achado = null, melhor = 14 * 14;
+    grafo.nos.forEach(function (n) {
+      var dx = cam.x + n.x * cam.z - px, dy = cam.y + n.y * cam.z - py;
+      var d = dx * dx + dy * dy;
+      if (d < melhor) { melhor = d; achado = n; }
+    });
+    return achado;
+  }
+
+  function ligaGrafo() {
+    var cv = $('graphCanvas');
+    function ponto(e) { var r = cv.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
+    cv.addEventListener('mousemove', function (e) {
+      var p = ponto(e);
+      if (grafo.arrasto) {
+        var a = grafo.arrasto;
+        a.moveu = a.moveu || Math.abs(p.x - a.px) + Math.abs(p.y - a.py) > 3;
+        if (a.no) { a.no.x = (p.x - grafo.cam.x) / grafo.cam.z; a.no.y = (p.y - grafo.cam.y) / grafo.cam.z; grafo.quente = Math.max(grafo.quente, 0.3); }
+        else { grafo.cam.x = a.cx + p.x - a.px; grafo.cam.y = a.cy + p.y - a.py; }
+        animaGrafo();
+        return;
+      }
+      var n = noNoPonto(p.x, p.y);
+      if (n !== grafo.sobre) {
+        grafo.sobre = n;
+        cv.style.cursor = n ? 'pointer' : 'grab';
+        cv.title = n ? (n.existe ? n.path : t('Nota que ainda não existe: {nome}', { nome: n.nome })) : '';
+        desenhaGrafo();
+      }
+    });
+    cv.addEventListener('mouseleave', function () { if (!grafo.arrasto) { grafo.sobre = null; desenhaGrafo(); } });
+    cv.addEventListener('mousedown', function (e) {
+      var p = ponto(e);
+      var n = noNoPonto(p.x, p.y);
+      grafo.arrasto = { no: n, px: p.x, py: p.y, cx: grafo.cam.x, cy: grafo.cam.y, moveu: false };
+      function solta(ev) {
+        document.removeEventListener('mouseup', solta);
+        var a = grafo.arrasto;
+        grafo.arrasto = null;
+        if (a && !a.moveu && a.no && a.no.existe && a.no !== grafo.centro) {
+          abreDestino(a.no.path, { origem: activeTab(), novaAba: ev.ctrlKey || ev.metaKey || ev.button === 1 });
+        }
+      }
+      document.addEventListener('mouseup', solta);
+    });
+    cv.addEventListener('wheel', function (e) {
+      e.preventDefault();
+      var p = ponto(e);
+      var z0 = grafo.cam.z;
+      var z = Math.max(0.3, Math.min(3, z0 * (e.deltaY < 0 ? 1.12 : 1 / 1.12)));
+      // Aproxima em torno do ponteiro.
+      grafo.cam.x = p.x - (p.x - grafo.cam.x) * (z / z0);
+      grafo.cam.y = p.y - (p.y - grafo.cam.y) * (z / z0);
+      grafo.cam.z = z;
+      desenhaGrafo();
+    }, { passive: false });
+    $('btnGrafoProfundidade').onclick = function () {
+      grafo.profundidade = grafo.profundidade === 1 ? 2 : 1;
+      $('btnGrafoProfundidade').textContent = String(grafo.profundidade);
+      renderGrafo(true);
+    };
+    $('btnGrafoQuebrados').onclick = function () {
+      grafo.quebrados = !grafo.quebrados;
+      $('btnGrafoQuebrados').classList.toggle('is-on', grafo.quebrados);
+      renderGrafo(true);
+    };
+    $('btnGrafoCentro').onclick = function () {
+      var cvw = $('graphCanvas');
+      grafo.cam = { x: cvw.clientWidth / 2, y: cvw.clientHeight / 2, z: 1 };
+      desenhaGrafo();
+    };
+    if (window.ResizeObserver) new ResizeObserver(function () { desenhaGrafo(); }).observe(cv);
   }
 
   // ================================================================= tags
@@ -5669,7 +6023,6 @@
   }
 
   function openFolderSearch(prefill) {
-    if (!settings.sidebarVisible) toggleSidebar(true);
     setPane('search');
     if (prefill !== undefined) $('folderSearchInput').value = prefill;
     $('folderSearchInput').focus();
@@ -6478,6 +6831,8 @@
       { id: 'zoomOut', label: t('Diminuir fonte'), key: 'Ctrl+-', icon: 'x', action: function () { zoom(-1); } },
       { id: 'zoomReset', label: t('Fonte padrao'), key: 'Ctrl+0', icon: 'refresh', action: function () { settings.fontSize = 16; settings.editorFontSize = 14; applyFontSizes(); renderStatus(); persist(); } },
       { id: 'sidebar', label: t('Painel lateral'), key: 'Ctrl+\\', icon: 'panel-left', checked: settings.sidebarVisible, action: function () { toggleSidebar(); } },
+      { id: 'sidebarRight', label: t('Painel da direita'), key: 'Ctrl+Shift+\\', icon: 'panel-right', checked: settings.sidebarDireitaVisivel !== false, action: function () { toggleSidebarDireita(); } },
+      { id: 'graph', label: t('Grafo local'), icon: 'graph', action: function () { setPane('graph'); } },
       { id: 'rename', label: t('Renomear...'), key: 'F2', icon: 'text', enabled: !!(tab && tab.path), action: function () { renameDoc(activeTab().path); } },
       { id: 'move', label: t('Mover para...'), icon: 'folder', enabled: !!(tab && tab.path), action: function () { moveDoc(activeTab().path); } },
       { id: 'duplicate', label: t('Duplicar'), icon: 'copy', enabled: !!(tab && tab.path), action: function () { duplicateDoc(activeTab().path); } },
@@ -6490,7 +6845,6 @@
           marcaTitulo(activeTab().path, titulo);
         } },
       { id: 'bookmarksPane', label: t('Mostrar marcadores'), icon: 'bookmark', action: function () {
-          if (!settings.sidebarVisible) toggleSidebar(true);
           setPane('bookmarks');
         } },
       { id: 'monitor', label: t('Monitorar (tail -f)'), icon: 'eye', checked: !!(tab && tab.monitorar), enabled: !!(tab && tab.path), action: function () { alternaMonitorar(activeTab()); } },
@@ -6511,8 +6865,8 @@
         icon: 'link', checked: app.isDefault, action: toggleAssociation },
       { id: 'switcher', label: t('Abrir arquivo pelo nome...'), key: 'Ctrl+P', icon: 'search', action: function () { openSwitcher(); } },
       { id: 'treeSearch', label: t('Filtrar arquivos por nome'), icon: 'filter', action: function () { setPane('files'); toggleTreeFilter(true); } },
-      { id: 'tags', label: t('Painel: tags'), icon: 'hash', action: function () { if (!settings.sidebarVisible) toggleSidebar(true); setPane('tags'); } },
-      { id: 'tagSort', label: t('Ordenar tags por...'), icon: 'sort', action: function () { if (!settings.sidebarVisible) toggleSidebar(true); setPane('tags'); var r = $('btnTagSort').getBoundingClientRect(); tagSortMenu(r.right - 250, r.bottom + 4); } },
+      { id: 'tags', label: t('Painel: tags'), icon: 'hash', action: function () { setPane('tags'); } },
+      { id: 'tagSort', label: t('Ordenar tags por...'), icon: 'sort', action: function () { setPane('tags'); var r = $('btnTagSort').getBoundingClientRect(); tagSortMenu(r.right - 250, r.bottom + 4); } },
       { id: 'treeSort', label: t('Ordenar arquivos por...'), icon: 'sort', action: function () { setPane('files'); var r = $('btnTreeSort').getBoundingClientRect(); treeSortMenu(r.right - 250, r.bottom + 4); } },
       { id: 'treeCollapse', label: t('Recolher todas as pastas'), icon: 'chevrons-up', enabled: !!app.folder, action: collapseTree },
       { id: 'quickBar', label: t('Barra de acesso rapido'), icon: 'command', checked: settings.quickBarVisible, action: function () { settings.quickBarVisible = !settings.quickBarVisible; renderQuickBar(); persist(); } },
@@ -8158,7 +8512,7 @@
 
   function doOpenFolder() {
     bridge.call('openFolderDialog', {}).then(function (path) {
-      if (path) { setFolder(path); setPane('files'); if (!settings.sidebarVisible) toggleSidebar(true); }
+      if (path) { setFolder(path); setPane('files'); }
     });
   }
 
@@ -8799,6 +9153,7 @@
           e.shiftKey ? openPalette() : openSwitcher();
           return;
         case '\\': e.preventDefault(); toggleSidebar(); return;
+        case '|': e.preventDefault(); toggleSidebarDireita(); return;
         case 'tab':
           e.preventDefault();
           if (app.tabs.length > 1) {
@@ -9273,6 +9628,8 @@
     setupLiveEdit();
 
     $('btnToggleSidebar').onclick = function () { toggleSidebar(); };
+    $('btnToggleSidebarDireita').onclick = function () { toggleSidebarDireita(); };
+    ligaGrafo();
     $('btnNewTab').onclick = newTab;
     $('btnCommandPalette').onclick = openPalette;
     $('btnOpenFolder').onclick = doOpenFolder;
@@ -9394,6 +9751,12 @@
     for (var j = 0; j < sideTabs.length; j++) {
       (function (btn) {
         btn.onclick = function () { setPane(btn.getAttribute('data-pane')); };
+        btn.oncontextmenu = function (e) {
+          e.preventDefault();
+          var id = btn.getAttribute('data-pane');
+          showMenu([{ label: ladoDe(id) === 'direita' ? t('Mover para a barra da esquerda') : t('Mover para a barra da direita'),
+            icon: ladoDe(id) === 'direita' ? 'panel-left' : 'panel-right', action: function () { moveDeLado(id); } }], e.clientX, e.clientY);
+        };
       })(sideTabs[j]);
     }
 
@@ -9650,6 +10013,28 @@
       document.addEventListener('mouseup', up);
     });
 
+    var resizerDireita = $('sidebarResizerDireita');
+    resizerDireita.addEventListener('mousedown', function (e) {
+      e.preventDefault();
+      resizerDireita.classList.add('is-dragging');
+      var startX = e.clientX;
+      var startW = $('sidebarDireita').offsetWidth;
+      function move(ev) {
+        var w = Math.max(180, Math.min(560, startW - (ev.clientX - startX)));
+        document.documentElement.style.setProperty('--sidebar-direita-width', w + 'px');
+        settings.sidebarDireitaWidth = w;
+      }
+      function up() {
+        resizerDireita.classList.remove('is-dragging');
+        document.removeEventListener('mousemove', move);
+        document.removeEventListener('mouseup', up);
+        persist();
+        if (settings.sidebarPaneDireita === 'graph') desenhaGrafo();
+      }
+      document.addEventListener('mousemove', move);
+      document.addEventListener('mouseup', up);
+    });
+
     var splitter = $('splitDivider');
     splitter.addEventListener('mousedown', function (e) {
       e.preventDefault();
@@ -9742,7 +10127,9 @@
     document.body.classList.toggle('sidebar-hidden', !settings.sidebarVisible);
     document.body.classList.toggle('wrap-on', settings.wordWrap);
     $('editorPane').style.flex = '0 0 ' + (settings.splitRatio * 100) + '%';
-    setPane(settings.sidebarPane || 'files');
+    distribuiPaineis();
+    document.body.classList.toggle('sidebar-direita-hidden', settings.sidebarDireitaVisivel === false);
+    document.documentElement.style.setProperty('--sidebar-direita-width', (settings.sidebarDireitaWidth || 260) + 'px');
   }
 
   function boot() {
