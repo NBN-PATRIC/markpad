@@ -510,7 +510,12 @@ public partial class MainWindow : Window
 
         foreach (var p in list) _writablePaths.Add(Path.GetFullPath(p));
 
-        if (_rendererReady) PostEvent("openPaths", list);
+        if (_rendererReady)
+        {
+            PostEvent("openPaths", list);
+            if (paths.Any(a => a.Trim().Equals(ArgMonitorar, StringComparison.OrdinalIgnoreCase)))
+                PostEvent("monitorPaths", list.Where(File.Exists).Select(Path.GetFullPath).ToList());
+        }
         else _pendingOpen.AddRange(list);
     }
 
@@ -838,10 +843,17 @@ public partial class MainWindow : Window
         initial.AddRange(_pendingOpen);
         _pendingOpen.Clear();
 
+        // --monitorar (o -monitor do Notepad++): os arquivos da linha de
+        // comando abrem em modo tail -f.
+        var monitorar = _startupArgs.Any(a => a.Trim().Equals(ArgMonitorar, StringComparison.OrdinalIgnoreCase))
+            ? initial.Where(File.Exists).ToList()
+            : new List<string>();
+
         return new
         {
             version = typeof(MainWindow).Assembly.GetName().Version?.ToString(3) ?? "1.0.0",
             openPaths = initial,
+            monitorar,
             documents = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
             associated = FileAssociation.IsRegistered(),
             isDefault = FileAssociation.IsDefaultHandler(),
@@ -855,6 +867,7 @@ public partial class MainWindow : Window
     }
 
     private const string ArgPosicao = "--posicao=";
+    public const string ArgMonitorar = "--monitorar";
 
     /// <summary>O retangulo da janela que pediu a nova (--posicao=L,T,W,H), se veio e e numero.</summary>
     private static Rect? PosicaoPedida(string[] args)

@@ -6,6 +6,16 @@ Versionamento [SemVer](https://semver.org/lang/pt-BR/).
 ## [Não lançado]
 
 ### Adicionado
+- **Monitorar (tail -f)**, do Notepad++: no menu da aba, no menu ⋯ e na
+  paleta, ou `MarkPad.exe arquivo.log --monitorar` na linha de comando. A aba
+  fica travada, recarrega a cada mudança e vai para o fim, com um olho verde
+  no lugar do ícone de estado. Confere a data a cada segundo além do vigia
+  (log em pasta de rede não avisa); log que gira (encolhe ou é recriado) só
+  recarrega, sem aviso de corte. Apagar ou renomear o arquivo encerra.
+- **Fechar sem perguntar, guardando o que não foi salvo** (Configurações >
+  Ao abrir, desligado por padrão): como o snapshot do Notepad++, sair não
+  pergunta, o texto não salvo vira rascunho na hora e volta sozinho na
+  próxima abertura. O arquivo só muda quando você salvar.
 - **Paleta de comandos com fixados e recentes** (como a do Obsidian). Aberta
   vazia, mostra primeiro os fixados (alfinete na linha, ou clique direito) e
   depois os usados por último; digitando, a busca é aproximada, não liga para

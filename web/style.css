@@ -363,6 +363,7 @@ body.sidebar-hidden .main { border-left: none; border-radius: var(--radius-m) va
 .tab-estado { display: flex; flex-shrink: 0; color: var(--text-muted); }
 .tab-estado.is-liberada { color: var(--color-accent); }
 .tab-estado.is-mudou { color: var(--color-orange); }
+.tab-estado.is-monitor { color: var(--color-green); }
 .tab-estado.is-apagado,
 .tab-estado.is-suspeito { color: var(--color-red); }
 

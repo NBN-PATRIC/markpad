@@ -224,14 +224,22 @@
   function offerBackups(manual) {
     return bridge.call('listBackups', {}).then(function (res) {
       var lista = ((res && res.backups) || []).filter(function (b) {
-        // O que esta aberto agora e rascunho desta sessao, nao pendencia.
+        // Rascunho igual ao texto de uma aba aberta e o desta sessao, nao
+        // pendencia. A aba que a sessao reabriu esta com o texto do disco,
+        // entao o rascunho dela (diferente) continua sendo oferecido.
         return !app.tabs.some(function (tab) {
-          return (tab.path && mesmoArquivo(tab.path, b.path)) || tab.rascunhoId === b.path;
+          var mesma = (tab.path && mesmoArquivo(tab.path, b.path)) || tab.rascunhoId === b.path;
+          return mesma && tab.content === b.content;
         });
       });
       if (!lista.length) {
         if (manual) toast(t('Nenhum rascunho pendente.'), '', 2200);
         return;
+      }
+      // Fechou sem perguntar (opcao ligada): o texto volta sozinho, sem aviso.
+      if (settings.fecharGuardando && !manual) {
+        lista.forEach(function (b) { b.escolha = 'restaurar'; });
+        return aplicaRascunhos(lista);
       }
       return dialogoRascunhos(lista).then(aplicaRascunhos);
     }).catch(function () {});
@@ -939,6 +947,7 @@
         dropBackup(tab);
         guardaFechada(tab);
         app.tabs.splice(idx, 1);
+        if (tab.monitorar) ajustaRelogioMonitor();
 
         if (app.activeId === id) {
           var next = app.tabs[Math.min(idx, app.tabs.length - 1)];
@@ -1702,6 +1711,11 @@
    * 'changed', 'deleted' ou 'renamed' (com o novo caminho).
    */
   function processaMudanca(tab, kind, novoCaminho) {
+    if (tab.monitorar) {
+      if (kind === 'changed') { recarregaMonitorado(tab); return Promise.resolve(); }
+      tab.monitorar = false;   // apagado ou renomeado encerra o monitoramento
+      ajustaRelogioMonitor();
+    }
     if (kind === 'renamed') { seguiuRenomeio(tab, novoCaminho); return Promise.resolve(); }
     if (kind === 'deleted') { marcaApagado(tab); return Promise.resolve(); }
     if (tab.conferindo) return tab.conferindo;
@@ -1747,6 +1761,66 @@
   }
 
   /*
+   * Monitorar (o tail -f do Notepad++): a aba fica travada, recarrega a cada
+   * mudanca e rola ate o fim, com um olho no lugar do icone de estado. Alem
+   * do vigia, confere a data a cada segundo (log em pasta de rede nao avisa).
+   * Log que gira (apagado e recriado, encolhido) nao e suspeita aqui: so
+   * recarrega. Apagar ou renomear encerra, como no Notepad++.
+   */
+  var relogioMonitor = null;
+
+  function alternaMonitorar(tab, ligar) {
+    if (!tab || !tab.path) return;
+    ligar = ligar === undefined ? !tab.monitorar : ligar;
+    if (ligar && tab.content !== tab.savedContent) {
+      toast(t('Salve ou descarte as alterações antes de monitorar.'), 'warn', 3000);
+      return;
+    }
+    tab.monitorar = ligar;
+    if (ligar) {
+      if (!tab.locked) setLocked(tab, true, true);
+      recarregaMonitorado(tab);
+      toast(t('Monitorando {nome}: recarrega e vai para o fim a cada mudança.', { nome: tab.name }), 'ok', 3000);
+    } else {
+      toast(t('Parou de monitorar {nome}.', { nome: tab.name }), '', 1800);
+    }
+    ajustaRelogioMonitor();
+    renderTabs();
+    renderHeader();
+  }
+
+  function ajustaRelogioMonitor() {
+    var algum = app.tabs.some(function (aba) { return aba.monitorar; });
+    if (algum && !relogioMonitor) {
+      relogioMonitor = setInterval(function () {
+        confereDisco(app.tabs.filter(function (aba) { return aba.monitorar; }));
+      }, 1000);
+    } else if (!algum && relogioMonitor) {
+      clearInterval(relogioMonitor);
+      relogioMonitor = null;
+    }
+  }
+
+  function recarregaMonitorado(tab) {
+    if (tab.recarregando) return;
+    tab.recarregando = true;
+    leDisco(tab.path).then(function (disco) {
+      tab.recarregando = false;
+      if (disco.erro || app.tabs.indexOf(tab) === -1) return;   // no meio da rotacao: espera o proximo aviso
+      if (disco.content !== tab.content) aplicaDoDisco(tab, disco);
+      else { tab.mtime = disco.mtime; tab.discoVisto = disco.mtime; }
+      if (tab === activeTab()) rolaAoFim();
+    });
+  }
+
+  function rolaAoFim() {
+    setTimeout(function () {
+      var alvo = $('readingView').hidden ? $('editorInput') : $('readingScroll');
+      alvo.scrollTop = alvo.scrollHeight;
+    }, 0);
+  }
+
+  /*
    * A rede de seguranca do Notepad++: ao voltar o foco e ao trocar de aba,
    * confere a data de cada arquivo aberto contra a ultima vista.
    */
@@ -1773,6 +1847,10 @@
     tab = tab || activeTab();
     if (!tab) return;
     if (tab.locked === locked) return;
+    if (!locked && tab.monitorar) {
+      toast(t('Pare de monitorar para editar.'), 'warn', 2400);
+      return;
+    }
 
     // Fecha o editor de bloco aberto antes de trocar de estado.
     if (live) live.commit();
@@ -1854,6 +1932,7 @@
       // normal do MarkPad, entao nao ganha icone; mudou no disco vence
       // somente leitura, que vence liberada.
       var estado = tab.apagadoNoDisco ? ['warning', 'is-apagado', t('apagado do disco')]
+        : tab.monitorar ? ['eye', 'is-monitor', t('monitorando (tail -f)')]
         : tab.suspeita ? ['warning', 'is-suspeito', t('cortado no disco?')]
         : tab.staleOnDisk ? ['warning', 'is-mudou', t('mudou no disco')]
         : tab.readOnlyOnDisk ? ['lock', 'is-leitura', t('somente leitura no disco')]
@@ -6414,6 +6493,7 @@
           if (!settings.sidebarVisible) toggleSidebar(true);
           setPane('bookmarks');
         } },
+      { id: 'monitor', label: t('Monitorar (tail -f)'), icon: 'eye', checked: !!(tab && tab.monitorar), enabled: !!(tab && tab.path), action: function () { alternaMonitorar(activeTab()); } },
       { id: 'revealTree', label: t('Revelar na árvore'), icon: 'folder-open', enabled: !!(tab && tab.path && app.folder), action: function () { revelaNaArvore(activeTab().path); } },
       { id: 'openWith', label: t('Abrir no app padrao do Windows'), icon: 'external', enabled: !!(tab && tab.path), action: function () { openWithDefaultApp(activeTab().path); } },
       { id: 'delete', label: t('Excluir arquivo...'), icon: 'trash', enabled: !!(tab && tab.path), action: function () { deleteDoc(activeTab().path); } },
@@ -7001,6 +7081,11 @@
       function () { return settings.restoreSession; },
       function (v) { settings.restoreSession = v; persist(); });
 
+    setToggle(setLinha(pai, t('Fechar sem perguntar, guardando o que não foi salvo'),
+      t('Como o snapshot do Notepad++: sair não pergunta, o texto não salvo vira rascunho e volta sozinho na próxima abertura. O arquivo só muda quando você salvar.')),
+      function () { return !!settings.fecharGuardando; },
+      function (v) { settings.fecharGuardando = v; persist(); });
+
     setToggle(setLinha(pai, t('Carregar imagens da internet'), t('Desligado, so imagens do proprio disco aparecem. Mais privado.')),
       function () { return settings.loadRemoteImages; },
       function (v) { settings.loadRemoteImages = v; renderViews(); persist(); });
@@ -7483,7 +7568,7 @@
     // A ordem espelha a do Obsidian: o que se faz COM o documento primeiro,
     // preferencia depois. Quem abre este menu quase sempre quer a primeira parte.
     showMenu([
-      entry('save'), entry('saveAs'), entry('reload'), '-',
+      entry('save'), entry('saveAs'), entry('reload'), entry('monitor'), '-',
       { label: t('Documento'), header: true },
       entry('rename'), entry('move'), entry('duplicate'), '-',
       entry('export'), entry('exportPdf'), entry('print'), '-',
@@ -7567,6 +7652,7 @@
       { label: t('Historico de versoes...'), icon: 'clock', disabled: !tab.path, action: function () { abreVersoes(tab.path); } },
       { label: tab.path && marcadorDoArquivo(tab.path) ? t('Desmarcar') : t('Marcar'), icon: 'bookmark', disabled: !tab.path, action: function () { alternaMarcadorArquivo(tab.path); } },
       { label: t('Revelar na árvore'), icon: 'folder-open', disabled: !tab.path || !app.folder, action: function () { revelaNaArvore(tab.path); } },
+      { label: t('Monitorar (tail -f)'), icon: 'eye', checked: !!tab.monitorar, disabled: !tab.path, action: function () { alternaMonitorar(tab); } },
       '-',
       { label: t('Abrir em nova janela'), icon: 'columns', disabled: !tab.path, action: function () { novaJanela([tab.path]); } },
       // Mover leva o arquivo do disco: com alteracao pendente, a outra janela
@@ -9675,6 +9761,15 @@
     });
 
     bridge.on('openPaths', function (paths) { openPaths(paths); });
+    // Segunda instancia com --monitorar: o C# manda os caminhos depois de abrir.
+    bridge.on('monitorPaths', function (paths) {
+      var alvos = (paths || []).map(function (p) { return p.toLowerCase(); });
+      setTimeout(function () {
+        app.tabs.forEach(function (aba) {
+          if (aba.path && alvos.indexOf(aba.path.toLowerCase()) !== -1 && !aba.monitorar) alternaMonitorar(aba, true);
+        });
+      }, 800);
+    });
 
     bridge.on('fileChanged', function (data) {
       invalidaLinks();
@@ -9698,6 +9793,20 @@
       });
 
       if (!dirty.length) { bridge.call('confirmClose', {}); return; }
+
+      // Opcao do Notepad++ (desligada por padrao): sair sem perguntar, com o
+      // texto guardado como rascunho, que volta sozinho na proxima abertura.
+      if (settings.fecharGuardando) {
+        if (live) live.commit();
+        Promise.all(dirty.map(function (aba) {
+          clearTimeout(backupTimers[aba.id]);
+          return bridge.call('writeBackup', {
+            path: chaveDeRascunho(aba), name: aba.name, content: aba.content,
+            baseMtime: aba.path ? (aba.mtime || 0) : 0
+          }).catch(function () {});
+        })).then(function () { bridge.call('confirmClose', {}); });
+        return;
+      }
 
       var names = dirty.map(function (t) { return escapeText(t.name); }).join(', ');
       dialog(t('Fechar o MarkPad?'),
@@ -9749,7 +9858,12 @@
       if (settings.lastFolder) setFolder(settings.lastFolder, true);
 
       renderAll();
-      return openPaths(toOpen).then(app.janelaExtra ? null : restauraFixadas);
+      var monitorar = (info.monitorar || []).map(function (p) { return p.toLowerCase(); });
+      return openPaths(toOpen).then(app.janelaExtra ? null : restauraFixadas).then(function () {
+        app.tabs.forEach(function (aba) {
+          if (aba.path && monitorar.indexOf(aba.path.toLowerCase()) !== -1) alternaMonitorar(aba, true);
+        });
+      });
     }).then(function () {
       // Depois de restaurar a sessão, para o diálogo não competir com a
       // abertura dos arquivos.
