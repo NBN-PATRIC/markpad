@@ -3016,3 +3016,25 @@ body.wide-lines .cm-modo-vivo .cm-content { max-width: none; padding-right: 40px
   cursor: pointer; font-size: 0.85em; padding: 2px 4px;
 }
 .prop-acrescenta:hover { color: var(--text-normal); }
+
+/* quadro do Obsidian (.canvas), so leitura */
+.markdown-preview.is-canvas { max-width: none; margin: 0; padding: 0; height: 100%; }
+.reading-scroll:has(> .is-canvas) { overflow: hidden; }
+.canvas-quadro { position: relative; width: 100%; height: 100%; min-height: 300px; overflow: hidden; cursor: grab;
+  background-image: radial-gradient(var(--background-modifier-border) 1px, transparent 1px); background-size: 22px 22px; }
+.canvas-quadro.is-arrastando { cursor: grabbing; }
+.canvas-plano { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+.canvas-arestas { position: absolute; overflow: visible; pointer-events: none; }
+.canvas-aresta { fill: none; stroke: var(--text-faint); stroke-width: 2; }
+.canvas-aresta-rotulo { position: absolute; transform: translate(-50%, -50%); padding: 1px 6px; border-radius: var(--radius-s);
+  background: var(--background-primary); color: var(--text-muted); font-size: 12px; white-space: nowrap; }
+.canvas-no { position: absolute; display: flex; flex-direction: column; border-radius: var(--radius-m);
+  border: 2px solid var(--canvas-cor, var(--background-modifier-border-hover)); background: var(--background-primary); overflow: hidden; cursor: default; }
+.canvas-no-group { background: transparent; border-style: solid; border-color: var(--canvas-cor, var(--background-modifier-border)); overflow: visible; }
+.canvas-no-group::before { content: ""; position: absolute; inset: 0; background: var(--canvas-cor, transparent); opacity: 0.07; }
+.canvas-grupo-rotulo { position: absolute; top: -26px; left: 0; color: var(--text-muted); font-size: 14px; white-space: nowrap; }
+.canvas-corpo.markdown-preview { max-width: none; margin: 0; padding: 10px 14px; overflow: auto; flex: 1; font-size: 15px; cursor: auto; }
+.canvas-corpo.markdown-preview > *:first-child { margin-top: 0; }
+.canvas-arquivo { padding: 4px 10px; border-bottom: 1px solid var(--background-modifier-border); font-size: 12px; }
+.canvas-link { word-break: break-all; }
+.canvas-falha { padding: 24px; color: var(--color-red); }

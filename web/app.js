@@ -785,7 +785,7 @@
    */
   function confirmNonMarkdown(path) {
     if (!settings.warnNonMarkdown) return Promise.resolve(true);
-    if (MARKDOWN_EXT.test(path)) return Promise.resolve(true);
+    if (MARKDOWN_EXT.test(path) || /\.canvas$/i.test(path)) return Promise.resolve(true);
 
     var nome = path.split(/[\\/]/).pop();
     var ext = (/\.([^.\\/]+)$/.exec(nome) || [])[1];
@@ -2415,6 +2415,8 @@
   // ------------------------------------------------------------ preview
 
   function renderPreview(container, tab) {
+    container.classList.remove('is-canvas');
+    if (/\.canvas$/i.test(tab.path || tab.name || '')) { renderCanvas(container, tab); return; }
     var result;
     try {
       result = window.MarkPadMarkdown.render(tab.content, {
@@ -2471,6 +2473,196 @@
       if (bloco && pai && pai.tagName === 'P' && pai.childNodes.length === 1) pai.parentNode.replaceChild(el, pai);
       else pai.replaceChild(el, c);
     }
+  }
+
+  // ------------------------------------------------------ quadro (.canvas)
+  //
+  // Leitor do JSON Canvas do Obsidian: cartoes de texto (Markdown), notas e
+  // imagens incorporadas, links, grupos e as setas entre eles. So leitura:
+  // destravado, o arquivo aparece como texto no editor. Arrastar o fundo
+  // move, a roda aproxima e afasta em torno do ponteiro.
+
+  var CORES_CANVAS = { '1': '--color-red', '2': '--color-orange', '3': '--color-yellow', '4': '--color-green', '5': '--color-cyan', '6': '--color-purple' };
+
+  function corDoCanvas(c) {
+    if (!c) return '';
+    if (CORES_CANVAS[c]) return 'var(' + CORES_CANVAS[c] + ')';
+    return /^#[0-9a-f]{3,8}$/i.test(c) ? c : '';
+  }
+
+  function renderCanvas(container, tab) {
+    container.classList.add('is-canvas');
+    container.textContent = '';
+    container.__toc = [];
+    var dados;
+    try { dados = JSON.parse(tab.content || '{}'); }
+    catch (err) {
+      var falha = document.createElement('div');
+      falha.className = 'canvas-falha';
+      falha.textContent = t('Este quadro (.canvas) nao e um JSON valido: ') + err.message;
+      container.appendChild(falha);
+      return;
+    }
+    var nos = Array.isArray(dados.nodes) ? dados.nodes.filter(function (n) { return n && isFinite(n.x) && isFinite(n.y); }) : [];
+    var arestas = Array.isArray(dados.edges) ? dados.edges : [];
+
+    var quadro = document.createElement('div');
+    quadro.className = 'canvas-quadro';
+    var plano = document.createElement('div');
+    plano.className = 'canvas-plano';
+    quadro.appendChild(plano);
+    container.appendChild(quadro);
+    if (!nos.length) {
+      var vazio = document.createElement('p');
+      vazio.className = 'pane-empty';
+      vazio.textContent = t('Quadro vazio.');
+      quadro.appendChild(vazio);
+      return;
+    }
+
+    var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    var porId = {};
+    nos.forEach(function (n) {
+      n.width = Math.max(40, Number(n.width) || 250); n.height = Math.max(30, Number(n.height) || 60);
+      porId[n.id] = n;
+      minX = Math.min(minX, n.x); minY = Math.min(minY, n.y);
+      maxX = Math.max(maxX, n.x + n.width); maxY = Math.max(maxY, n.y + n.height);
+    });
+
+    // Grupos atras, depois o resto, na ordem do arquivo.
+    nos.slice().sort(function (p, q) { return (p.type === 'group' ? 0 : 1) - (q.type === 'group' ? 0 : 1); }).forEach(function (n) {
+      var el = document.createElement('div');
+      el.className = 'canvas-no canvas-no-' + (n.type || 'text');
+      el.style.left = (n.x - minX) + 'px';
+      el.style.top = (n.y - minY) + 'px';
+      el.style.width = n.width + 'px';
+      el.style.height = n.height + 'px';
+      var cor = corDoCanvas(n.color);
+      if (cor) el.style.setProperty('--canvas-cor', cor);
+      var corpo = document.createElement('div');
+      corpo.className = 'canvas-corpo markdown-preview';
+      if (n.type === 'group') {
+        if (n.label) {
+          var rot = document.createElement('div');
+          rot.className = 'canvas-grupo-rotulo';
+          rot.textContent = n.label;
+          el.appendChild(rot);
+        }
+      } else if (n.type === 'file' && n.file) {
+        var alvo = String(n.file) + (n.subpath ? String(n.subpath) : '');
+        var cab = document.createElement('div');
+        cab.className = 'canvas-arquivo';
+        var lnk = document.createElement('a');
+        lnk.className = 'internal-link';
+        lnk.setAttribute('data-wikilink', alvo.replace(/\.md(#|$)/i, '$1'));
+        lnk.href = '#';
+        lnk.textContent = String(n.file).split('/').pop();
+        cab.appendChild(lnk);
+        el.appendChild(cab);
+        wirePreviewClicks(cab, tab);
+        renderTrecho(corpo, '![[' + alvo + ']]', 'embed', tab);
+        el.appendChild(corpo);
+      } else if (n.type === 'link' && n.url) {
+        var ext = document.createElement('a');
+        ext.className = 'canvas-link';
+        ext.setAttribute('data-external', String(n.url));
+        ext.href = '#';
+        ext.textContent = String(n.url);
+        corpo.appendChild(ext);
+        el.appendChild(corpo);
+        wirePreviewClicks(corpo, tab);
+      } else {
+        renderTrecho(corpo, String(n.text || ''), 'texto', tab);
+        el.appendChild(corpo);
+      }
+      plano.appendChild(el);
+    });
+
+    // Setas: curvas entre os lados (os do arquivo, ou os mais proximos).
+    var svgNS = 'http://www.w3.org/2000/svg';
+    var svg = document.createElementNS(svgNS, 'svg');
+    svg.setAttribute('class', 'canvas-arestas');
+    svg.setAttribute('width', String(maxX - minX + 400));
+    svg.setAttribute('height', String(maxY - minY + 400));
+    svg.style.left = '-200px'; svg.style.top = '-200px';
+    var defs = document.createElementNS(svgNS, 'defs');
+    var marca = document.createElementNS(svgNS, 'marker');
+    marca.setAttribute('id', 'canvas-seta'); marca.setAttribute('viewBox', '0 0 10 10');
+    marca.setAttribute('refX', '9'); marca.setAttribute('refY', '5');
+    marca.setAttribute('markerWidth', '7'); marca.setAttribute('markerHeight', '7');
+    marca.setAttribute('orient', 'auto-start-reverse');
+    var ponta = document.createElementNS(svgNS, 'path');
+    ponta.setAttribute('d', 'M0,0 L10,5 L0,10 z');
+    ponta.setAttribute('fill', 'context-stroke');
+    marca.appendChild(ponta); defs.appendChild(marca); svg.appendChild(defs);
+
+    function lado(n, l) {
+      var x = n.x - minX + 200, y = n.y - minY + 200;
+      if (l === 'top') return { x: x + n.width / 2, y: y, dx: 0, dy: -1 };
+      if (l === 'bottom') return { x: x + n.width / 2, y: y + n.height, dx: 0, dy: 1 };
+      if (l === 'left') return { x: x, y: y + n.height / 2, dx: -1, dy: 0 };
+      return { x: x + n.width, y: y + n.height / 2, dx: 1, dy: 0 };
+    }
+    function ladoPerto(de, para) {
+      var cx = de.x + de.width / 2, cy = de.y + de.height / 2, ox = para.x + para.width / 2, oy = para.y + para.height / 2;
+      return Math.abs(ox - cx) > Math.abs(oy - cy) ? (ox > cx ? 'right' : 'left') : (oy > cy ? 'bottom' : 'top');
+    }
+    arestas.forEach(function (e) {
+      var a1 = porId[e.fromNode], b1 = porId[e.toNode];
+      if (!a1 || !b1) return;
+      var p = lado(a1, e.fromSide || ladoPerto(a1, b1)), q = lado(b1, e.toSide || ladoPerto(b1, a1));
+      var dist = Math.hypot(q.x - p.x, q.y - p.y);
+      var k = Math.max(40, Math.min(160, dist / 3));
+      var d = 'M' + p.x + ',' + p.y + ' C' + (p.x + p.dx * k) + ',' + (p.y + p.dy * k) + ' ' + (q.x + q.dx * k) + ',' + (q.y + q.dy * k) + ' ' + q.x + ',' + q.y;
+      var caminho = document.createElementNS(svgNS, 'path');
+      caminho.setAttribute('d', d);
+      caminho.setAttribute('class', 'canvas-aresta');
+      var cor = corDoCanvas(e.color);
+      if (cor) caminho.style.stroke = cor;
+      if ((e.toEnd || 'arrow') === 'arrow') caminho.setAttribute('marker-end', 'url(#canvas-seta)');
+      if (e.fromEnd === 'arrow') caminho.setAttribute('marker-start', 'url(#canvas-seta)');
+      svg.appendChild(caminho);
+      if (e.label) {
+        var r = document.createElement('div');
+        r.className = 'canvas-aresta-rotulo';
+        r.textContent = String(e.label);
+        r.style.left = ((p.x + q.x) / 2 - 200) + 'px';
+        r.style.top = ((p.y + q.y) / 2 - 200) + 'px';
+        plano.appendChild(r);
+      }
+    });
+    plano.insertBefore(svg, plano.firstChild);
+
+    // Camera: cabe tudo na tela, e arrastar/rodar mexe.
+    var cam = { x: 0, y: 0, z: 1 };
+    function aplica() { plano.style.transform = 'translate(' + cam.x + 'px,' + cam.y + 'px) scale(' + cam.z + ')'; }
+    function encaixa() {
+      var w = quadro.clientWidth || 800, h = quadro.clientHeight || 600;
+      var bw = maxX - minX, bh = maxY - minY;
+      cam.z = Math.max(0.1, Math.min(1, (w - 60) / bw, (h - 60) / bh));
+      cam.x = (w - bw * cam.z) / 2; cam.y = (h - bh * cam.z) / 2;
+      aplica();
+    }
+    requestAnimationFrame(encaixa);
+    quadro.addEventListener('dblclick', function (ev) { if (!ev.target.closest('.canvas-no')) encaixa(); });
+    quadro.addEventListener('wheel', function (ev) {
+      ev.preventDefault();
+      var r = quadro.getBoundingClientRect();
+      var px = ev.clientX - r.left, py = ev.clientY - r.top;
+      var z0 = cam.z, z = Math.max(0.1, Math.min(3, z0 * (ev.deltaY < 0 ? 1.12 : 1 / 1.12)));
+      cam.x = px - (px - cam.x) * (z / z0); cam.y = py - (py - cam.y) * (z / z0); cam.z = z;
+      aplica();
+    }, { passive: false });
+    quadro.addEventListener('mousedown', function (ev) {
+      if (ev.button !== 0 || ev.target.closest('a,button,input,.canvas-corpo')) return;
+      ev.preventDefault();
+      var ini = { x: ev.clientX, y: ev.clientY, cx: cam.x, cy: cam.y };
+      quadro.classList.add('is-arrastando');
+      function move(m) { cam.x = ini.cx + m.clientX - ini.x; cam.y = ini.cy + m.clientY - ini.y; aplica(); }
+      function solta() { quadro.classList.remove('is-arrastando'); document.removeEventListener('mousemove', move); document.removeEventListener('mouseup', solta); }
+      document.addEventListener('mousemove', move);
+      document.addEventListener('mouseup', solta);
+    });
   }
 
   // Icones dos callouts: criados por nos, depois da peneira. O botao Copiar

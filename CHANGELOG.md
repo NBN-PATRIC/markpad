@@ -6,6 +6,12 @@ Versionamento [SemVer](https://semver.org/lang/pt-BR/).
 ## [Não lançado]
 
 ### Adicionado
+- **Leitor de quadros do Obsidian (`.canvas`)**: o arquivo abre travado como
+  quadro, com cartões de texto em Markdown, notas e imagens incorporadas,
+  links, grupos com rótulo e cor e as setas entre cartões (com rótulo e cor).
+  Arrastar o fundo move, a roda aproxima e afasta, duplo clique no fundo
+  encaixa tudo na tela; clicar no nome de uma nota a abre. Destravado, o
+  arquivo aparece como texto no editor. Abre sem o aviso de não-markdown.
 - **Grafo da pasta inteira** (o "Graph view" do Obsidian): o botão
   Local/Pasta no painel do grafo troca entre a nota com os vizinhos e todas
   as notas da pasta aberta, com a nota aberta destacada (trocar de aba só
