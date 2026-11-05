@@ -6,6 +6,12 @@ Versionamento [SemVer](https://semver.org/lang/pt-BR/).
 ## [Não lançado]
 
 ### Adicionado
+- **Grafo da pasta inteira** (o "Graph view" do Obsidian): o botão
+  Local/Pasta no painel do grafo troca entre a nota com os vizinhos e todas
+  as notas da pasta aberta, com a nota aberta destacada (trocar de aba só
+  muda o destaque, sem refazer o desenho). Clicar num nó abre a nota, Ctrl
+  abre em aba nova, a roda aproxima e afasta, e pasta muito grande mostra as
+  1.500 notas mais ligadas. A escolha fica guardada.
 - **Propriedades editáveis em formulário** no modo ao vivo, como no Obsidian:
   cada propriedade numa linha (nome e valor editáveis), listas como `tags` e
   `aliases` em pílulas (Enter ou vírgula acrescenta, × tira), caixa para

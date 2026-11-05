@@ -5520,7 +5520,8 @@
   // fundo move a vista, a roda aproxima, clique abre a nota como um link.
 
   var grafo = { de: null, nos: [], arestas: [], cam: { x: 0, y: 0, z: 1 }, quente: 0, raf: null,
-    sobre: null, arrasto: null, profundidade: 1, quebrados: true };
+    sobre: null, arrasto: null, profundidade: 1, quebrados: true, modo: 'local', destaque: null };
+  var GRAFO_MAX_NOS = 1500;
 
   function grafoVisivel() {
     var sec = document.querySelector('section.pane[data-pane="graph"]');
@@ -5530,9 +5531,81 @@
     return !!settings.sidebarVisible;
   }
 
+  /*
+   * Grafo da pasta inteira (o "Graph view" do Obsidian): toda nota e um no,
+   * todo link resolvido uma aresta; a nota aberta fica destacada. Trocar de
+   * aba so muda o destaque, sem refazer o desenho. Pasta muito grande fica
+   * com as notas mais ligadas (GRAFO_MAX_NOS).
+   */
+  function renderGrafoDaPasta(forcar, tab) {
+    var chave = 'pasta|' + String(app.folder || '').toLowerCase() + '|' + grafo.quebrados;
+    grafo.destaque = tab && tab.path ? tab.path.toLowerCase() : null;
+    if (!forcar && chave === grafo.de) { desenhaGrafo(); return; }
+    grafo.de = chave;
+    var aviso = $('graphEmpty');
+    if (!app.folder) {
+      montaGrafo([], []);
+      aviso.hidden = false;
+      aviso.textContent = t('Abra uma pasta para ver o grafo dela.');
+      return;
+    }
+    indiceLinks().then(function (idx) {
+      if (!idx || grafo.modo !== 'pasta') return;
+      var nos = {}, arestas = [], vistas = {};
+      idx.arquivos.forEach(function (a) {
+        if (!a.md) return;
+        nos[a.rel.toLowerCase()] = { id: a.rel.toLowerCase(), nome: semExtensao(a.name), path: a.path, existe: true, nivel: 1, grau: 0 };
+      });
+      function liga(x, y) {
+        if (!x || !y || x === y) return;
+        var k = x.id < y.id ? x.id + '>' + y.id : y.id + '>' + x.id;
+        if (vistas[k]) return;
+        vistas[k] = 1;
+        arestas.push({ a: x, b: y });
+        x.grau++; y.grau++;
+      }
+      idx.arquivos.forEach(function (a) {
+        if (!a.md) return;
+        var de = nos[a.rel.toLowerCase()];
+        (a.saidas || []).forEach(function (s) {
+          if (s.para && s.para.md) liga(de, nos[s.para.rel.toLowerCase()]);
+          else if (!s.para && grafo.quebrados && s.link && s.link.alvo) {
+            var k = 'q:' + String(s.link.alvo).toLowerCase();
+            if (!nos[k]) nos[k] = { id: k, nome: String(s.link.alvo).split('/').pop(), path: null, existe: false, nivel: 1, grau: 0 };
+            liga(de, nos[k]);
+          }
+        });
+      });
+      var lista = Object.keys(nos).map(function (k) { return nos[k]; });
+      if (lista.length > GRAFO_MAX_NOS) {
+        lista.sort(function (x, y) { return y.grau - x.grau; });
+        var fica = {};
+        lista = lista.slice(0, GRAFO_MAX_NOS);
+        lista.forEach(function (n) { fica[n.id] = 1; });
+        arestas = arestas.filter(function (e) { return fica[e.a.id] && fica[e.b.id]; });
+      }
+      aviso.hidden = lista.length > 0;
+      aviso.textContent = t('Nenhuma nota na pasta.');
+      montaGrafo(lista, arestas, null);
+    });
+  }
+
+  function alternaModoGrafo() {
+    grafo.modo = grafo.modo === 'pasta' ? 'local' : 'pasta';
+    settings.grafoModo = grafo.modo;
+    var b = $('btnGrafoModo');
+    if (b) { b.textContent = grafo.modo === 'pasta' ? t('Pasta') : t('Local'); b.classList.toggle('is-on', grafo.modo === 'pasta'); }
+    $('btnGrafoProfundidade').hidden = grafo.modo === 'pasta';
+    var titulo = document.querySelector('section.pane[data-pane="graph"] .pane-title');
+    if (titulo) titulo.textContent = grafo.modo === 'pasta' ? t('Grafo da pasta') : t('Grafo local');
+    persist();
+    renderGrafo(true);
+  }
+
   function renderGrafo(forcar) {
     if (!grafoVisivel()) return;
     var tab = activeTab();
+    if (grafo.modo === 'pasta') { renderGrafoDaPasta(forcar, tab); return; }
     var chaveAtual = (tab && tab.path ? tab.path.toLowerCase() : '') + '|' + grafo.profundidade + '|' + grafo.quebrados;
     if (!forcar && chaveAtual === grafo.de) return;
     grafo.de = chaveAtual;
@@ -5607,17 +5680,20 @@
     var cv = $('graphCanvas');
     var w = cv.clientWidth || 260, h = cv.clientHeight || 260;
     // Posicao inicial em circulos por nivel, com o centro fixo no meio.
+    var espalha = Math.sqrt(nos.length) * 40;
     nos.forEach(function (n, i) {
       var ang = (i / Math.max(1, nos.length)) * Math.PI * 2;
-      var raio = n === centro ? 0 : 60 + n.nivel * 55;
-      n.x = Math.cos(ang) * raio; n.y = Math.sin(ang) * raio;
+      var raio = centro ? (n === centro ? 0 : 60 + n.nivel * 55) : espalha * Math.sqrt((i + 1) / Math.max(1, nos.length));
+      n.x = Math.cos(ang * (centro ? 1 : 7.3)) * raio; n.y = Math.sin(ang * (centro ? 1 : 7.3)) * raio;
       n.vx = 0; n.vy = 0;
       n.fixo = n === centro;
     });
     grafo.nos = nos;
     grafo.arestas = arestas;
     grafo.centro = centro || null;
-    grafo.cam = { x: w / 2, y: h / 2, z: 1 };
+    // Muitos nos: comeca afastado, para caber no painel.
+    var z = centro || nos.length < 30 ? 1 : Math.max(0.3, Math.min(1, Math.min(w, h) / (2.4 * espalha)));
+    grafo.cam = { x: w / 2, y: h / 2, z: z };
     grafo.quente = 1;
     animaGrafo();
   }
@@ -5708,15 +5784,16 @@
     c.textBaseline = 'top';
     grafo.nos.forEach(function (n) {
       var x = cam.x + n.x * cam.z, y = cam.y + n.y * cam.z;
-      var r = (n === grafo.centro ? 7 : 4 + Math.min(4, n.grau * 0.6)) * Math.max(0.6, Math.min(1.6, cam.z));
+      var atual = n === grafo.centro || (grafo.modo === 'pasta' && n.path && grafo.destaque === n.path.toLowerCase());
+      var r = (atual ? 7 : 4 + Math.min(4, n.grau * 0.6)) * Math.max(0.6, Math.min(1.6, cam.z));
       var apagado = sobre && n !== sobre && !vizinhos[n.id];
       c.globalAlpha = apagado ? 0.3 : (n.existe ? 1 : 0.5);
-      c.fillStyle = n === grafo.centro || n === sobre ? acento : normal;
+      c.fillStyle = atual || n === sobre ? acento : normal;
       c.beginPath();
       c.arc(x, y, r, 0, Math.PI * 2);
       c.fill();
       if (!n.existe) { c.strokeStyle = normal; c.stroke(); }
-      if (cam.z > 0.55 || n === sobre || n === grafo.centro) {
+      if (cam.z > 0.55 || n === sobre || atual) {
         c.fillStyle = n === sobre ? corCss('--text-normal', '#ddd') : texto;
         c.fillText(n.nome.length > 28 ? n.nome.slice(0, 27) + '…' : n.nome, x, y + r + 3);
       }
@@ -5764,7 +5841,8 @@
         document.removeEventListener('mouseup', solta);
         var a = grafo.arrasto;
         grafo.arrasto = null;
-        if (a && !a.moveu && a.no && a.no.existe && a.no !== grafo.centro) {
+        var naAtual = a && a.no && a.no.path && grafo.modo === 'pasta' && grafo.destaque === a.no.path.toLowerCase();
+        if (a && !a.moveu && a.no && a.no.existe && a.no !== grafo.centro && !naAtual) {
           abreDestino(a.no.path, { origem: activeTab(), novaAba: ev.ctrlKey || ev.metaKey || ev.button === 1 });
         }
       }
@@ -5774,13 +5852,15 @@
       e.preventDefault();
       var p = ponto(e);
       var z0 = grafo.cam.z;
-      var z = Math.max(0.3, Math.min(3, z0 * (e.deltaY < 0 ? 1.12 : 1 / 1.12)));
+      var z = Math.max(0.08, Math.min(3, z0 * (e.deltaY < 0 ? 1.12 : 1 / 1.12)));
       // Aproxima em torno do ponteiro.
       grafo.cam.x = p.x - (p.x - grafo.cam.x) * (z / z0);
       grafo.cam.y = p.y - (p.y - grafo.cam.y) * (z / z0);
       grafo.cam.z = z;
       desenhaGrafo();
     }, { passive: false });
+    if ($('btnGrafoModo')) $('btnGrafoModo').onclick = alternaModoGrafo;
+    if (settings.grafoModo === 'pasta') { grafo.modo = 'local'; alternaModoGrafo(); }
     $('btnGrafoProfundidade').onclick = function () {
       grafo.profundidade = grafo.profundidade === 1 ? 2 : 1;
       $('btnGrafoProfundidade').textContent = String(grafo.profundidade);
