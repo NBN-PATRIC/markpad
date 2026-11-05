@@ -6,6 +6,11 @@ Versionamento [SemVer](https://semver.org/lang/pt-BR/).
 ## [Não lançado]
 
 ### Adicionado
+- **Busca incorporada** (o bloco ```query do Obsidian): um bloco de código
+  com a linguagem `query` vira a lista de resultados daquela busca na pasta,
+  com os mesmos operadores do painel (`tag:#pendente`, `path:clientes`,
+  `file:`, `-` para excluir), na leitura e no modo ao vivo. Clicar num
+  resultado abre a nota. Serve de painel: uma nota com as buscas do plantão.
 - **Menu de tabela** (o do Obsidian) no clique direito com o cursor numa
   tabela: inserir linha acima ou abaixo, inserir coluna à esquerda ou à
   direita, mover linha e coluna, alinhar a coluna (esquerda, centro,

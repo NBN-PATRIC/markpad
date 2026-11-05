@@ -2505,6 +2505,7 @@
 
     montaIconesCallout(container);
     renderMatematica(container);
+    renderBuscasEmbutidas(container);
 
     if (settings.showProperties !== false) renderProperties(container, result.frontmatter);
     liberaTarefas(container, tab);
@@ -6536,6 +6537,55 @@
       if (pedido !== app.buscaPedido) return;
       aviso(t('Busca falhou: ') + err.message);
     });
+  }
+
+  /*
+   * Busca incorporada (o bloco ```query do Obsidian): o texto do bloco e uma
+   * busca da pasta, com os mesmos operadores do painel, e no lugar do codigo
+   * aparece a lista de resultados, clicavel. Vale na leitura e no ao vivo.
+   */
+  function renderBuscasEmbutidas(container) {
+    var blocos = container.querySelectorAll('code.language-query');
+    for (var i = 0; i < blocos.length; i++) {
+      var code = blocos[i];
+      var query = code.textContent.trim();
+      var alvo = code.closest('.code-block') || code.parentNode;
+      var caixa = document.createElement('div');
+      caixa.className = 'busca-embutida';
+      if (alvo.hasAttribute && alvo.hasAttribute('data-line')) {
+        caixa.setAttribute('data-line', alvo.getAttribute('data-line'));
+        if (alvo.hasAttribute('data-line-end')) caixa.setAttribute('data-line-end', alvo.getAttribute('data-line-end'));
+      }
+      var cab = document.createElement('div');
+      cab.className = 'busca-embutida-cab';
+      cab.textContent = t('Busca: ') + query;
+      var res = document.createElement('div');
+      res.className = 'busca-embutida-res';
+      caixa.appendChild(cab);
+      caixa.appendChild(res);
+      alvo.parentNode.replaceChild(caixa, alvo);
+      executaBuscaEmbutida(query, res);
+    }
+  }
+
+  function executaBuscaEmbutida(query, box) {
+    var aviso = function (texto) { box.textContent = ''; var p = document.createElement('p'); p.className = 'pane-empty'; p.textContent = texto; box.appendChild(p); };
+    if (!app.folder) { aviso(t('Abra uma pasta para a busca incorporada funcionar.')); return; }
+    if (!query) { aviso(t('Bloco de busca vazio.')); return; }
+    aviso(t('buscando...'));
+    var consulta = window.MarkPadLinkIndex ? window.MarkPadLinkIndex.analisaConsulta(query) : { texto: query, filtros: [] };
+    var escolhidos = consulta.filtros.length
+      ? indiceLinks().then(function (idx) { return idx ? window.MarkPadLinkIndex.filtra(idx, consulta.filtros) : []; })
+      : Promise.resolve(null);
+    escolhidos.then(function (arquivos) {
+      if (!box.isConnected) return null;
+      if (arquivos && !consulta.texto) { desenhaSoArquivos(box, arquivos); return null; }
+      if (arquivos && !arquivos.length) { aviso(t('Nenhum resultado.')); return null; }
+      return bridge.call('grepFolder', {
+        root: app.folder, query: consulta.texto, caseSensitive: false, regex: false, maxResults: 100,
+        paths: arquivos ? arquivos.map(function (x) { return x.path; }) : undefined
+      }).then(function (r) { if (box.isConnected) desenhaOcorrencias(box, r); });
+    }).catch(function (err) { aviso(t('Busca falhou: ') + err.message); });
   }
 
   function dicaDaBusca(box) {
@@ -11343,6 +11393,7 @@
     }
     montaIconesCallout(el);
     renderMatematica(el);
+    renderBuscasEmbutidas(el);
     if (tipo === 'propriedades') renderProperties(el, r.frontmatter);
     var caixas = el.querySelectorAll('input[type="checkbox"]');
     for (var i = 0; i < caixas.length; i++) caixas[i].disabled = true;

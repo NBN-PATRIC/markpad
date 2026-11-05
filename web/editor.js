@@ -1088,6 +1088,11 @@
         if (nome === 'Table') bloco(deco, state, no, 'tabela');
         else if (nome === 'Frontmatter') bloco(deco, state, no, 'propriedades');
         else if (nome === 'MathBloco') bloco(deco, state, no, 'math');
+        else if (nome === 'FencedCode') {
+          // ```query: a busca incorporada vira a lista de resultados.
+          var info = no.node ? no.node.getChild('CodeInfo') : no.getChild('CodeInfo');
+          if (info && doc.sliceString(info.from, info.to).trim().toLowerCase() === 'query') bloco(deco, state, no, 'query');
+        }
         else if (nome === 'HTMLBlock') {
           if (doc.sliceString(no.from, Math.min(no.to, no.from + 4)) !== '<!--') bloco(deco, state, no, 'html');
         } else if (nome === 'Blockquote') {
