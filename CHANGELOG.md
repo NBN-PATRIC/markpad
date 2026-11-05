@@ -6,6 +6,25 @@ Versionamento [SemVer](https://semver.org/lang/pt-BR/).
 ## [Não lançado]
 
 ### Adicionado
+- **Marcadores** (o Bookmarks do Obsidian). Painel próprio na barra lateral
+  com arquivos, títulos, buscas e pastas, soltos ou em grupos; arrastar
+  reordena e põe dentro de grupo; renomear, mover para grupo e remover pelo
+  clique direito. Marca-se pelo botão no cabeçalho da nota (cheio quando ela
+  já está marcada), pelo menu da aba e da árvore (pasta também), pelo clique
+  direito num título do sumário e pelo botão na busca da pasta. Clique abre
+  como um link (Ctrl+clique ou botão do meio em aba nova), e o marcador de
+  título salta para a seção. Renomear ou mover o arquivo leva o marcador.
+- **Caminho da nota no cabeçalho:** as pastas entre a pasta aberta e o
+  arquivo aparecem antes do nome, e clicar numa delas a revela na árvore.
+- **Revelar na árvore** (paleta e menu da aba): abre as pastas até o arquivo,
+  rola e pisca a linha.
+- **Dica própria no lugar da do Windows:** segue o tema, espera 0,7 s na
+  primeira vez e aparece na hora ao passar para o botão vizinho; na faixa de
+  ícones da barra lateral sai do lado. Dentro do documento continua a do
+  sistema.
+- **Clique direito no título do sumário:** marcar o título e copiar o link
+  `[[nota#Título]]`. **Clique direito na pasta da árvore:** marcar, abrir como
+  pasta principal, mostrar no Explorer, copiar caminho.
 - **Mudança no disco com escolha e diferença** (do Notepad++). Quando outro
   programa grava um arquivo aberto e a aba tem edição, o selo "mudou no disco"
   abre a escolha entre a versão do disco e a sua, com a diferença linha a linha

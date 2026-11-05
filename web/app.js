@@ -1670,6 +1670,7 @@
     if (!destino || tabByPath(destino)) { marcaApagado(tab); return; }
     var antigo = tab.name;
     var chaveVelha = tab.path;
+    marcadoresSeguem(chaveVelha, destino);
     tab.path = destino;
     tab.name = baseName(destino);
     tab.dir = destino.replace(/[\\/][^\\/]*$/, '');
@@ -1945,6 +1946,9 @@
     var dirty = tab && tab.content !== tab.savedContent;
 
     $('viewTitle').textContent = tab ? tab.name : 'MarkPad';
+    $('viewTitle').title = tab && tab.path ? tab.path : '';
+    renderMigalhas(tab);
+    renderBotaoMarcador(tab);
     $('dirtyDot').hidden = !dirty;
     renderNavegacao();
 
@@ -1975,6 +1979,7 @@
       badge.hidden = false;
       badge.className = 'disk-badge';
       badge.textContent = t('somente leitura no disco');
+      badge.title = '';
       badge.onclick = null;
     } else {
       badge.hidden = true;
@@ -4018,6 +4023,17 @@
       linha.appendChild(texto);
 
       linha.onclick = function () { goToLine(no.line + 1); };
+      linha.oncontextmenu = function (e) {
+        e.preventDefault();
+        var tab = activeTab();
+        showMenu([
+          { label: t('Marcar este título'), icon: 'bookmark', disabled: !(tab && tab.path), action: function () { marcaTitulo(tab.path, no.text); } },
+          { label: t('Copiar link para o título'), icon: 'link', disabled: !(tab && tab.path), action: function () {
+              navigator.clipboard.writeText('[[' + semExtensao(tab.name) + '#' + no.text + ']]');
+              toast(t('Link copiado.'), 'ok', 1200);
+            } }
+        ], e.clientX, e.clientY);
+      };
       wrapper.appendChild(linha);
 
       if (no.filhos.length) {
@@ -4680,6 +4696,10 @@
           };
 
           if (app.treeOpen[entry.path]) row.onclick();
+          row.oncontextmenu = function (e) {
+            e.preventDefault();
+            showMenu(menuDaPasta(entry.path), e.clientX, e.clientY);
+          };
         } else {
           row.onclick = function () { openPath(entry.path); };
           row.oncontextmenu = function (e) {
@@ -4704,6 +4724,96 @@
     if (!novo) return;
     span.textContent = '';
     span.appendChild(novo);
+  }
+
+  /*
+   * Revelar na arvore (o "Reveal current file in navigation" do Obsidian):
+   * abre as pastas do caminho, rola ate a linha e pisca. Serve para o arquivo
+   * da aba e para as pastas do caminho no cabecalho.
+   */
+  function revelaNaArvore(caminho) {
+    if (!caminho) return;
+    var raiz = String(app.folder || '').replace(/[\\/]+$/, '');
+    var dentro = !!raiz && caminho.toLowerCase().indexOf(raiz.toLowerCase()) === 0 &&
+      /[\\/]/.test(caminho.charAt(raiz.length));
+    if (!dentro) {
+      toast(t('Fica fora da pasta aberta.'), '', 2200);
+      return;
+    }
+    if (!settings.sidebarVisible) toggleSidebar(true);
+    setPane('files');
+    if (app.treeFilter) toggleTreeFilter(false);
+
+    var sep = raiz.indexOf('\\') !== -1 ? '\\' : '/';
+    var partes = caminho.slice(raiz.length).replace(/^[\\/]+/, '').split(/[\\/]/);
+    var pasta = raiz;
+    for (var i = 0; i < partes.length - 1; i++) {
+      pasta += sep + partes[i];
+      app.treeOpen[pasta] = true;
+    }
+    refreshTree();
+
+    var alvo = caminho.toLowerCase();
+    var tentativas = 0;
+    (function procura() {
+      var rows = $('fileTree').querySelectorAll('.tree-item');
+      for (var k = 0; k < rows.length; k++) {
+        if ((rows[k].getAttribute('data-path') || '').toLowerCase() === alvo) {
+          rows[k].scrollIntoView({ block: 'center' });
+          piscaAlvo(rows[k]);
+          return;
+        }
+      }
+      // A arvore carrega pasta por pasta: espera a descida terminar.
+      if (++tentativas < 60) setTimeout(procura, 50);
+    })();
+  }
+
+  /*
+   * O caminho da nota no cabecalho, como as migalhas do Obsidian: as pastas
+   * entre a pasta aberta e o arquivo, cada uma clicavel (revela na arvore).
+   * Fora da pasta aberta, nada: o caminho inteiro esta na dica do nome.
+   */
+  function renderMigalhas(tab) {
+    var box = $('viewCrumbs');
+    if (!box) return;
+    box.textContent = '';
+    var raiz = String(app.folder || '').replace(/[\\/]+$/, '');
+    if (!tab || !tab.path || !raiz) return;
+    var rel = relNaPasta(tab.path);
+    if (rel === tab.path.replace(/\\/g, '/')) return;   // fora da pasta
+    var pastas = rel.split('/').slice(0, -1);
+    if (!pastas.length) return;
+
+    var sep = raiz.indexOf('\\') !== -1 ? '\\' : '/';
+    var inicio = Math.max(0, pastas.length - 3);
+    if (inicio > 0) {
+      var corte = document.createElement('span');
+      corte.className = 'view-crumb is-corte';
+      corte.textContent = '…';
+      corte.title = pastas.slice(0, inicio).join('/');
+      box.appendChild(corte);
+      box.appendChild(separadorMigalha());
+    }
+    pastas.forEach(function (nome, i) {
+      if (i < inicio) return;
+      var caminho = raiz + sep + pastas.slice(0, i + 1).join(sep);
+      var el = document.createElement('button');
+      el.type = 'button';
+      el.className = 'view-crumb';
+      el.textContent = nome;
+      el.title = t('Mostrar {pasta} na árvore', { pasta: nome });
+      el.onclick = function () { revelaNaArvore(caminho); };
+      box.appendChild(el);
+      box.appendChild(separadorMigalha());
+    });
+  }
+
+  function separadorMigalha() {
+    var s = document.createElement('span');
+    s.className = 'view-crumb-sep';
+    s.textContent = '/';
+    return s;
   }
 
   function markTreeActive() {
@@ -4756,6 +4866,7 @@
       panes[j].hidden = panes[j].getAttribute('data-pane') !== name;
     }
     if (name === 'tags') renderTags();
+    if (name === 'bookmarks') renderMarcadores();
     persist();
   }
 
@@ -5532,6 +5643,443 @@
     persist();
   }
 
+  // ============================================================ marcadores
+  //
+  // Os favoritos do Obsidian (plugin Bookmarks): arquivo, titulo, busca e
+  // pasta, soltos ou em grupos, num painel proprio. Sem cofre, a lista e uma
+  // so para o MarkPad inteiro (settings.marcadores), com caminho absoluto.
+  // Clique abre como um link (na propria aba, se ela puder trocar); Ctrl+clique
+  // ou botao do meio, em aba nova. Arrastar reordena e poe dentro de grupo.
+
+  function marcadores() {
+    if (!Array.isArray(settings.marcadores)) settings.marcadores = [];
+    return settings.marcadores;
+  }
+
+  /** Percorre a lista inteira, grupos inclusive: fn(item, lista, indice). */
+  function cadaMarcador(fn, lista) {
+    (lista || marcadores()).slice().forEach(function (m) {
+      var arr = lista || marcadores();
+      fn(m, arr, arr.indexOf(m));
+      if (m.tipo === 'grupo') cadaMarcador(fn, m.itens || (m.itens = []));
+    });
+  }
+
+  function achaMarcador(pred) {
+    var achado = null;
+    cadaMarcador(function (m, arr, i) { if (!achado && pred(m)) achado = { m: m, arr: arr, i: i }; });
+    return achado;
+  }
+
+  function marcadorDoArquivo(path) {
+    return path ? achaMarcador(function (m) { return m.tipo === 'arquivo' && mesmoArquivo(m.caminho, path); }) : null;
+  }
+
+  function salvaMarcadores() {
+    persist();
+    renderMarcadores();
+    renderHeader();
+  }
+
+  function alternaMarcadorArquivo(path) {
+    if (!path) return;
+    var achado = marcadorDoArquivo(path);
+    if (achado) {
+      achado.arr.splice(achado.i, 1);
+      toast(t('Marcador removido.'), '', 1600);
+    } else {
+      marcadores().push({ tipo: 'arquivo', caminho: path });
+      toast(t('Marcado: {nome}', { nome: baseName(path) }), 'ok', 1600);
+    }
+    salvaMarcadores();
+  }
+
+  function adicionaMarcador(novo, igual) {
+    if (achaMarcador(igual)) { toast(t('Já está nos marcadores.'), '', 1800); return; }
+    marcadores().push(novo);
+    toast(t('Marcado: {nome}', { nome: rotuloDoMarcador(novo) }), 'ok', 1600);
+    salvaMarcadores();
+  }
+
+  function marcaTitulo(path, titulo) {
+    if (!path || !titulo) return;
+    adicionaMarcador({ tipo: 'titulo', caminho: path, titulo: titulo }, function (m) {
+      return m.tipo === 'titulo' && mesmoArquivo(m.caminho, path) && m.titulo === titulo;
+    });
+  }
+
+  function marcaBusca(consulta) {
+    consulta = String(consulta || '').trim();
+    if (!consulta) { toast(t('Digite uma busca antes de marcar.'), 'warn', 2000); return; }
+    adicionaMarcador({ tipo: 'busca', consulta: consulta }, function (m) { return m.tipo === 'busca' && m.consulta === consulta; });
+  }
+
+  function marcaPasta(path) {
+    if (!path) return;
+    adicionaMarcador({ tipo: 'pasta', caminho: path }, function (m) { return m.tipo === 'pasta' && mesmoArquivo(m.caminho, path); });
+  }
+
+  /** O titulo da secao em que o leitor esta (o realcado no sumario). */
+  function tituloAtual() {
+    var row = $('outline').querySelector('.outline-row.is-current .outline-text');
+    return row ? row.textContent : '';
+  }
+
+  function rotuloDoMarcador(m) {
+    if (m.nome) return m.nome;
+    if (m.tipo === 'arquivo') return semExtensao(baseName(m.caminho));
+    if (m.tipo === 'titulo') return m.titulo;
+    if (m.tipo === 'busca') return m.consulta;
+    if (m.tipo === 'pasta') return baseName(m.caminho);
+    return t('Grupo');
+  }
+
+  function iconeDoMarcador(m) {
+    return { arquivo: 'file-text', titulo: 'heading', busca: 'search', pasta: 'folder', grupo: 'folder' }[m.tipo] || 'file-text';
+  }
+
+  /** Renomear ou mover dentro do app (ou por fora): os marcadores seguem. */
+  function marcadoresSeguem(antigo, novo) {
+    var mudou = false;
+    cadaMarcador(function (m) {
+      if (!m.caminho) return;
+      if (mesmoArquivo(m.caminho, antigo)) { m.caminho = novo; mudou = true; return; }
+      // Pasta renomeada: o que estava dentro dela tambem muda de caminho.
+      var pre = antigo.replace(/[\\/]+$/, '');
+      if (m.caminho.toLowerCase().indexOf(pre.toLowerCase()) === 0 && /[\\/]/.test(m.caminho.charAt(pre.length))) {
+        m.caminho = novo + m.caminho.slice(pre.length);
+        mudou = true;
+      }
+    });
+    if (mudou) salvaMarcadores();
+  }
+
+  function abreMarcador(m, ev) {
+    var novaAba = !!(ev && (ev.ctrlKey || ev.metaKey || ev.button === 1));
+    if (m.tipo === 'grupo') { m.fechado = !m.fechado; salvaMarcadores(); return; }
+    if (m.tipo === 'busca') { openFolderSearch(m.consulta); return; }
+    if (m.tipo === 'pasta') {
+      var raiz = String(app.folder || '').replace(/[\\/]+$/, '');
+      if (raiz && m.caminho.toLowerCase().indexOf(raiz.toLowerCase()) === 0 && /[\\/]/.test(m.caminho.charAt(raiz.length))) revelaNaArvore(m.caminho);
+      else setFolder(m.caminho);
+      return;
+    }
+    abreDestino(m.caminho, { origem: activeTab(), novaAba: novaAba, secao: m.tipo === 'titulo' ? m.titulo : null });
+  }
+
+  function renderMarcadores() {
+    var box = $('bookmarkList');
+    if (!box) return;
+    box.textContent = '';
+    var lista = marcadores();
+    if (!lista.length) {
+      var vazio = document.createElement('p');
+      vazio.className = 'pane-empty';
+      vazio.textContent = t('Nada marcado ainda. Use a estrela no cabeçalho da nota, o menu da aba, da árvore ou do sumário, ou o botão da busca.');
+      box.appendChild(vazio);
+      return;
+    }
+    box.appendChild(desenhaMarcadores(lista, 0));
+  }
+
+  var arrastoMarcador = null;   // { m, arr }
+
+  function desenhaMarcadores(lista, nivel) {
+    var frag = document.createDocumentFragment();
+    lista.forEach(function (m) {
+      var row = document.createElement('div');
+      row.className = 'marcador-item' + (m.tipo === 'grupo' ? ' is-grupo' : '');
+      row.style.setProperty('--indent', (6 + nivel * 14) + 'px');
+      row.draggable = true;
+      row.setAttribute('role', 'treeitem');
+      if (m.tipo === 'grupo') row.setAttribute('aria-expanded', m.fechado ? 'false' : 'true');
+
+      var twist = document.createElement('span');
+      twist.className = 'twist' + (m.tipo === 'grupo' && !m.fechado ? ' is-open' : '');
+      if (m.tipo === 'grupo') {
+        var chev = window.MarkPadIcons.build('chevron-right', 13);
+        if (chev) twist.appendChild(chev);
+      }
+      row.appendChild(twist);
+
+      var ic = document.createElement('span');
+      ic.className = 'twist';
+      var svg = window.MarkPadIcons.build(m.tipo === 'grupo' && !m.fechado ? 'folder-open' : iconeDoMarcador(m), 13);
+      if (svg) ic.appendChild(svg);
+      row.appendChild(ic);
+
+      var nome = document.createElement('span');
+      nome.className = 'marcador-nome';
+      nome.textContent = rotuloDoMarcador(m);
+      row.appendChild(nome);
+
+      var sub = null;
+      if (m.tipo === 'titulo') sub = semExtensao(baseName(m.caminho));
+      else if (m.tipo === 'arquivo' || m.tipo === 'pasta') {
+        // Na raiz da pasta aberta, nada; dentro dela, o caminho relativo;
+        // fora, so o nome da pasta de origem (o caminho inteiro esta na dica).
+        var dirDoItem = m.caminho.replace(/[\\/][^\\/]*$/, '');
+        var rel = relNaPasta(dirDoItem);
+        if (app.folder && mesmoArquivo(dirDoItem.replace(/[\\/]+$/, ''), String(app.folder).replace(/[\\/]+$/, ''))) sub = null;
+        else sub = rel === dirDoItem.replace(/\\/g, '/') ? baseName(dirDoItem) : rel;
+      } else if (m.tipo === 'grupo') sub = String((m.itens || []).length);
+      if (sub) {
+        var s2 = document.createElement('span');
+        s2.className = 'marcador-sub';
+        s2.textContent = sub;
+        row.appendChild(s2);
+      }
+      row.title = m.caminho ? m.caminho + (m.titulo ? ' › ' + m.titulo : '') : (m.tipo === 'busca' ? t('Busca: {q}', { q: m.consulta }) : '');
+
+      row.onclick = function (e) { abreMarcador(m, e); };
+      row.onauxclick = function (e) { if (e.button === 1) { e.preventDefault(); abreMarcador(m, e); } };
+      row.oncontextmenu = function (e) {
+        e.preventDefault();
+        showMenu(menuDoMarcador(m, lista), e.clientX, e.clientY);
+      };
+
+      row.ondragstart = function (e) {
+        arrastoMarcador = { m: m, arr: lista };
+        e.dataTransfer.effectAllowed = 'move';
+        try { e.dataTransfer.setData('text/plain', rotuloDoMarcador(m)); } catch (x) {}
+        row.classList.add('is-arrastando');
+      };
+      row.ondragend = function () {
+        arrastoMarcador = null;
+        row.classList.remove('is-arrastando');
+        limpaAlvosMarcador();
+      };
+      row.ondragover = function (e) {
+        if (!arrastoMarcador || arrastoMarcador.m === m) return;
+        e.preventDefault();
+        var r = row.getBoundingClientRect();
+        var y = (e.clientY - r.top) / r.height;
+        var lugar = m.tipo === 'grupo' && y > 0.3 && y < 0.7 ? 'dentro' : (y < 0.5 ? 'antes' : 'depois');
+        limpaAlvosMarcador();
+        row.classList.add('alvo-' + lugar);
+        row.__lugar = lugar;
+      };
+      row.ondragleave = function () { row.classList.remove('alvo-antes', 'alvo-depois', 'alvo-dentro'); };
+      row.ondrop = function (e) {
+        e.preventDefault();
+        var arr = arrastoMarcador;
+        limpaAlvosMarcador();
+        if (!arr || arr.m === m) return;
+        // Grupo nao entra nele mesmo nem num filho dele.
+        if (arr.m.tipo === 'grupo' && contemMarcador(arr.m, m)) return;
+        arr.arr.splice(arr.arr.indexOf(arr.m), 1);
+        if (row.__lugar === 'dentro') {
+          (m.itens || (m.itens = [])).push(arr.m);
+          m.fechado = false;
+        } else {
+          var i = lista.indexOf(m);
+          lista.splice(row.__lugar === 'depois' ? i + 1 : i, 0, arr.m);
+        }
+        arrastoMarcador = null;
+        salvaMarcadores();
+      };
+
+      frag.appendChild(row);
+      if (m.tipo === 'grupo' && !m.fechado) {
+        var filhos = document.createElement('div');
+        filhos.className = 'marcador-filhos';
+        filhos.setAttribute('role', 'group');
+        filhos.appendChild(desenhaMarcadores(m.itens || (m.itens = []), nivel + 1));
+        frag.appendChild(filhos);
+      }
+    });
+    return frag;
+  }
+
+  function contemMarcador(grupo, alvo) {
+    return (grupo.itens || []).some(function (f) { return f === alvo || (f.tipo === 'grupo' && contemMarcador(f, alvo)); });
+  }
+
+  function limpaAlvosMarcador() {
+    var rows = document.querySelectorAll('.marcador-item');
+    for (var i = 0; i < rows.length; i++) rows[i].classList.remove('alvo-antes', 'alvo-depois', 'alvo-dentro');
+  }
+
+  function grupos(lista, saida) {
+    saida = saida || [];
+    (lista || marcadores()).forEach(function (m) {
+      if (m.tipo === 'grupo') { saida.push(m); grupos(m.itens || [], saida); }
+    });
+    return saida;
+  }
+
+  function menuDoMarcador(m, lista) {
+    var itens = [];
+    if (m.tipo === 'arquivo' || m.tipo === 'titulo') {
+      itens.push({ label: t('Abrir em nova aba'), icon: 'file-text', action: function () { abreMarcador(m, { ctrlKey: true }); } });
+    }
+    if (m.tipo === 'arquivo' || m.tipo === 'pasta') {
+      itens.push({ label: t('Revelar na árvore'), icon: 'folder-open', action: function () { revelaNaArvore(m.caminho); } });
+    }
+    if (itens.length) itens.push('-');
+    itens.push({ label: m.tipo === 'grupo' ? t('Renomear grupo...') : t('Renomear marcador...'), icon: 'text', action: function () {
+      promptDialog(t('Nome do marcador'), m.tipo === 'grupo' ? '' : t('Em branco volta ao nome original.'), { value: m.nome || (m.tipo === 'grupo' ? '' : rotuloDoMarcador(m)),
+          validate: function (v) { return m.tipo === 'grupo' && !v ? t('Digite alguma coisa.') : null; } })
+        .then(function (v) {
+          if (v === null || v === undefined) return;
+          v = String(v).trim();
+          if (m.tipo === 'grupo') { if (v) m.nome = v; }
+          else if (!v || v === rotuloDoMarcador({ tipo: m.tipo, caminho: m.caminho, titulo: m.titulo, consulta: m.consulta })) delete m.nome;
+          else m.nome = v;
+          salvaMarcadores();
+        });
+    } });
+    var destinos = grupos().filter(function (g) { return g !== m && !(m.tipo === 'grupo' && contemMarcador(m, g)); });
+    if (destinos.length || lista !== marcadores()) {
+      itens.push({ label: t('Mover para'), header: true });
+      if (lista !== marcadores()) {
+        itens.push({ label: t('Fora de grupo'), action: function () { lista.splice(lista.indexOf(m), 1); marcadores().push(m); salvaMarcadores(); } });
+      }
+      destinos.forEach(function (g) {
+        if ((g.itens || []).indexOf(m) !== -1) return;
+        itens.push({ label: rotuloDoMarcador(g), icon: 'folder', action: function () {
+          lista.splice(lista.indexOf(m), 1);
+          (g.itens || (g.itens = [])).push(m);
+          salvaMarcadores();
+        } });
+      });
+    }
+    itens.push('-');
+    itens.push({ label: m.tipo === 'grupo' ? t('Remover grupo (os itens ficam)') : t('Remover marcador'), icon: 'trash', action: function () {
+      var i = lista.indexOf(m);
+      lista.splice(i, 1);
+      if (m.tipo === 'grupo') Array.prototype.splice.apply(lista, [i, 0].concat(m.itens || []));
+      salvaMarcadores();
+    } });
+    return itens;
+  }
+
+  function novoGrupoDeMarcadores() {
+    promptDialog(t('Novo grupo'), t('Nome do grupo de marcadores'), { value: '' }).then(function (v) {
+      v = String(v || '').trim();
+      if (!v) return;
+      marcadores().push({ tipo: 'grupo', nome: v, itens: [] });
+      salvaMarcadores();
+    });
+  }
+
+  /** O botao de marcador do cabecalho: cheio quando a nota ja esta marcada. */
+  function renderBotaoMarcador(tab) {
+    var b = $('btnMarcar');
+    if (!b) return;
+    var marcada = !!(tab && tab.path && marcadorDoArquivo(tab.path));
+    b.disabled = !(tab && tab.path);
+    b.classList.toggle('is-on', marcada);
+    b.title = marcada ? t('Desmarcar esta nota') : t('Marcar esta nota');
+  }
+
+  // ================================================================ dicas
+  //
+  // A dica do Obsidian no lugar da do Windows: a do sistema demora, sai com a
+  // cara do Windows (ignora o tema) e some quando quer. Esta segue o tema,
+  // espera 700 ms na primeira vez e aparece na hora ao passar de um botao para
+  // o vizinho (ate 300 ms depois de a anterior sumir). O texto continua vindo
+  // do `title` que o codigo ja poe: ao pairar ele vira `data-dica`, e tambem
+  // `aria-label` quando o elemento nao tem texto proprio (leitor de tela e UI
+  // Automation continuam achando o botao pelo nome). Dentro do documento fica
+  // a do sistema: la quem fala e o autor da nota, e a previa de link ja ocupa
+  // o pairar.
+  var dica = { el: null, alvo: null, timer: null, sumiuEm: 0, clicado: null };
+  var DICA_ESPERA = 700, DICA_EMENDA = 300;
+  var SEM_DICA = '#preview, .markdown-preview, .previa-pagina, textarea, input, select';
+
+  function textoDaDica(el) {
+    if (el.hasAttribute('title')) {
+      var txt = el.getAttribute('title');
+      el.removeAttribute('title');
+      if (txt) {
+        el.setAttribute('data-dica', txt);
+        if (el.hasAttribute('data-dica-nome') || (!el.hasAttribute('aria-label') && !el.textContent.trim())) {
+          el.setAttribute('aria-label', txt);
+          el.setAttribute('data-dica-nome', '');
+        }
+      } else {
+        el.removeAttribute('data-dica');
+      }
+    }
+    return el.getAttribute('data-dica') || '';
+  }
+
+  function escondeDica() {
+    clearTimeout(dica.timer);
+    dica.timer = null;
+    dica.alvo = null;
+    if (dica.el) {
+      dica.el.remove();
+      dica.el = null;
+      dica.sumiuEm = Date.now();
+    }
+  }
+
+  function mostraDica(el, texto) {
+    if (!el.isConnected) return;
+    if (dica.el) dica.el.remove();
+    var d = document.createElement('div');
+    d.className = 'dica';
+    d.setAttribute('role', 'tooltip');
+    d.textContent = texto;
+    document.body.appendChild(d);
+    dica.el = d;
+
+    var r = el.getBoundingClientRect();
+    var w = d.offsetWidth, h = d.offsetHeight;
+    var vw = document.documentElement.clientWidth, vh = document.documentElement.clientHeight;
+    var M = 6, GAP = 7;
+    var top, left;
+    if (el.closest('.sidebar-tabs')) {
+      // Faixa vertical de icones: a dica sai do lado, como na do Obsidian.
+      top = r.top + r.height / 2 - h / 2;
+      left = r.right + GAP;
+      d.classList.add('is-lado');
+    } else {
+      top = r.bottom + GAP;
+      left = r.left + r.width / 2 - w / 2;
+      if (top + h > vh - M) top = r.top - h - GAP;   // sem espaco embaixo: em cima
+    }
+    d.style.top = Math.max(M, Math.min(top, vh - h - M)) + 'px';
+    d.style.left = Math.max(M, Math.min(left, vw - w - M)) + 'px';
+  }
+
+  function instalaDicas() {
+    document.addEventListener('pointerover', function (e) {
+      if (e.pointerType === 'touch') return;
+      var el = e.target && e.target.closest ? e.target.closest('[title], [data-dica]') : null;
+      if (!el || el.closest(SEM_DICA)) return;
+      if (el === dica.alvo) return;
+      // Clicou: a dica desse elemento so volta depois que o mouse sair dele
+      // (como a do sistema), mesmo que o clique tenha trocado o texto.
+      if (el === dica.clicado) return;
+      var texto = textoDaDica(el);
+      clearTimeout(dica.timer);
+      if (!texto) { escondeDica(); return; }
+      var emenda = !!dica.el || Date.now() - dica.sumiuEm < DICA_EMENDA;
+      if (dica.el) { dica.el.remove(); dica.el = null; dica.sumiuEm = Date.now(); }
+      dica.alvo = el;
+      if (emenda) mostraDica(el, texto);
+      else dica.timer = setTimeout(function () { if (dica.alvo === el) mostraDica(el, texto); }, DICA_ESPERA);
+    }, true);
+    document.addEventListener('pointerout', function (e) {
+      var para = e.relatedTarget;
+      if (dica.clicado && !(para && dica.clicado.contains(para))) dica.clicado = null;
+      if (!dica.alvo) return;
+      if (para && dica.alvo.contains(para)) return;
+      escondeDica();
+    }, true);
+    document.addEventListener('pointerdown', function (e) {
+      dica.clicado = e.target && e.target.closest ? e.target.closest('[title], [data-dica]') : null;
+      escondeDica();
+    }, true);
+    ['keydown', 'wheel'].forEach(function (ev) {
+      document.addEventListener(ev, escondeDica, true);
+    });
+    window.addEventListener('blur', escondeDica);
+  }
+
   // ======================================================= paleta / menu
 
   function commands() {
@@ -5584,6 +6132,17 @@
       { id: 'duplicate', label: t('Duplicar'), icon: 'copy', enabled: !!(tab && tab.path), action: function () { duplicateDoc(activeTab().path); } },
       { id: 'versions', label: t('Historico de versoes...'), icon: 'clock', enabled: !!(tab && tab.path), action: function () { abreVersoes(activeTab().path); } },
       { id: 'drafts', label: t('Rascunhos não salvos...'), icon: 'clock', action: function () { offerBackups(true); } },
+      { id: 'bookmarkFile', label: tab && tab.path && marcadorDoArquivo(tab.path) ? t('Desmarcar esta nota') : t('Marcar esta nota'), icon: 'bookmark', enabled: !!(tab && tab.path), action: function () { alternaMarcadorArquivo(activeTab().path); } },
+      { id: 'bookmarkHeading', label: t('Marcar o título atual'), icon: 'bookmark', enabled: !!(tab && tab.path), action: function () {
+          var titulo = tituloAtual();
+          if (!titulo) { toast(t('Role até uma seção com título primeiro.'), 'warn', 2200); return; }
+          marcaTitulo(activeTab().path, titulo);
+        } },
+      { id: 'bookmarksPane', label: t('Mostrar marcadores'), icon: 'bookmark', action: function () {
+          if (!settings.sidebarVisible) toggleSidebar(true);
+          setPane('bookmarks');
+        } },
+      { id: 'revealTree', label: t('Revelar na árvore'), icon: 'folder-open', enabled: !!(tab && tab.path && app.folder), action: function () { revelaNaArvore(activeTab().path); } },
       { id: 'openWith', label: t('Abrir no app padrao do Windows'), icon: 'external', enabled: !!(tab && tab.path), action: function () { openWithDefaultApp(activeTab().path); } },
       { id: 'delete', label: t('Excluir arquivo...'), icon: 'trash', enabled: !!(tab && tab.path), action: function () { deleteDoc(activeTab().path); } },
       { id: 'export', label: t('Exportar como HTML...'), icon: 'external', enabled: !!tab, action: exportHtml },
@@ -6597,6 +7156,7 @@
       { label: t('Mover para...'), icon: 'folder', action: function () { moveDoc(path); } },
       { label: t('Duplicar'), icon: 'copy', action: function () { duplicateDoc(path); } },
       { label: t('Historico de versoes...'), icon: 'clock', action: function () { abreVersoes(path); } },
+      { label: marcadorDoArquivo(path) ? t('Desmarcar') : t('Marcar'), icon: 'bookmark', action: function () { alternaMarcadorArquivo(path); } },
       '-',
       { label: t('Abrir em nova janela'), icon: 'columns', action: function () { novaJanela([path]); } },
       { label: t('Abrir no app padrao'), icon: 'external', action: function () { openWithDefaultApp(path); } },
@@ -6604,6 +7164,16 @@
       { label: t('Copiar caminho'), icon: 'copy', action: function () { navigator.clipboard.writeText(path); toast(t('Caminho copiado.'), 'ok', 1200); } },
       '-',
       { label: t('Excluir arquivo...'), icon: 'trash', action: function () { deleteDoc(path); } }
+    ];
+  }
+
+  function menuDaPasta(path) {
+    return [
+      { label: t('Marcar pasta'), icon: 'bookmark', action: function () { marcaPasta(path); } },
+      { label: t('Abrir como pasta principal'), icon: 'folder-open', action: function () { setFolder(path); } },
+      '-',
+      { label: t('Mostrar no Explorer'), icon: 'reveal', action: function () { bridge.call('revealInExplorer', { path: path }); } },
+      { label: t('Copiar caminho'), icon: 'copy', action: function () { navigator.clipboard.writeText(path); toast(t('Caminho copiado.'), 'ok', 1200); } }
     ];
   }
 
@@ -6637,6 +7207,8 @@
       { label: t('Mover para...'), icon: 'folder', disabled: !tab.path, action: function () { moveDoc(tab.path); } },
       { label: t('Duplicar'), icon: 'copy', disabled: !tab.path, action: function () { duplicateDoc(tab.path); } },
       { label: t('Historico de versoes...'), icon: 'clock', disabled: !tab.path, action: function () { abreVersoes(tab.path); } },
+      { label: tab.path && marcadorDoArquivo(tab.path) ? t('Desmarcar') : t('Marcar'), icon: 'bookmark', disabled: !tab.path, action: function () { alternaMarcadorArquivo(tab.path); } },
+      { label: t('Revelar na árvore'), icon: 'folder-open', disabled: !tab.path || !app.folder, action: function () { revelaNaArvore(tab.path); } },
       '-',
       { label: t('Abrir em nova janela'), icon: 'columns', disabled: !tab.path, action: function () { novaJanela([tab.path]); } },
       // Mover leva o arquivo do disco: com alteracao pendente, a outra janela
@@ -6673,6 +7245,7 @@
    * ao nome velho, que nao existe mais.
    */
   function historicoSegue(antigo, info) {
+    marcadoresSeguem(antigo, info.path);
     app.tabs.concat(app.fechadas || []).forEach(function (a) {
       var h = a.historico;
       if (!h) return;
@@ -8314,6 +8887,10 @@
     $('btnFind').onclick = openFind;
     $('btnVoltar').onclick = function () { navega(-1); };
     $('btnAvancar').onclick = function () { navega(1); };
+    $('btnMarcar').onclick = function () { var tab = activeTab(); if (tab) alternaMarcadorArquivo(tab.path); };
+    $('btnNovoGrupo').onclick = novoGrupoDeMarcadores;
+    $('btnMarcarAtual').onclick = function () { var tab = activeTab(); if (tab && tab.path && !marcadorDoArquivo(tab.path)) alternaMarcadorArquivo(tab.path); };
+    $('btnMarcarBusca').onclick = function () { marcaBusca($('folderSearchInput').value); };
     $('btnVoltar').oncontextmenu = function (e) { menuHistorico(-1, e); };
     $('btnAvancar').oncontextmenu = function (e) { menuHistorico(1, e); };
     // Botoes laterais do mouse (4 e 5): voltar e avancar, como no navegador.
@@ -8711,6 +9288,7 @@
 
   function boot() {
     wireUi();
+    instalaDicas();
 
     $('updateClose').onclick = function () {
       atualizacao.escondida = true;

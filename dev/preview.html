@@ -35,6 +35,7 @@
         <button class="sidebar-tab" data-pane="outline" data-icon="list" title="Sumario"></button>
         <button class="sidebar-tab" data-pane="tags" data-icon="hash" title="Tags"></button>
         <button class="sidebar-tab" data-pane="recent" data-icon="clock" title="Recentes"></button>
+        <button class="sidebar-tab" data-pane="bookmarks" data-icon="bookmark" title="Marcadores"></button>
       </div>
 
       <div class="sidebar-body">
@@ -68,6 +69,7 @@
             <div class="toggle-row">
               <button class="chip" id="btnSearchCase" title="Diferenciar maiusculas">Aa</button>
               <button class="chip" id="btnSearchRegex" title="Expressao regular">.*</button>
+              <button class="icon-btn small" id="btnMarcarBusca" data-icon="bookmark" title="Marcar esta busca"></button>
             </div>
           </div>
           <div class="pane-scroll">
@@ -107,6 +109,17 @@
           <footer class="pane-foot" id="tagSummary" hidden></footer>
         </section>
 
+        <section class="pane" data-pane="bookmarks" hidden>
+          <header class="pane-head">
+            <span class="pane-title">Marcadores</span>
+            <button class="icon-btn small" id="btnMarcarAtual" data-icon="bookmark" title="Marcar a nota aberta"></button>
+            <button class="icon-btn small" id="btnNovoGrupo" data-icon="plus" title="Novo grupo"></button>
+          </header>
+          <div class="pane-scroll">
+            <div class="bookmark-list" id="bookmarkList" role="tree"></div>
+          </div>
+        </section>
+
         <section class="pane" data-pane="recent" hidden>
           <header class="pane-head">
             <span class="pane-title">Abertos recentemente</span>
@@ -135,6 +148,7 @@
             <button class="icon-btn nav-btn" id="btnAvancar" data-icon="arrow-right" title="Avançar (Alt+→)" disabled></button>
           </div>
           <span class="view-icon" data-icon="file-text"></span>
+          <span class="view-crumbs" id="viewCrumbs"></span>
           <span class="view-name" id="viewTitle">MarkPad</span>
           <span class="dirty-dot" id="dirtyDot" hidden title="alteracoes nao salvas"></span>
           <span class="disk-badge" id="diskBadge" hidden></span>
@@ -147,6 +161,7 @@
           <button class="mode-flag" id="btnModeFlag" type="button" title="Modo de exibição">
             <span class="mode-flag-icon" data-icon="book-open"></span>
           </button>
+          <button class="icon-btn" id="btnMarcar" data-icon="bookmark" title="Marcar esta nota"></button>
           <button class="icon-btn" id="btnFind" data-icon="search" title="Localizar (Ctrl+F)"></button>
           <button class="icon-btn" id="btnMore" data-icon="more" title="Mais opcoes"></button>
 

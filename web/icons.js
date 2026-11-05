@@ -35,6 +35,7 @@
     'arrow-left': ['M19 12H5', 'M11 18l-6-6 6-6'],
     'arrow-right': ['M5 12h14', 'M13 6l6 6-6 6'],
     'pin': ['M9 3h6', 'M10 3v6l-3 4h10l-3-4V3', 'M12 13v8'],
+    'bookmark': ['M7 3h10a1 1 0 0 1 1 1v17l-6-4-6 4V4a1 1 0 0 1 1-1z'],
     'chevron-down': ['M6 9l6 6 6-6'],
     'chevron-up': ['M18 15l-6-6-6 6'],
     'lock': ['M6 11h12v9H6z', 'M9 11V7a3 3 0 0 1 6 0v4'],
