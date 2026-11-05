@@ -857,6 +857,11 @@ body.pilha-unica .tab-bar .tab-list { visibility: hidden; }
 .view-crumb.is-corte:hover { background: transparent; color: var(--text-faint); }
 .view-crumb-sep { padding: 0 1px; color: var(--text-faint); flex-shrink: 0; }
 
+/* arrastar na arvore: a pasta que recebe acende */
+.tree-item.is-arrastando { opacity: 0.5; }
+.tree-item.is-alvo-mover { background: var(--background-modifier-active); box-shadow: inset 0 0 0 1px var(--color-accent); }
+.file-tree.is-alvo-mover { box-shadow: inset 0 0 0 2px var(--color-accent); border-radius: var(--radius-s); }
+
 /* marcadores: linhas como as da arvore, grupos recolhiveis, arrastar */
 .bookmark-list { padding: 2px 0 8px; }
 .marcador-item {

@@ -6,6 +6,11 @@ Versionamento [SemVer](https://semver.org/lang/pt-BR/).
 ## [Não lançado]
 
 ### Adicionado
+- **Arrastar na árvore** (como o explorador do Obsidian): arquivo solto numa
+  pasta, ou no vazio da árvore (a pasta principal), muda de pasta, e os links
+  que apontam para ele são atualizados como no "Mover para...". Solto no
+  editor (código-fonte ou bloco aberto no modo ao vivo), vira `[[link]]` no
+  ponto em que caiu.
 - **Operações com linhas do Notepad++, com a regra do Markdown** (paleta):
   ordenar linhas de A a Z na ordem do português (números em ordem natural,
   sem ligar para maiúscula e acento), de Z a A, por tamanho ou invertendo;

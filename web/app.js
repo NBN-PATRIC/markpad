@@ -5191,6 +5191,7 @@
         row.appendChild(name);
 
         container.appendChild(row);
+        ligaArrastoNaArvore(row, entry);
 
         if (entry.dir) {
           var children = document.createElement('div');
@@ -8972,17 +8973,76 @@
 
     return bridge.call('openFolderDialog', {}).then(function (dir) {
       if (!dir) return null;
-      return indiceLinks().then(function (idx) {
-        return bridge.call('moveFile', { path: path, dir: dir }).then(function (info) {
-          var tab = tabByPath(path);
-          if (tab) adotarCaminho(tab, info, path);
-          else { dropRecent(path); arvoreMudou(); }
-          historicoSegue(path, info);
-          toast(t('Movido para ') + info.dir, 'ok', 3200);
-          return atualizaLinksDepoisDeMover(idx, path, info.path);
-        });
+      return moveDocPara(path, dir);
+    }).catch(falhaDoc('mover'));
+  }
+
+  /** Move para a pasta `dir`: aba, historico, marcadores e links seguem. */
+  function moveDocPara(path, dir) {
+    return indiceLinks().then(function (idx) {
+      return bridge.call('moveFile', { path: path, dir: dir }).then(function (info) {
+        var tab = tabByPath(path);
+        if (tab) adotarCaminho(tab, info, path);
+        else { dropRecent(path); arvoreMudou(); }
+        historicoSegue(path, info);
+        toast(t('Movido para ') + info.dir, 'ok', 3200);
+        return atualizaLinksDepoisDeMover(idx, path, info.path);
       });
     }).catch(falhaDoc('mover'));
+  }
+
+  /*
+   * Arrastar na arvore, como no explorador do Obsidian: arquivo solto numa
+   * pasta (ou no vazio da arvore, que e a raiz) muda de pasta, com os links
+   * atualizados; solto no editor, vira [[link]] no ponto em que caiu.
+   */
+  var arrastoArquivo = null;
+
+  function ligaArrastoNaArvore(row, entry) {
+    if (!entry.dir) {
+      row.draggable = true;
+      row.addEventListener('dragstart', function (e) {
+        arrastoArquivo = entry.path;
+        e.dataTransfer.effectAllowed = 'copyMove';
+        var nome = /\.(md|markdown)$/i.test(entry.name) ? semExtensao(entry.name) : entry.name;
+        try { e.dataTransfer.setData('text/plain', '[[' + nome + ']]'); } catch (x) {}
+        row.classList.add('is-arrastando');
+      });
+      row.addEventListener('dragend', function () {
+        arrastoArquivo = null;
+        row.classList.remove('is-arrastando');
+        limpaAlvosDaArvore();
+      });
+      return;
+    }
+    row.addEventListener('dragover', function (e) {
+      if (!arrastoArquivo || !podeMoverPara(arrastoArquivo, entry.path)) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      limpaAlvosDaArvore();
+      row.classList.add('is-alvo-mover');
+    });
+    row.addEventListener('dragleave', function () { row.classList.remove('is-alvo-mover'); });
+    row.addEventListener('drop', function (e) {
+      if (!arrastoArquivo) return;
+      e.preventDefault();
+      e.stopPropagation();
+      var de = arrastoArquivo;
+      arrastoArquivo = null;
+      limpaAlvosDaArvore();
+      if (podeMoverPara(de, entry.path)) moveDocPara(de, entry.path);
+    });
+  }
+
+  function podeMoverPara(path, dir) {
+    var atual = String(path).replace(/[\\/][^\\/]*$/, '');
+    return !mesmoArquivo(atual, dir);
+  }
+
+  function limpaAlvosDaArvore() {
+    var alvos = $('fileTree').querySelectorAll('.is-alvo-mover');
+    for (var i = 0; i < alvos.length; i++) alvos[i].classList.remove('is-alvo-mover');
+    $('fileTree').classList.remove('is-alvo-mover');
   }
 
   function duplicateDoc(path) {
@@ -10433,6 +10493,41 @@
       if (alvo && (alvo.tagName === 'TEXTAREA' || alvo.tagName === 'INPUT' || alvo.isContentEditable)) return;
       if (desfazMoverSecao()) { e.preventDefault(); e.stopPropagation(); }
     }, true);
+    // Arquivo da arvore solto num editor: o navegador insere o [[link]] no
+    // ponto da queda; se nao inserir (ha alvo que nao aceita), vai no cursor.
+    document.addEventListener('drop', function (e) {
+      var campo = e.target;
+      if (!arrastoArquivo || !campo || campo.tagName !== 'TEXTAREA') return;
+      var texto = '';
+      try { texto = e.dataTransfer.getData('text/plain'); } catch (x) {}
+      var antes = campo.value;
+      setTimeout(function () {
+        if (campo.value !== antes || !texto) return;
+        campo.focus();
+        if (!document.execCommand('insertText', false, texto)) {
+          var p0 = campo.selectionStart;
+          campo.value = antes.slice(0, p0) + texto + antes.slice(campo.selectionEnd);
+          campo.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+        if (campo === $('editorInput')) onEditorInput();
+      }, 0);
+    }, true);
+
+    var arvore = $('fileTree');
+    arvore.addEventListener('dragover', function (e) {
+      if (!arrastoArquivo || !app.folder || e.target.closest('.tree-item') || !podeMoverPara(arrastoArquivo, app.folder)) return;
+      e.preventDefault();
+      arvore.classList.add('is-alvo-mover');
+    });
+    arvore.addEventListener('dragleave', function (e) { if (e.target === arvore) arvore.classList.remove('is-alvo-mover'); });
+    arvore.addEventListener('drop', function (e) {
+      if (!arrastoArquivo || e.target.closest('.tree-item')) return;
+      e.preventDefault();
+      var de = arrastoArquivo;
+      arrastoArquivo = null;
+      limpaAlvosDaArvore();
+      if (app.folder && podeMoverPara(de, app.folder)) moveDocPara(de, app.folder);
+    });
     $('btnMarcar').onclick = function () { var tab = activeTab(); if (tab) alternaMarcadorArquivo(tab.path); };
     $('btnNovoGrupo').onclick = novoGrupoDeMarcadores;
     $('btnMarcarAtual').onclick = function () { var tab = activeTab(); if (tab && tab.path && !marcadorDoArquivo(tab.path)) alternaMarcadorArquivo(tab.path); };
@@ -11007,7 +11102,13 @@
 
     // Sem navegacao por arrastar dentro da pagina: quem trata drop e o host.
     window.addEventListener('dragover', function (e) { e.preventDefault(); });
-    window.addEventListener('drop', function (e) { e.preventDefault(); });
+    window.addEventListener('drop', function (e) {
+      // Texto solto num campo de texto (o [[link]] arrastado da arvore) e o
+      // proprio editor que insere; arquivo de fora continua com o host.
+      var campo = e.target && (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT');
+      if (campo && !(e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length)) return;
+      e.preventDefault();
+    });
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
