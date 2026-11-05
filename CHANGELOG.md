@@ -6,6 +6,13 @@ Versionamento [SemVer](https://semver.org/lang/pt-BR/).
 ## [Não lançado]
 
 ### Adicionado
+- **Espaços de trabalho** (o "Workspaces" do Obsidian), pela paleta: "Salvar
+  espaço de trabalho..." guarda com um nome a pasta, as abas (na ordem), quais
+  moram na outra metade, a divisão, as fixadas e a aba ativa; "Abrir espaço
+  de trabalho..." volta a esse arranjo (as abas limpas que não fazem parte
+  fecham; aba com alteração por salvar fica aberta, com aviso); "Apagar
+  espaço de trabalho..." tira da lista. Bom para alternar entre, por exemplo,
+  o plantão do NOC e um projeto.
 - **Tela dividida com o editor nas duas metades**: com a nota destravada, a
   metade sem foco mostra o mesmo editor (ao vivo ou fonte) em vez da leitura,
   então passar de uma metade para a outra não muda o desenho da página. Um

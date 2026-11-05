@@ -5088,7 +5088,7 @@
 
         var ic = document.createElement('span');
         ic.className = 'pal-icon';
-        var svg = window.MarkPadIcons.build('file-text', 15);
+        var svg = window.MarkPadIcons.build(f.icone || opcoes.icone || 'file-text', 15);
         if (svg) ic.appendChild(svg);
         el.appendChild(ic);
 
@@ -5096,7 +5096,7 @@
         nome.appendChild(marcaFuzzy(f.name, input.value.trim()));
         el.appendChild(nome);
 
-        var pasta = f.apelidoDe ? '→ ' + f.apelidoDe : pastaDe(f);
+        var pasta = f.sub != null ? f.sub : f.apelidoDe ? '→ ' + f.apelidoDe : pastaDe(f);
         if (pasta) {
           var sub = document.createElement('span');
           sub.className = 'pal-sub';
@@ -5161,12 +5161,14 @@
           return { name: caminho.split(BARRA).pop(), path: caminho, rel: caminho, markdown: true };
         }));
 
+    if (opcoes.lista) pronto = Promise.resolve(opcoes.lista);
+
     pronto.then(function (arquivos) {
       if (box.hidden) return;
       fonte = opcoes.filtro ? arquivos.filter(opcoes.filtro) : arquivos;
       filtrados = linhas(input.value.trim());
       draw();
-      return app.folder ? indiceLinks() : null;
+      return app.folder && !opcoes.lista ? indiceLinks() : null;
     }).then(function (idx) {
       // Os apelidos do frontmatter (aliases:) tambem acham a nota, como no
       // Obsidian. Vao no fim da fonte: so aparecem quando se digita.
@@ -7628,6 +7630,9 @@
       { id: 'openFolder', label: t('Abrir pasta...'), key: 'Ctrl+Shift+O', icon: 'folder-open', action: doOpenFolder },
       { id: 'new', label: t('Nova nota'), key: 'Ctrl+N', icon: 'plus', action: newTab },
       { id: 'notaDiaria', label: t('Abrir a nota de hoje'), icon: 'clock', action: abreNotaDeHoje },
+      { id: 'espacoSalva', label: t('Salvar espaco de trabalho...'), icon: 'columns', enabled: !!tab, action: salvaEspaco },
+      { id: 'espacoAbre', label: t('Abrir espaco de trabalho...'), icon: 'columns', action: abreEspaco },
+      { id: 'espacoApaga', label: t('Apagar espaco de trabalho...'), icon: 'columns', action: apagaEspaco },
       { id: 'notaUnica', label: t('Nova nota única (nome com data e hora)'), icon: 'plus', action: novaNotaUnica },
       { id: 'modelo', label: t('Inserir modelo...'), icon: 'file-text', enabled: !!unlocked, action: insereModelo },
       { id: 'aleatoria', label: t('Abrir uma nota aleatória'), icon: 'file-text', action: abreNotaAleatoria },
@@ -10622,6 +10627,117 @@
     ed.view.dom.addEventListener('contextmenu', function (e) {
       e.preventDefault();
       menuDoEditor(e.clientX, e.clientY);
+    });
+  }
+
+  // ===================================================== espacos de trabalho
+  //
+  // O "Workspaces" do Obsidian: guarda com um nome o arranjo de agora (pasta,
+  // abas, quais moram na metade 2, a divisao, as fixadas, a aba ativa) e
+  // volta a ele depois. Abrir um espaco fecha as abas limpas que nao fazem
+  // parte dele; aba com alteracao por salvar fica, para nada se perder.
+
+  function fotoDoEspaco(nome) {
+    var ativa = activeTab();
+    return {
+      nome: nome,
+      pasta: app.folder || '',
+      abas: app.tabs.filter(function (t) { return t.path && !t.espelhoDe; }).map(function (t) { return t.path; }),
+      grupo2: dividido() ? app.tabs.filter(function (t) { return t.path && !t.espelhoDe && grupoDe(t) === 2; }).map(function (t) { return t.path; }) : [],
+      fixadas: app.tabs.filter(function (t) { return t.path && t.fixada; }).map(function (t) { return t.path; }),
+      ativa: ativa && ativa.path ? (ativa.espelhoDe ? (tabById(ativa.espelhoDe) || {}).path : ativa.path) : '',
+      direcao: settings.layoutDirecao || 'h',
+      proporcao: settings.layoutProporcao || 0.5,
+      empilhados: app.grupos.filter(function (g) { return g.empilhado; }).map(function (g) { return g.id; }),
+      quando: Date.now()
+    };
+  }
+
+  function salvaEspaco() {
+    var lista = settings.espacos || [];
+    var sugestao = app.espacoAtual || (app.folder ? baseName(app.folder) : t('Meu espaco'));
+    promptDialog(t('Salvar espaco de trabalho'), t('Nome do espaco (o mesmo nome substitui o anterior):'), { value: sugestao }).then(function (nome) {
+      if (!nome) return;
+      nome = nome.trim();
+      var foto = fotoDoEspaco(nome);
+      if (!foto.abas.length) { toast(t('Nenhuma aba com arquivo para guardar.'), 'warn', 2400); return; }
+      settings.espacos = lista.filter(function (e) { return e.nome.toLowerCase() !== nome.toLowerCase(); }).concat([foto]);
+      app.espacoAtual = nome;
+      persist();
+      toast(t('Espaco "{nome}" salvo com {n} abas.', { nome: nome, n: foto.abas.length }), 'ok', 2400);
+    });
+  }
+
+  function listaDeEspacos() {
+    return (settings.espacos || []).slice().sort(function (a, b) { return (b.quando || 0) - (a.quando || 0); }).map(function (e) {
+      return { name: e.nome, path: e.nome, rel: e.nome, markdown: true, icone: 'columns',
+        sub: (e.pasta ? baseName(e.pasta) + ' \u00b7 ' : '') + t('{n} abas', { n: e.abas.length }), espaco: e };
+    });
+  }
+
+  function abreEspaco() {
+    if (!(settings.espacos || []).length) { toast(t('Nenhum espaco salvo ainda. Use "Salvar espaco de trabalho".'), '', 2600); return; }
+    openSwitcher({ dica: t('Abrir espaco de trabalho'), lista: listaDeEspacos(), escolhe: function (f) { aplicaEspaco(f.espaco); } });
+  }
+
+  function apagaEspaco() {
+    if (!(settings.espacos || []).length) { toast(t('Nenhum espaco salvo.'), '', 1800); return; }
+    openSwitcher({ dica: t('Apagar espaco de trabalho'), lista: listaDeEspacos(), escolhe: function (f) {
+      settings.espacos = (settings.espacos || []).filter(function (e) { return e !== f.espaco; });
+      if (app.espacoAtual === f.espaco.nome) app.espacoAtual = null;
+      persist();
+      toast(t('Espaco "{nome}" apagado.', { nome: f.espaco.nome }), '', 2000);
+    } });
+  }
+
+  function aplicaEspaco(esp) {
+    if (!esp) return;
+    var querem = esp.abas.map(function (c) { return c.toLowerCase(); });
+    // Fecha o que nao faz parte, menos o que tem alteracao por salvar.
+    var ficaram = 0;
+    var fechar = [];
+    app.tabs.slice().forEach(function (tb) {
+      var dentro = tb.path && querem.indexOf(tb.path.toLowerCase()) !== -1;
+      if (dentro && !tb.espelhoDe) return;
+      if (tb.content !== tb.savedContent) { ficaram++; return; }
+      fechar.push(tb.id);
+    });
+    var fechou = fechar.reduce(function (pr, id) { return pr.then(function () { return closeTab(id, true); }); }, Promise.resolve());
+    fechou.then(function () {
+      if (esp.pasta && esp.pasta !== app.folder) setFolder(esp.pasta, true);
+      settings.layoutDirecao = esp.direcao || 'h';
+      settings.layoutProporcao = esp.proporcao || 0.5;
+      return openPaths(esp.abas.filter(function (c) { return !tabByPath(c); }));
+    }).then(function () {
+      // Ordem das abas como foi guardada; fixadas de volta.
+      var ordem = esp.abas.map(function (c) { return c.toLowerCase(); });
+      app.tabs.sort(function (a, b) {
+        var ia = a.path ? ordem.indexOf(a.path.toLowerCase()) : -1, ib = b.path ? ordem.indexOf(b.path.toLowerCase()) : -1;
+        return (ia < 0 ? 999 : ia) - (ib < 0 ? 999 : ib);
+      });
+      var fix = (esp.fixadas || []).map(function (c) { return c.toLowerCase(); });
+      app.tabs.forEach(function (tb) { if (tb.path) tb.fixada = fix.indexOf(tb.path.toLowerCase()) !== -1; tb.grupo = 1; });
+      var dois = (esp.grupo2 || []).map(function (c) { return c.toLowerCase(); });
+      app.tabs.forEach(function (tb) { if (tb.path && dois.indexOf(tb.path.toLowerCase()) !== -1) tb.grupo = 2; });
+      var emp = esp.empilhados || [];
+      if (abasDoGrupo(2).length && abasDoGrupo(1).length) {
+        app.grupos = [{ id: 1, ativa: abasDoGrupo(1)[0].id, empilhado: emp.indexOf(1) !== -1 },
+          { id: 2, ativa: abasDoGrupo(2)[0].id, empilhado: emp.indexOf(2) !== -1 }];
+      } else {
+        app.tabs.forEach(function (tb) { tb.grupo = 1; });
+        app.grupos = [{ id: 1, ativa: app.tabs.length ? app.tabs[0].id : null, empilhado: emp.indexOf(1) !== -1 }];
+      }
+      var alvo = esp.ativa && tabByPath(esp.ativa);
+      if (alvo) {
+        var g = grupoPorId(grupoDe(alvo));
+        if (g) g.ativa = alvo.id;
+        app.grupoAtivo = grupoDe(alvo);
+        selectTab(alvo.id);
+      } else renderAll();
+      app.espacoAtual = esp.nome;
+      persist();
+      toast(ficaram ? t('Espaco "{nome}" aberto. {n} aba(s) com alteracao por salvar continuaram abertas.', { nome: esp.nome, n: ficaram })
+        : t('Espaco "{nome}" aberto.', { nome: esp.nome }), ficaram ? 'warn' : 'ok', ficaram ? 3600 : 1800);
     });
   }
 
