@@ -83,7 +83,12 @@
         <section class="pane" data-pane="outline" hidden>
           <header class="pane-head">
             <span class="pane-title">Sumario</span>
+            <button class="icon-btn small" id="btnOutlineFilter" data-icon="search" title="Filtrar títulos"></button>
+            <button class="icon-btn small" id="btnOutlineCollapse" data-icon="chevrons-up" title="Recolher tudo"></button>
           </header>
+          <div class="pane-controls" id="outlineFilterRow" hidden>
+            <input type="text" id="outlineFilterInput" class="text-input" placeholder="filtrar títulos" spellcheck="false">
+          </div>
           <div class="pane-scroll">
             <div class="outline" id="outline">
               <p class="pane-empty">Os titulos do documento aparecem aqui.</p>

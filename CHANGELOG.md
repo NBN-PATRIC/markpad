@@ -6,6 +6,21 @@ Versionamento [SemVer](https://semver.org/lang/pt-BR/).
 ## [Não lançado]
 
 ### Adicionado
+- **Paleta de comandos com fixados e recentes** (como a do Obsidian). Aberta
+  vazia, mostra primeiro os fixados (alfinete na linha, ou clique direito) e
+  depois os usados por último; digitando, a busca é aproximada, não liga para
+  acento ("revelar arvore" acha "Revelar na árvore") e marca as letras achadas.
+  A busca aproximada sem acento vale também para o Ctrl+P e o filtro da árvore.
+- **Sumário com filtro, recolher tudo e arrastar seção.** O filtro mantém os
+  títulos pais do que casou; "Recolher tudo" vira "Expandir tudo". Com a nota
+  destravada, arrastar um título move a seção inteira (com as subseções) para
+  antes ou depois de outra, e Ctrl+Z desfaz. Embaixo do sumário, as notas de
+  rodapé do documento com quantas vezes são citadas (a que não é citada ganha
+  aviso); clicar leva até ela.
+- **Prévia ao pairar nas listas.** Com Ctrl, parar o mouse numa nota da
+  árvore, da busca, das menções, dos recentes ou dos marcadores abre o cartão
+  da prévia ao lado da lista (o mesmo do link no texto); apertar o Ctrl com o
+  mouse já parado também abre.
 - **Marcadores** (o Bookmarks do Obsidian). Painel próprio na barra lateral
   com arquivos, títulos, buscas e pastas, soltos ou em grupos; arrastar
   reordena e põe dentro de grupo; renomear, mover para grupo e remover pelo

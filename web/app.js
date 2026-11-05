@@ -2898,6 +2898,7 @@
     var h = document.createElement('div');
     h.className = 'search-file-head';
     h.title = caminho;
+    h.setAttribute('data-previa-caminho', caminho);
     var nm = document.createElement('span');
     nm.textContent = rel;
     var ct = document.createElement('span');
@@ -2911,6 +2912,7 @@
       var row = document.createElement('div');
       row.className = 'search-hit';
       row.title = hit.text;
+      row.setAttribute('data-previa-caminho', caminho);
       var ln = document.createElement('span');
       ln.className = 'hit-line';
       ln.textContent = hit.line;
@@ -3123,6 +3125,18 @@
       // O botao do embed abriria a previa do que ja esta na tela.
       !a.classList.contains('embed-open');
 
+    // Listas (arvore, busca, mencoes, recentes, marcadores): a previa da nota
+    // com Ctrl seguro, como no Obsidian (sem Ctrl, passar o mouse por uma
+    // lista abriria cartao a cada linha).
+    var item = !serve && t.closest('[data-previa-caminho], .tree-item[data-path]');
+    previa.sobre = item || null;
+    if (item && !item.closest('.hover-popup') && (e.ctrlKey || e.metaKey)) {
+      if (item === previa.ancora && previa.el) { clearTimeout(previa.timerFecha); return; }
+      clearTimeout(previa.timerAbre);
+      previa.timerAbre = setTimeout(function () { abrePreviaDeLista(item); }, 200);
+      return;
+    }
+
     if (!serve) {
       clearTimeout(previa.timerAbre);
       if (previa.el) agendaFechaPrevia();
@@ -3137,6 +3151,23 @@
   document.addEventListener('mousedown', function (e) {
     if (previa.el && !previa.el.contains(e.target)) fechaPrevia();
   }, true);
+
+  // Apertar Ctrl com o mouse ja parado numa linha de lista abre a previa.
+  document.addEventListener('keydown', function (e) {
+    if ((e.key === 'Control' || e.key === 'Meta') && settings.hoverPreview !== false &&
+        previa.sobre && previa.sobre.isConnected && previa.sobre.matches(':hover') && previa.sobre !== previa.ancora) {
+      abrePreviaDeLista(previa.sobre);
+    }
+  }, true);
+
+  /** Caminho absoluto e secao de uma linha de lista. */
+  function abrePreviaDeLista(item) {
+    var path = item.getAttribute('data-previa-caminho') || item.getAttribute('data-path') || '';
+    if (!/\.(md|markdown|txt)$/i.test(path)) return;   // pasta, imagem e afins: nada
+    leNotaComCache(path).then(function (data) {
+      if (data) mostraPrevia(item, data, item.getAttribute('data-previa-secao') || '', true);
+    }).catch(function () {});
+  }
 
   document.addEventListener('keydown', function (e) {
     if (e.key === 'Escape' && previa.el) {
@@ -3171,6 +3202,16 @@
     }
 
     pronto.then(function (data) {
+      mostraPrevia(ancora, data, secao, false);
+    }).catch(function () { /* leitura falhou: sem cartao, sem drama */ });
+  }
+
+  /*
+   * O cartao em si. `deLista`: veio da arvore, busca, marcadores; abre ao
+   * lado da lista (a direita), nao embaixo da linha.
+   */
+  function mostraPrevia(ancora, data, secao, deLista) {
+    (function () {
       if (!data || (data.content || '').length > EMBED_BYTES_MAX) return;
       // A leitura mudou, ou o mouse ja foi embora: cartao orfao nao nasce.
       if (!ancora.isConnected || !ancora.matches(':hover')) return;
@@ -3189,7 +3230,9 @@
       previa.ancora = ancora;
       previa.el = pop;
       document.body.appendChild(pop);
-      posicionaPrevia(pop, ancora);
+      posicionaPrevia(pop, ancora, deLista);
+      // Sair da linha da lista sem entrar no cartao desmancha, como no texto.
+      if (deLista) ancora.addEventListener('mouseleave', agendaFechaPrevia, { once: true });
 
       if (secao) {
         var id = secao.charAt(0) === '^' ? secao.slice(1) : window.MarkPadMarkdown.slugify(secao);
@@ -3227,12 +3270,20 @@
         // Link do cartao mora na pasta da nota MOSTRADA, nao na da aba ativa.
         resolveAndOpen(/\.\w+$/.test(arq) ? arq : arq + '.md', { dir: data.dir });
       });
-    }).catch(function () { /* leitura falhou: sem cartao, sem drama */ });
+    })();
   }
 
-  function posicionaPrevia(pop, ancora) {
+  function posicionaPrevia(pop, ancora, deLista) {
     var r = ancora.getBoundingClientRect();
     var margem = 8;
+    if (deLista) {
+      var lx = r.right + 10;
+      if (lx + pop.offsetWidth > window.innerWidth - margem) lx = Math.max(margem, r.left - pop.offsetWidth - 10);
+      var ly = Math.min(Math.max(margem, r.top - 20), window.innerHeight - pop.offsetHeight - margem);
+      pop.style.left = lx + 'px';
+      pop.style.top = Math.max(margem, ly) + 'px';
+      return;
+    }
     var x = Math.min(Math.max(margem, r.left), window.innerWidth - pop.offsetWidth - margem);
     var y = r.bottom + 6;
     if (y + pop.offsetHeight > window.innerHeight - margem) {
@@ -3971,8 +4022,12 @@
     try { result = window.MarkPadMarkdown.render(tab.content, { lineMap: true }); }
     catch (e) { return; }
 
+    sumario.toc = result.toc;
+    sumario.tabId = tab.id;
+
     if (!result.toc.length) {
       box.innerHTML = '<p class="pane-empty">Este documento nao tem titulos.</p>';
+      desenhaRodapes(tab, box);
       return;
     }
 
@@ -3981,15 +4036,181 @@
     var raiz = { level: 0, filhos: [] };
     var pilha = [raiz];
 
-    result.toc.forEach(function (h) {
-      var no = { level: h.level, text: h.text, line: h.line, slug: h.slug, filhos: [] };
+    result.toc.forEach(function (h, i) {
+      var no = { level: h.level, text: h.text, line: h.line, slug: h.slug, indice: i, filhos: [] };
       while (pilha.length > 1 && pilha[pilha.length - 1].level >= h.level) pilha.pop();
       pilha[pilha.length - 1].filhos.push(no);
       pilha.push(no);
     });
 
-    box.appendChild(desenhaNos(raiz.filhos, 0));
+    // Filtro (como o do sumario do Obsidian): fica o titulo que casa e os
+    // pais dele, para o caminho continuar legivel.
+    var q = semAcento(sumario.filtro || '').toLowerCase().trim();
+    function casa(no) { return semAcento(no.text).toLowerCase().indexOf(q) !== -1; }
+    function poda(nos) {
+      return nos.map(function (no) {
+        var filhos = poda(no.filhos);
+        if (!casa(no) && !filhos.length) return null;
+        var copia = {};
+        for (var k in no) copia[k] = no[k];
+        copia.filhos = filhos;
+        copia.casou = casa(no);
+        return copia;
+      }).filter(Boolean);
+    }
+    var nos = q ? poda(raiz.filhos) : raiz.filhos;
+    if (!nos.length) {
+      var nada = document.createElement('p');
+      nada.className = 'pane-empty';
+      nada.textContent = t('Nenhum título com esse texto.');
+      box.appendChild(nada);
+    } else {
+      box.appendChild(desenhaNos(nos, 0));
+    }
+    if (sumario.recolhido && !q) recolheSumario(true);
+    desenhaRodapes(tab, box);
     marcaSecaoAtual();
+  }
+
+  // Estado do painel do sumario: filtro, "recolher tudo" e o toc desenhado
+  // (o arrastar precisa das linhas de cada titulo).
+  var sumario = { filtro: '', recolhido: false, toc: [], tabId: null, arrasto: null, desfazer: null };
+
+  function recolheSumario(recolher) {
+    var nos = $('outline').querySelectorAll('.outline-node');
+    for (var i = 0; i < nos.length; i++) {
+      if (nos[i].querySelector('.outline-children')) nos[i].classList.toggle('is-collapsed', recolher);
+    }
+  }
+
+  function alternaRecolherSumario() {
+    sumario.recolhido = !sumario.recolhido;
+    recolheSumario(sumario.recolhido);
+    var b = $('btnOutlineCollapse');
+    if (b) {
+      b.title = sumario.recolhido ? t('Expandir tudo') : t('Recolher tudo');
+      b.classList.toggle('is-on', sumario.recolhido);
+    }
+  }
+
+  function alternaFiltroSumario(forca) {
+    var linha = $('outlineFilterRow');
+    var abrir = forca === undefined ? linha.hidden : forca;
+    linha.hidden = !abrir;
+    $('btnOutlineFilter').classList.toggle('is-on', abrir);
+    if (abrir) { $('outlineFilterInput').focus(); $('outlineFilterInput').select(); }
+    else if (sumario.filtro) { sumario.filtro = ''; $('outlineFilterInput').value = ''; renderOutline(); }
+  }
+
+  /*
+   * Arrastar um titulo do sumario move a secao inteira (o titulo e tudo ate o
+   * proximo titulo de nivel igual ou maior), como no Obsidian. So com a nota
+   * destravada: mover secao e editar. O nivel dos titulos nao muda.
+   */
+  function fimDaSecao(toc, i, total) {
+    for (var k = i + 1; k < toc.length; k++) if (toc[k].level <= toc[i].level) return toc[k].line;
+    return total;
+  }
+
+  function moveSecao(tab, de, para, depois) {
+    var toc = sumario.toc;
+    var linhas = tab.content.split('\n');
+    var a = toc[de].line, b = fimDaSecao(toc, de, linhas.length);
+    var alvo = depois ? fimDaSecao(toc, para, linhas.length) : toc[para].line;
+    if (alvo >= a && alvo <= b) return false;   // dentro dela mesma
+
+    var bloco = linhas.slice(a, b);
+    // A secao que era a ultima pode nao ter linha em branco no fim: sem ela o
+    // titulo seguinte grudaria no texto.
+    if (bloco.length && bloco[bloco.length - 1].trim() !== '') bloco.push('');
+    linhas.splice(a, b - a);
+    if (alvo > a) alvo -= (b - a);
+    if (alvo > 0 && alvo === linhas.length && linhas[alvo - 1].trim() !== '') linhas.push(''), alvo++;
+    Array.prototype.splice.apply(linhas, [alvo, 0].concat(bloco));
+    // Nao deixa linhas em branco sobrando no fim por causa do bloco movido.
+    while (linhas.length > 1 && linhas[linhas.length - 1] === '' && linhas[linhas.length - 2] === '') linhas.pop();
+
+    var novo = linhas.join('\n');
+    if (novo === tab.content) return false;
+    var antes = tab.content;
+    if (modoDe(tab) === 'fonte') {
+      replaceRange(0, tab.content.length, novo);   // o Ctrl+Z do editor desfaz
+    } else {
+      if (live) live.commit();
+      tab.content = novo;
+      scheduleBackup(tab);
+      renderAll();
+      sumario.desfazer = { tabId: tab.id, antes: antes, depois: novo };
+    }
+    toast(t('Seção movida. Ctrl+Z desfaz.'), 'ok', 2200);
+    return true;
+  }
+
+  /** Ctrl+Z fora de campo de texto logo depois de mover uma secao. */
+  function desfazMoverSecao() {
+    var d = sumario.desfazer;
+    var tab = activeTab();
+    if (!d || !tab || tab.id !== d.tabId || tab.content !== d.depois || tab.locked) return false;
+    if (live) live.commit();
+    tab.content = d.antes;
+    sumario.desfazer = null;
+    scheduleBackup(tab);
+    renderAll();
+    toast(t('Seção de volta ao lugar.'), '', 1600);
+    return true;
+  }
+
+  /*
+   * Notas de rodape do documento (o painel Footnotes do Obsidian), embaixo do
+   * sumario: a definicao [^x]: e quantas vezes e citada. Clique leva a ela.
+   */
+  function desenhaRodapes(tab, box) {
+    var linhas = tab.content.split('\n');
+    var notas = [], cerca = null;
+    for (var i = 0; i < linhas.length; i++) {
+      var l = linhas[i];
+      var f = /^\s{0,3}(`{3,}|~{3,})/.exec(l);
+      if (f) { if (!cerca) cerca = f[1].charAt(0); else if (f[1].charAt(0) === cerca) cerca = null; continue; }
+      if (cerca) continue;
+      var m = /^\[\^([^\]\s]+)\]:\s?(.*)$/.exec(l);
+      if (m) notas.push({ id: m[1].toLowerCase(), rotulo: m[1], texto: m[2], line: i });
+    }
+    if (!notas.length) return;
+    var corpo = tab.content;
+    var sec = document.createElement('div');
+    sec.className = 'rodapes-sumario';
+    var cab = document.createElement('div');
+    cab.className = 'rodapes-cab';
+    cab.textContent = t('Notas de rodapé') + ' · ' + notas.length;
+    sec.appendChild(cab);
+    notas.forEach(function (n) {
+      var vezes = 0, re = new RegExp('\\[\\^' + n.rotulo.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\](?!:)', 'gi');
+      while (re.exec(corpo)) vezes++;
+      var row = document.createElement('div');
+      row.className = 'rodape-item';
+      var rot = document.createElement('span');
+      rot.className = 'rodape-rotulo';
+      rot.textContent = n.rotulo;
+      var txt = document.createElement('span');
+      txt.className = 'rodape-texto';
+      txt.textContent = n.texto || '…';
+      row.appendChild(rot);
+      row.appendChild(txt);
+      if (!vezes) {
+        var sem = document.createElement('span');
+        sem.className = 'rodape-sem';
+        sem.textContent = t('sem citação');
+        row.appendChild(sem);
+      }
+      row.title = n.texto;
+      row.onclick = function () {
+        var el = modoDe(tab) !== 'fonte' ? $('preview').querySelector('#fn-' + CSS.escape(n.id)) : null;
+        if (el) { el.scrollIntoView({ block: 'center' }); piscaAlvo(el); }
+        else goToLine(n.line + 1);
+      };
+      sec.appendChild(row);
+    });
+    box.appendChild(sec);
   }
 
   function desenhaNos(nos, profundidade) {
@@ -4019,8 +4240,46 @@
 
       var texto = document.createElement('span');
       texto.className = 'outline-text';
-      texto.textContent = no.text;
+      if (sumario.filtro && no.casou) texto.appendChild(marcaFuzzy(no.text, sumario.filtro));
+      else texto.textContent = no.text;
       linha.appendChild(texto);
+
+      // Arrastar move a secao (so destravada).
+      var abaDoSumario = activeTab();
+      if (abaDoSumario && !abaDoSumario.locked && !sumario.filtro) {
+        linha.draggable = true;
+        linha.ondragstart = function (e) {
+          sumario.arrasto = no.indice;
+          e.dataTransfer.effectAllowed = 'move';
+          try { e.dataTransfer.setData('text/plain', no.text); } catch (x) {}
+          linha.classList.add('is-arrastando');
+        };
+        linha.ondragend = function () {
+          sumario.arrasto = null;
+          linha.classList.remove('is-arrastando');
+          var alvos = $('outline').querySelectorAll('.alvo-antes, .alvo-depois');
+          for (var i = 0; i < alvos.length; i++) alvos[i].classList.remove('alvo-antes', 'alvo-depois');
+        };
+        linha.ondragover = function (e) {
+          if (sumario.arrasto === null || sumario.arrasto === no.indice) return;
+          e.preventDefault();
+          var r = linha.getBoundingClientRect();
+          var depois = e.clientY > r.top + r.height / 2;
+          linha.classList.toggle('alvo-antes', !depois);
+          linha.classList.toggle('alvo-depois', depois);
+        };
+        linha.ondragleave = function () { linha.classList.remove('alvo-antes', 'alvo-depois'); };
+        linha.ondrop = function (e) {
+          e.preventDefault();
+          var de = sumario.arrasto;
+          var depois = linha.classList.contains('alvo-depois');
+          linha.classList.remove('alvo-antes', 'alvo-depois');
+          sumario.arrasto = null;
+          var aba = activeTab();
+          if (de === null || !aba || aba.id !== sumario.tabId || aba.locked) return;
+          if (!moveSecao(aba, de, no.indice, depois)) toast(t('Uma seção não cabe dentro dela mesma.'), 'warn', 2000);
+        };
+      }
 
       linha.onclick = function () { goToLine(no.line + 1); };
       linha.oncontextmenu = function (e) {
@@ -4295,9 +4554,14 @@
    * vale mais ainda — e assim "cmd" acha "casa/meu-doc.md" acima de um
    * arquivo que so tem c, m e d espalhados.
    */
+  /* "árvore" e "arvore" sao a mesma busca: tira os acentos (NFD + marcas). */
+  function semAcento(texto) {
+    return String(texto || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  }
+
   function fuzzyScore(consulta, texto) {
-    var q = String(consulta || '').toLowerCase();
-    var t = String(texto || '').toLowerCase();
+    var q = semAcento(consulta).toLowerCase();
+    var t = semAcento(texto).toLowerCase();
     if (!q) return 0;
 
     var pontos = 0, cursor = 0, ultimo = -2, seguidos = 0;
@@ -4322,11 +4586,14 @@
   /* Devolve o texto com as letras casadas em <b>, sem passar por innerHTML. */
   function marcaFuzzy(texto, consulta) {
     var frag = document.createDocumentFragment();
-    var q = String(consulta || '').toLowerCase().replace(/\s+/g, '');
+    var q = semAcento(consulta).toLowerCase().replace(/\s+/g, '');
     var t = String(texto || '');
     if (!q) { frag.appendChild(document.createTextNode(t)); return frag; }
 
-    var baixo = t.toLowerCase();
+    // Sem acento para comparar, mas com o mesmo comprimento do original (se a
+    // normalizacao mudar o tamanho, compara o original mesmo).
+    var baixo = semAcento(t).toLowerCase();
+    if (baixo.length !== t.length) baixo = t.toLowerCase();
     var j = 0, buffer = '';
 
     for (var i = 0; i < t.length; i++) {
@@ -4840,6 +5107,7 @@
       var el = document.createElement('div');
       el.className = 'recent-item';
       el.title = p;
+      el.setAttribute('data-previa-caminho', p);
 
       var n = document.createElement('div');
       n.className = 'recent-name';
@@ -5830,6 +6098,10 @@
         row.appendChild(s2);
       }
       row.title = m.caminho ? m.caminho + (m.titulo ? ' › ' + m.titulo : '') : (m.tipo === 'busca' ? t('Busca: {q}', { q: m.consulta }) : '');
+      if (m.tipo === 'arquivo' || m.tipo === 'titulo') {
+        row.setAttribute('data-previa-caminho', m.caminho);
+        if (m.titulo) row.setAttribute('data-previa-secao', m.titulo);
+      }
 
       row.onclick = function (e) { abreMarcador(m, e); };
       row.onauxclick = function (e) { if (e.button === 1) { e.preventDefault(); abreMarcador(m, e); } };
@@ -7031,20 +7303,82 @@
     persist();
   }
 
+  /*
+   * Paleta de comandos com fixados e recentes, como a do Obsidian: sem
+   * consulta, os fixados vem primeiro (com o alfinete) e depois os usados por
+   * ultimo; com consulta, busca aproximada (sem acento) com um empurrao para
+   * fixados e recentes. O alfinete de cada linha (ou o clique direito) fixa e
+   * desafixa.
+   */
+  var MAX_RECENTES_PALETA = 8;
+
+  function registraComandoRecente(id) {
+    if (!id) return;
+    settings.paletaRecentes = [id].concat((settings.paletaRecentes || []).filter(function (x) { return x !== id; }))
+      .slice(0, 20);
+    persist();
+  }
+
+  function alternaFixado(id) {
+    var fix = settings.paletaFixados || [];
+    settings.paletaFixados = fix.indexOf(id) === -1 ? fix.concat([id]) : fix.filter(function (x) { return x !== id; });
+    persist();
+  }
+
   function openPalette() {
     var list = commands().filter(function (c) { return c.enabled === undefined || c.enabled; });
-    var filtered = list.slice();
+    var porId = {};
+    list.forEach(function (c) { porId[c.id] = c; });
+    var filtered = [];
     var active = 0;
+    var consulta = '';
 
     var box = $('palette');
     var input = $('paletteInput');
     var listEl = $('paletteList');
 
+    function fixados() { return (settings.paletaFixados || []).filter(function (id) { return porId[id]; }); }
+
+    function monta() {
+      var fix = fixados();
+      var rec = (settings.paletaRecentes || []).filter(function (id) { return porId[id] && fix.indexOf(id) === -1; });
+      if (!consulta) {
+        var primeiros = fix.concat(rec.slice(0, MAX_RECENTES_PALETA));
+        filtered = primeiros.map(function (id) { return porId[id]; })
+          .concat(list.filter(function (c) { return primeiros.indexOf(c.id) === -1; }));
+        return;
+      }
+      filtered = list.map(function (c) {
+        var nota = fuzzyScore(consulta, c.label);
+        if (nota === -Infinity) return null;
+        if (fix.indexOf(c.id) !== -1) nota += 6;
+        var r = rec.indexOf(c.id);
+        if (r !== -1) nota += Math.max(1, 5 - r);
+        return { c: c, nota: nota };
+      }).filter(Boolean).sort(function (a, b) { return b.nota - a.nota; }).map(function (x) { return x.c; });
+    }
+
+    function executa(c) {
+      close();
+      registraComandoRecente(c.id);
+      c.action();
+    }
+
     function draw() {
       listEl.textContent = '';
+      var fix = fixados();
+      if (!filtered.length) {
+        var vazio = document.createElement('div');
+        vazio.className = 'palette-item is-empty';
+        vazio.textContent = t('Nenhum comando com esse nome.');
+        listEl.appendChild(vazio);
+        return;
+      }
       filtered.forEach(function (c, i) {
         var el = document.createElement('div');
         el.className = 'palette-item' + (i === active ? ' is-active' : '');
+        el.setAttribute('role', 'option');
+        el.setAttribute('aria-selected', i === active ? 'true' : 'false');
 
         var ic = document.createElement('span');
         ic.className = 'pal-icon';
@@ -7053,7 +7387,8 @@
         el.appendChild(ic);
 
         var label = document.createElement('span');
-        label.textContent = c.label;
+        label.className = 'pal-label';
+        label.appendChild(marcaFuzzy(c.label, consulta));
         el.appendChild(label);
 
         if (c.checked) {
@@ -7069,7 +7404,30 @@
           el.appendChild(k);
         }
 
-        el.onclick = function () { close(); c.action(); };
+        var fixo = fix.indexOf(c.id) !== -1;
+        var pin = document.createElement('button');
+        pin.type = 'button';
+        pin.className = 'pal-pin' + (fixo ? ' is-fixo' : '');
+        pin.title = fixo ? t('Desafixar da paleta') : t('Fixar no topo da paleta');
+        var svgPin = window.MarkPadIcons.build('pin', 13);
+        if (svgPin) pin.appendChild(svgPin);
+        pin.onclick = function (e) {
+          e.stopPropagation();
+          alternaFixado(c.id);
+          monta();
+          draw();
+          input.focus();
+        };
+        el.appendChild(pin);
+
+        el.onclick = function () { executa(c); };
+        el.oncontextmenu = function (e) {
+          e.preventDefault();
+          alternaFixado(c.id);
+          monta();
+          draw();
+          input.focus();
+        };
         el.onmousemove = function () { if (active !== i) { active = i; draw(); } };
         listEl.appendChild(el);
       });
@@ -7091,19 +7449,19 @@
       if (e.key === 'Enter') {
         e.preventDefault();
         var c = filtered[active];
-        close();
-        if (c) c.action();
+        if (c) executa(c); else close();
       }
     }
 
     input.value = '';
     input.oninput = function () {
-      var q = input.value.toLowerCase().trim();
-      filtered = q ? list.filter(function (c) { return c.label.toLowerCase().indexOf(q) !== -1; }) : list.slice();
+      consulta = input.value.trim();
       active = 0;
+      monta();
       draw();
     };
 
+    monta();
     box.hidden = false;
     $('overlay').hidden = false;
     $('overlay').onclick = close;
@@ -8887,6 +9245,21 @@
     $('btnFind').onclick = openFind;
     $('btnVoltar').onclick = function () { navega(-1); };
     $('btnAvancar').onclick = function () { navega(1); };
+    $('btnOutlineFilter').onclick = function () { alternaFiltroSumario(); };
+    $('btnOutlineCollapse').onclick = alternaRecolherSumario;
+    $('outlineFilterInput').addEventListener('input', function () {
+      sumario.filtro = $('outlineFilterInput').value;
+      renderOutline();
+    });
+    $('outlineFilterInput').addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); alternaFiltroSumario(false); }
+    });
+    document.addEventListener('keydown', function (e) {
+      if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey || (e.key !== 'z' && e.key !== 'Z')) return;
+      var alvo = e.target;
+      if (alvo && (alvo.tagName === 'TEXTAREA' || alvo.tagName === 'INPUT' || alvo.isContentEditable)) return;
+      if (desfazMoverSecao()) { e.preventDefault(); e.stopPropagation(); }
+    }, true);
     $('btnMarcar').onclick = function () { var tab = activeTab(); if (tab) alternaMarcadorArquivo(tab.path); };
     $('btnNovoGrupo').onclick = novoGrupoDeMarcadores;
     $('btnMarcarAtual').onclick = function () { var tab = activeTab(); if (tab && tab.path && !marcadorDoArquivo(tab.path)) alternaMarcadorArquivo(tab.path); };
