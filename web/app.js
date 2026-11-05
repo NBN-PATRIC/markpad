@@ -4290,11 +4290,13 @@
     tab.content = texto;
 
     clearTimeout(highlightTimer);
+    // Sumario e margem refazem o documento inteiro: em documento grande, so
+    // depois de uma pausa de verdade na digitacao.
     highlightTimer = setTimeout(function () {
       renderEditorHighlight();
       if (tab.showSource && tab.showPreview) renderPreview($('splitPreview'), tab);
       renderOutline();
-    }, 90);
+    }, texto.length > 150000 ? 700 : 90);
 
     renderTabs();
     renderHeader();
