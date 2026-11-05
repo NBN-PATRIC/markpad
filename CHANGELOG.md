@@ -6,6 +6,9 @@ Versionamento [SemVer](https://semver.org/lang/pt-BR/).
 ## [Não lançado]
 
 ### Adicionado
+- **HTML em linha no modo ao vivo**: `<kbd>`, `<mark>`, `<u>`, `<sub>`, `<sup>`,
+  `<s>`, `<small>` e as tags de ênfase aparecem com o efeito (tecla, marca
+  texto, índice), e as tags somem fora do cursor, como no Obsidian.
 - **Atalhos editáveis** (Configurações > Atalhos): clicar no atalho de
   qualquer comando e pressionar a combinação nova (com Ctrl, Alt ou uma tecla
   F). O atalho próprio vale antes do de fábrica e aparece na paleta;

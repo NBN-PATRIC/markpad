@@ -3085,3 +3085,21 @@ button.hotkey-key:hover { border-color: var(--background-modifier-border-hover);
 .cm-tarefa-caixa input[data-task="!"] { color: #e5534b; border-color: #e5534b; }
 .cm-modo-vivo .cm-tarefa-cancelada { color: var(--text-muted); text-decoration: line-through; }
 .cm-modo-vivo .cm-tarefa-cancelada .cm-tarefa-caixa { text-decoration: none; }
+
+/* HTML em linha desenhado no ao vivo */
+.cm-modo-vivo .cm-html-kbd {
+  font-family: var(--font-mono); font-size: 0.85em; padding: 0 5px;
+  border: 1px solid var(--background-modifier-border); border-bottom-width: 2px;
+  border-radius: 4px; background: var(--background-primary-alt);
+}
+.cm-modo-vivo .cm-html-mark { background: var(--text-highlight-bg); border-radius: 2px; }
+.cm-modo-vivo .cm-html-u, .cm-modo-vivo .cm-html-ins { text-decoration: underline; }
+.cm-modo-vivo .cm-html-s, .cm-modo-vivo .cm-html-del { text-decoration: line-through; color: var(--text-muted); }
+.cm-modo-vivo .cm-html-sub { vertical-align: sub; font-size: 0.8em; }
+.cm-modo-vivo .cm-html-sup { vertical-align: super; font-size: 0.8em; }
+.cm-modo-vivo .cm-html-small { font-size: 0.85em; }
+.cm-modo-vivo .cm-html-b, .cm-modo-vivo .cm-html-strong { font-weight: 600; }
+.cm-modo-vivo .cm-html-i, .cm-modo-vivo .cm-html-em, .cm-modo-vivo .cm-html-cite, .cm-modo-vivo .cm-html-dfn, .cm-modo-vivo .cm-html-var { font-style: italic; }
+.cm-modo-vivo .cm-html-code, .cm-modo-vivo .cm-html-samp { font-family: var(--font-mono); font-size: 0.875em; background: var(--code-background); padding: 0.1em 0.2em; border-radius: var(--radius-s); }
+.cm-modo-vivo .cm-html-abbr { text-decoration: underline dotted; }
+.cm-modo-vivo .cm-html-q::before { content: "\201C"; } .cm-modo-vivo .cm-html-q::after { content: "\201D"; }

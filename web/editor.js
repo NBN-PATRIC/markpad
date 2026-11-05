@@ -748,6 +748,7 @@
   // =================================================================
 
   var marcaOculta = Decoration.replace({});
+  var TAGS_EM_LINHA = { kbd: 1, mark: 1, u: 1, ins: 1, sub: 1, sup: 1, s: 1, del: 1, small: 1, b: 1, strong: 1, i: 1, em: 1, code: 1, abbr: 1, q: 1, samp: 1, var: 1, cite: 1, dfn: 1 };
 
   function classeTitulo(nome) {
     var m = /^(ATX|Setext)Heading(\d)$/.exec(nome);
@@ -797,6 +798,32 @@
       deco.push(Decoration.mark(spec).range(de, ate));
     }
 
+    // HTML em linha (<kbd>, <mark>, <sub>...): como no Obsidian, as tags somem
+    // fora do cursor e o texto entre elas ganha o efeito. So tags simples,
+    // abertas e fechadas no mesmo bloco.
+    function htmlEmLinha(pai) {
+      if (!vivo) return;
+      var pilha = [];
+      for (var c = pai.firstChild; c; c = c.nextSibling) {
+        if (c.name !== 'HTMLTag') continue;
+        var txt = doc.sliceString(c.from, c.to);
+        var m = /^<(\/?)([a-z]+)\s*>$/i.exec(txt);
+        if (!m || !TAGS_EM_LINHA[m[2].toLowerCase()]) continue;
+        var tag = m[2].toLowerCase();
+        if (!m[1]) { pilha.push({ tag: tag, no: c }); continue; }
+        for (var k = pilha.length - 1; k >= 0; k--) {
+          if (pilha[k].tag !== tag) continue;
+          var abre = pilha[k].no;
+          pilha.length = k;
+          if (revela(state, abre.from, c.to)) break;
+          esconde(abre.from, abre.to);
+          esconde(c.from, c.to);
+          marca(abre.to, c.from, { class: 'cm-html-' + tag });
+          break;
+        }
+      }
+    }
+
     view.visibleRanges.forEach(function (faixa) {
       tree.iterate({
         from: faixa.from,
@@ -805,6 +832,7 @@
           var nome = no.name;
           var nivel = classeTitulo(nome);
           if (nivel) {
+            htmlEmLinha(no.node);
             linhaClasse(no.from, 'cm-linha-h cm-linha-h' + nivel);
             if (vivo && !revelaLinha(state, no.from)) {
               var hm = no.node.getChild('HeaderMark');
@@ -925,6 +953,9 @@
           if (!vivo) return;
 
           switch (nome) {
+            case 'Paragraph':
+              htmlEmLinha(no.node);
+              return;
             case 'Emphasis':
             case 'StrongEmphasis':
             case 'Strikethrough':
