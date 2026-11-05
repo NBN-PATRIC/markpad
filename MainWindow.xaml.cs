@@ -79,7 +79,6 @@ public partial class MainWindow : Window
 
     private readonly Dictionary<string, FileSystemWatcher> _watchers = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _watchedFiles = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<string, DateTime> _lastChangeNotice = new(StringComparer.OrdinalIgnoreCase);
 
     private readonly string[] _startupArgs;
 
@@ -173,6 +172,8 @@ public partial class MainWindow : Window
 
         Loaded += OnLoaded;
         Closing += OnClosing;
+        // Voltar a esta janela confere se algum arquivo aberto mudou por fora.
+        Activated += (_, _) => PostEvent("appActivated", null);
         Drop += OnDrop;
         DragOver += OnDragOver;
 
@@ -203,6 +204,14 @@ public partial class MainWindow : Window
                 // Sem telemetria, sem servicos de fundo do Edge.
                 AdditionalBrowserArguments = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection"
             };
+            #if DEBUG
+            // So no build Debug e so com a variavel: a prova automatica dirige a
+            // pagina pelo protocolo de depuracao (so na interface local), sem
+            // mandar tecla do Windows que pode cair em outra janela. O Release
+            // nunca abre essa porta.
+            if (int.TryParse(Environment.GetEnvironmentVariable("MARKPAD_CDP_PORT"), out var portaCdp) && portaCdp > 1024)
+                options.AdditionalBrowserArguments += $" --remote-debugging-port={portaCdp} --remote-debugging-address=127.0.0.1";
+            #endif
 
             var env = await CoreWebView2Environment.CreateAsync(null, userData, options);
             await Web.EnsureCoreWebView2Async(env);
@@ -575,6 +584,12 @@ public partial class MainWindow : Window
         return lista;
     }
 
+    private static long Long(JsonElement args, string name, long fallback = 0)
+        => args.ValueKind == JsonValueKind.Object && args.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number
+            && v.TryGetInt64(out var n)
+            ? n
+            : fallback;
+
     private static int Int(JsonElement args, string name, int fallback = 0)
         => args.ValueKind == JsonValueKind.Object && args.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number
             ? v.GetInt32()
@@ -608,7 +623,11 @@ public partial class MainWindow : Window
             case "writeFile":
                 return WriteTextFile(
                     Str(args, "path"), Str(args, "content"),
-                    Str(args, "encoding", "utf-8"), Str(args, "eol", "\n"));
+                    Str(args, "encoding", "utf-8"), Str(args, "eol", "\n"),
+                    Long(args, "expectedMtime"));
+
+            case "statFiles":
+                return StatFiles(StrList(args, "paths") ?? new());
 
             case "writeHtml":
                 return WriteHtmlFile(Str(args, "path"), Str(args, "content"));
@@ -645,7 +664,7 @@ public partial class MainWindow : Window
                 return true;
 
             case "unwatchFile":
-                _watchedFiles.Remove(Path.GetFullPath(Str(args, "path")));
+                lock (_watchedFiles) _watchedFiles.Remove(Path.GetFullPath(Str(args, "path")));
                 return true;
 
             case "revealInExplorer":
@@ -695,7 +714,7 @@ public partial class MainWindow : Window
                 return true;
 
             case "writeBackup":
-                return WriteBackup(Str(args, "path"), Str(args, "name"), Str(args, "content"));
+                return WriteBackup(Str(args, "path"), Str(args, "name"), Str(args, "content"), Long(args, "baseMtime"));
 
             case "listBackups":
                 return ListBackups();
@@ -1098,13 +1117,23 @@ public partial class MainWindow : Window
         return false;
     }
 
-    private object WriteTextFile(string path, string content, string encodingName, string eol)
+    private object WriteTextFile(string path, string content, string encodingName, string eol, long expectedMtime = 0)
     {
         var full = Path.GetFullPath(path);
 
         if (!_writablePaths.Contains(full))
             throw new UnauthorizedAccessException(
                 "gravacao bloqueada: este caminho nao foi aberto por voce nesta sessao.");
+
+        // Outro programa gravou depois que a aba leu o arquivo (o Notepad++
+        // compara a data do mesmo jeito): nao grava por cima calado. Quem
+        // decide e a pagina, que mostra a diferenca e pergunta.
+        if (expectedMtime > 0 && File.Exists(full))
+        {
+            var agora = new DateTimeOffset(File.GetLastWriteTimeUtc(full)).ToUnixTimeMilliseconds();
+            if (agora != expectedMtime)
+                return new { conflict = true, path = full, mtime = agora, size = new FileInfo(full).Length };
+        }
 
         var ext = Path.GetExtension(full);
         if (UnwritableExtensions.Contains(ext))
@@ -1122,7 +1151,17 @@ public partial class MainWindow : Window
 
         try
         {
-            File.WriteAllText(temp, normalized, encoding);
+            // Descarrega no disco antes da troca (Flush(true) = FlushFileBuffers):
+            // sem isso, uma queda logo depois do Replace podia deixar o arquivo
+            // novo vazio, porque o texto ainda estava so no cache do Windows.
+            var corpo = encoding.GetBytes(normalized);
+            var preambulo = encoding.GetPreamble();
+            using (var fs = new FileStream(temp, FileMode.Create, FileAccess.Write, FileShare.None))
+            {
+                fs.Write(preambulo, 0, preambulo.Length);
+                fs.Write(corpo, 0, corpo.Length);
+                fs.Flush(true);
+            }
         }
         catch (EncoderFallbackException)
         {
@@ -1801,7 +1840,7 @@ public partial class MainWindow : Window
     /// perder o trabalho, mas tambem nao pode escrever por cima do arquivo do
     /// usuario sem ele mandar. A copia fica separada ate haver um "salvar".
     /// </summary>
-    private object WriteBackup(string path, string name, string content)
+    private object WriteBackup(string path, string name, string content, long baseMtime = 0)
     {
         var chave = BackupKey(path);
         var alvo = Path.Combine(BackupDirectory, chave + ".json");
@@ -1811,7 +1850,10 @@ public partial class MainWindow : Window
             path,
             name,
             content,
-            when = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+            when = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            // A data do disco em que o rascunho se apoia: se na volta o disco
+            // tiver outra, alguem gravou depois e restaurar por cima apagaria isso.
+            baseMtime
         });
 
         // Grava em temporario e troca: uma queda no meio nao deixa a propria
@@ -1837,6 +1879,7 @@ public partial class MainWindow : Window
                 var conteudo = raiz.GetProperty("content").GetString() ?? "";
 
                 var existe = File.Exists(caminho);
+                long mtimeDoDisco = existe ? new DateTimeOffset(File.GetLastWriteTimeUtc(caminho)).ToUnixTimeMilliseconds() : 0;
                 string? emDisco = null;
                 if (existe)
                 {
@@ -1861,6 +1904,8 @@ public partial class MainWindow : Window
                     name = raiz.TryGetProperty("name", out var n) ? n.GetString() : Path.GetFileName(caminho),
                     content = conteudo,
                     when = raiz.TryGetProperty("when", out var w) ? w.GetInt64() : 0,
+                    baseMtime = raiz.TryGetProperty("baseMtime", out var bm) && bm.ValueKind == JsonValueKind.Number ? bm.GetInt64() : 0,
+                    diskMtime = mtimeDoDisco,
                     fileExists = existe
                 });
             }
@@ -2046,13 +2091,36 @@ public partial class MainWindow : Window
 
     // ------------------------------------------------------ monitoramento
 
+    /// <summary>
+    /// Data e tamanho dos arquivos abertos, para a pagina conferir ao voltar o
+    /// foco e ao trocar de aba (a rede de seguranca do Notepad++): o vigia de
+    /// pasta perde eventos em compartilhamento de rede e no arquivo virtual do
+    /// ownCloud.
+    /// </summary>
+    private static object StatFiles(List<string> paths)
+    {
+        var lista = new List<object>();
+        foreach (var p in paths.Take(500))
+        {
+            try
+            {
+                var info = new FileInfo(Path.GetFullPath(p));
+                lista.Add(info.Exists
+                    ? new { path = p, exists = true, mtime = new DateTimeOffset(info.LastWriteTimeUtc).ToUnixTimeMilliseconds(), size = info.Length }
+                    : (object)new { path = p, exists = false, mtime = 0L, size = 0L });
+            }
+            catch { /* caminho invalido ou rede fora: fica sem resposta, nao vira "apagado" */ }
+        }
+        return new { files = lista };
+    }
+
     private void WatchFile(string path)
     {
         var full = Path.GetFullPath(path);
         var dir = Path.GetDirectoryName(full);
         if (dir is null || !Directory.Exists(dir)) return;
 
-        _watchedFiles.Add(full);
+        lock (_watchedFiles) _watchedFiles.Add(full);
         if (_watchers.ContainsKey(dir)) return;
 
         var watcher = new FileSystemWatcher(dir)
@@ -2073,18 +2141,62 @@ public partial class MainWindow : Window
     private void OnFileSystemEvent(object sender, FileSystemEventArgs e)
     {
         var full = Path.GetFullPath(e.FullPath);
-        if (!_watchedFiles.Contains(full)) return;
 
-        // O Windows dispara varios eventos por gravacao; agrupa numa janela curta.
-        lock (_lastChangeNotice)
+        // Renomeado: se o nome ANTIGO era o observado, o arquivo saiu daqui.
+        // Mas editor que grava por troca (renomeia o original para .bak e cria
+        // outro) faz o mesmo movimento: espera um pouco e so chama de
+        // "renomeado" se o nome antigo nao voltou.
+        if (e is RenamedEventArgs r)
         {
-            if (_lastChangeNotice.TryGetValue(full, out var last) &&
-                (DateTime.UtcNow - last).TotalMilliseconds < 400) return;
-            _lastChangeNotice[full] = DateTime.UtcNow;
+            var antigo = Path.GetFullPath(r.OldFullPath);
+            bool observado;
+            lock (_watchedFiles) observado = _watchedFiles.Contains(antigo);
+            if (observado)
+            {
+                Task.Delay(700).ContinueWith(_ =>
+                {
+                    if (File.Exists(antigo)) { AvisaMudanca(antigo); return; }
+                    Dispatcher.InvokeAsync(() =>
+                    {
+                        // A aba segue o novo nome: a permissao de gravar e o
+                        // vigia vao junto, como no renomear de dentro do app.
+                        _writablePaths.Add(full);
+                        lock (_watchedFiles) { _watchedFiles.Remove(antigo); _watchedFiles.Add(full); }
+                        PostEvent("fileChanged", new { path = antigo, kind = "renamed", newPath = full });
+                    });
+                });
+            }
         }
 
-        var kind = e.ChangeType == WatcherChangeTypes.Deleted ? "deleted" : "changed";
-        Dispatcher.InvokeAsync(() => PostEvent("fileChanged", new { path = full, kind }));
+        bool meu;
+        lock (_watchedFiles) meu = _watchedFiles.Contains(full);
+        if (meu) AvisaMudanca(full);
+    }
+
+    private readonly Dictionary<string, int> _geracaoDoAviso = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// O Windows dispara varios eventos por gravacao (e quem trunca e depois
+    /// escreve dispara um no meio). Avisa so 350 ms depois do ULTIMO evento,
+    /// e decide "mudou" ou "apagado" olhando o disco nessa hora: antes o
+    /// primeiro evento passava e os seguintes eram engolidos, e a pagina podia
+    /// ler o arquivo ainda pela metade.
+    /// </summary>
+    private void AvisaMudanca(string full)
+    {
+        int geracao;
+        lock (_geracaoDoAviso)
+        {
+            geracao = (_geracaoDoAviso.TryGetValue(full, out var g) ? g : 0) + 1;
+            _geracaoDoAviso[full] = geracao;
+        }
+        Task.Delay(350).ContinueWith(_ =>
+        {
+            lock (_geracaoDoAviso)
+                if (_geracaoDoAviso.TryGetValue(full, out var atual) && atual != geracao) return;
+            var kind = File.Exists(full) ? "changed" : "deleted";
+            Dispatcher.InvokeAsync(() => PostEvent("fileChanged", new { path = full, kind }));
+        });
     }
 
     // ------------------------------------------------- operacoes de arquivo
@@ -2136,8 +2248,7 @@ public partial class MainWindow : Window
     {
         _writablePaths.Remove(from);
         _writablePaths.Add(to);
-        _watchedFiles.Remove(from);
-        _watchedFiles.Add(to);
+        lock (_watchedFiles) { _watchedFiles.Remove(from); _watchedFiles.Add(to); }
         LevaVersoes(from, to);
         return FileFacts(to);
     }

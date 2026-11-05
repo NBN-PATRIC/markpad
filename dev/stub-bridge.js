@@ -110,6 +110,14 @@
   };
   // mtime fingido por arquivo: o indexFolder so manda texto do que mudou.
   var MTIMES = {};
+  // Rascunhos (writeBackup) em memoria; ?rascunhos=1 ja nasce com dois.
+  var RASCUNHOS = {};
+  if (/[?&]rascunhos=1\b/.test(location.search)) {
+    RASCUNHOS['C:\\notas\\leiame.md'] = { path: 'C:\\notas\\leiame.md', name: 'leiame.md', when: Date.now() - 3 * 3600 * 1000,
+      baseMtime: 999, content: FILES['C:\\notas\\leiame.md'].replace('# Leiame', '# Leiame (editado e nao salvo)') };
+    RASCUNHOS['markpad:sem-titulo:abc-1'] = { path: 'markpad:sem-titulo:abc-1', name: 'sem titulo.md', when: Date.now() - 600000,
+      baseMtime: 0, content: '# Ideia solta\n\nTexto que nunca foi salvo.\n' };
+  }
   function mtimeDe(k) { return MTIMES[k] || (MTIMES[k] = 1000); }
 
   // Historico de versoes fingido: o guia ja nasce com uma versao de ontem
@@ -159,6 +167,8 @@
             case 'readFile':
               var p = msg.args.path;
               if (FILES[p] === undefined) throw new Error('nao encontrado');
+              // Como o C#: NUL nos primeiros 8000 = binario.
+              if (FILES[p].slice(0, 8000).indexOf('\u0000') !== -1) throw new Error('este arquivo parece binario, nao texto.');
               result = {
                 path: p, name: p.split('\\').pop(), dir: p.replace(/\\[^\\]*$/, ''),
                 content: FILES[p], encoding: 'utf-8', eol: '\r\n',
@@ -166,12 +176,39 @@
               };
               break;
             case 'writeFile':
+              // Como o C#: a data do disco diferente da que a aba conhece = conflito.
+              if (msg.args.expectedMtime && FILES[msg.args.path] !== undefined && mtimeDe(msg.args.path) !== msg.args.expectedMtime) {
+                result = { conflict: true, path: msg.args.path, mtime: mtimeDe(msg.args.path), size: FILES[msg.args.path].length };
+                break;
+              }
               if (FILES[msg.args.path] !== undefined && FILES[msg.args.path] !== msg.args.content) {
                 guardaVersao(msg.args.path, FILES[msg.args.path], Date.now());
               }
               FILES[msg.args.path] = msg.args.content;
               MTIMES[msg.args.path] = mtimeDe(msg.args.path) + 1;
               result = { path: msg.args.path, mtime: MTIMES[msg.args.path] };
+              break;
+            case 'statFiles':
+              result = { files: (msg.args.paths || []).map(function (sp) {
+                return FILES[sp] !== undefined
+                  ? { path: sp, exists: true, mtime: mtimeDe(sp), size: FILES[sp].length }
+                  : { path: sp, exists: false, mtime: 0, size: 0 };
+              }) };
+              break;
+            case 'writeBackup':
+              RASCUNHOS[msg.args.path] = { path: msg.args.path, name: msg.args.name, content: msg.args.content,
+                when: Date.now(), baseMtime: msg.args.baseMtime || 0 };
+              result = { key: msg.args.path };
+              break;
+            case 'dropBackup': delete RASCUNHOS[msg.args.path]; result = true; break;
+            case 'listBackups':
+              result = { backups: Object.keys(RASCUNHOS).map(function (k) { return RASCUNHOS[k]; }).filter(function (b) {
+                return FILES[b.path] === undefined || FILES[b.path] !== b.content;
+              }).map(function (b) {
+                var existe = FILES[b.path] !== undefined;
+                return { path: b.path, name: b.name, content: b.content, when: b.when, baseMtime: b.baseMtime,
+                  diskMtime: existe ? mtimeDe(b.path) : 0, fileExists: existe };
+              }) };
               break;
             case 'mapFolder':
               // Sem disco de verdade no preview: sem URL, o casulo mostra o nome.
@@ -339,6 +376,36 @@
         }, 5);
       }
     }
+  };
+
+  /* Simula outro programa mexendo no disco (para provar a mudanca externa no
+     preview): window.__disco.muda(caminho, texto, {mtime}), apaga, renomeia,
+     foco (o appActivated do C#, sem o aviso do vigia). `avisa: false` muda o
+     disco sem o evento, como o vigia que perde aviso em pasta de rede. */
+  function emite(evt, data) {
+    window.chrome.webview._handlers.forEach(function (h) { h({ data: { evt: evt, data: data } }); });
+  }
+  window.__disco = {
+    muda: function (caminho, texto, o) {
+      o = o || {};
+      FILES[caminho] = texto;
+      MTIMES[caminho] = o.mtime !== undefined ? o.mtime : mtimeDe(caminho) + 10;
+      if (o.avisa !== false) emite('fileChanged', { path: caminho, kind: 'changed' });
+    },
+    apaga: function (caminho, o) {
+      delete FILES[caminho];
+      if (!o || o.avisa !== false) emite('fileChanged', { path: caminho, kind: 'deleted' });
+    },
+    renomeia: function (caminho, novo) {
+      FILES[novo] = FILES[caminho];
+      MTIMES[novo] = mtimeDe(caminho);
+      delete FILES[caminho];
+      emite('fileChanged', { path: caminho, kind: 'renamed', newPath: novo });
+    },
+    foco: function () { emite('appActivated', null); },
+    texto: function (caminho) { return FILES[caminho]; },
+    mtime: function (caminho) { return mtimeDe(caminho); },
+    rascunhos: function () { return RASCUNHOS; }
   };
 
   /* Emite os mesmos eventos updateProgress do lado C# — um por pedaco — e

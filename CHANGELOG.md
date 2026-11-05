@@ -6,6 +6,29 @@ Versionamento [SemVer](https://semver.org/lang/pt-BR/).
 ## [Não lançado]
 
 ### Adicionado
+- **Mudança no disco com escolha e diferença** (do Notepad++). Quando outro
+  programa grava um arquivo aberto e a aba tem edição, o selo "mudou no disco"
+  abre a escolha entre a versão do disco e a sua, com a diferença linha a linha
+  e um botão para copiar a sua antes. "Recarregar do disco" com edição pergunta
+  do mesmo jeito.
+- **Desconfiança de corte.** Se a versão nova do disco parece corte (a data
+  voltou para trás, bytes zero, o fim sumiu no meio de uma linha, arquivo vazio
+  ou ilegível), o MarkPad não recarrega sozinho nem com a aba limpa: avisa em
+  vermelho e oferece "Regravar a minha". É a defesa contra a sincronização que
+  devolve um arquivo recém gravado ao tamanho e à data antigos.
+- **Conferência ao voltar para a janela e ao trocar de aba.** Além do vigia de
+  pasta, o MarkPad confere data e tamanho dos arquivos abertos, porque o vigia
+  perde aviso em pasta de rede e em arquivo virtual do ownCloud.
+- **Arquivo renomeado por fora:** a aba acompanha o novo nome (e o Ctrl+S grava
+  nele). Editor que grava por troca (renomeia o original e cria outro) continua
+  contando como "mudou", não como renomeado.
+- **Arquivo apagado por fora:** o selo vira "apagado do disco" (salvar de novo,
+  salvar como, fechar), o texto vira rascunho na hora e fechar a aba pergunta.
+- **Rascunhos da sessão anterior, um a um.** O aviso da abertura lista cada
+  rascunho com restaurar, descartar ou decidir depois, mostra a diferença para
+  o disco e avisa quando o disco mudou depois do rascunho (a aba restaurada
+  nasce com o selo, e o Ctrl+S pergunta antes de gravar por cima). "Rascunhos
+  não salvos..." na paleta reabre a lista.
 - **Exportar PDF com opções** (menu ⋯ e paleta). Papel (A4, Carta, Ofício,
   A5), orientação, margens, escala, cores e fundos, e cabeçalho e rodapé com
   título, caminho e número da página; as escolhas ficam para a próxima vez.
@@ -155,6 +178,17 @@ Versionamento [SemVer](https://semver.org/lang/pt-BR/).
   interface.
 
 ### Corrigido
+- **O selo "mudou no disco" jogava fora a edição.** Clicar nele (ou em
+  "Recarregar do disco") recarregava sem perguntar e o texto editado sumia.
+- **Ctrl+S gravava por cima de mudança feita por outro programa** sem avisar.
+  Agora o C# confere a data do disco antes de gravar e a página pergunta, com a
+  diferença; quem grava por cima ainda tem a versão do disco no histórico.
+- **Aviso do vigia no meio de uma gravação.** O primeiro evento passava e os
+  seguintes eram engolidos, então um programa que trunca e depois escreve podia
+  fazer a aba ler o arquivo pela metade. O aviso agora sai 350 ms depois do
+  último evento.
+- **Gravação descarregada no disco antes da troca** (`Flush(true)`): uma queda
+  logo depois de salvar não deixa mais o arquivo novo vazio.
 - **Impressão e PDF no tema escuro.** O título saía cinza-claro no papel
   branco (a folha de impressão não trocava as cores do tema) e, com fundos
   ligados, a margem da página saía preta. O papel agora é sempre claro. Seção

@@ -363,6 +363,8 @@ body.sidebar-hidden .main { border-left: none; border-radius: var(--radius-m) va
 .tab-estado { display: flex; flex-shrink: 0; color: var(--text-muted); }
 .tab-estado.is-liberada { color: var(--color-accent); }
 .tab-estado.is-mudou { color: var(--color-orange); }
+.tab-estado.is-apagado,
+.tab-estado.is-suspeito { color: var(--color-red); }
 
 .tab-name { overflow: hidden; text-overflow: ellipsis; }
 .tab-dot {
@@ -672,6 +674,7 @@ body.sidebar-hidden .main { border-left: none; border-radius: var(--radius-m) va
   flex-shrink: 0;
 }
 .disk-badge.warn { color: var(--color-orange); border-color: var(--color-orange); }
+.disk-badge.danger { color: var(--color-red); border-color: var(--color-red); }
 
 .view-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
 
@@ -1905,6 +1908,15 @@ body.no-gutter .ed-row .ln { display: none; }
 .diff-menos { background: color-mix(in srgb, var(--color-red) 13%, transparent); color: var(--text-normal); }
 .diff-menos .diff-sinal { color: var(--color-red); }
 .diff-corte { padding: 2px 10px; color: var(--text-faint); user-select: none; }
+
+/* mudou no disco: a diferenca embaixo do texto, botao de copiar a esquerda */
+.disco-diff { height: min(46vh, 440px); margin-bottom: 16px; }
+.disco-escolha.is-suspeito h2 { color: var(--color-red); }
+.dialog-actions .dialog-esquerda { margin-right: auto; }
+
+/* rascunhos da sessao anterior: a escolha de cada um dentro da linha */
+.rascunho-item .set-select { margin-top: 5px; width: 100%; }
+.rascunho-aviso { color: var(--color-orange); font-size: var(--font-ui-smaller); }
 .dialog p strong { color: var(--text-normal); }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .dialog-input {

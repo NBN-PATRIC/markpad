@@ -188,12 +188,16 @@
 
     clearTimeout(backupTimers[tab.id]);
     backupTimers[tab.id] = setTimeout(function () {
-      if (tab.content === tab.savedContent || (!tab.path && !tab.content)) {
+      // Arquivo apagado por fora: o texto so existe na aba, o rascunho fica
+      // mesmo sem edicao.
+      var soNaAba = tab.apagadoNoDisco && !!tab.content;
+      if ((tab.content === tab.savedContent && !soNaAba) || (!tab.path && !tab.content)) {
         bridge.call('dropBackup', { path: chave }).catch(function () {});
         return;
       }
       bridge.call('writeBackup', {
-        path: chave, name: tab.name, content: tab.content
+        path: chave, name: tab.name, content: tab.content,
+        baseMtime: tab.path ? (tab.mtime || 0) : 0
       }).catch(function () {});
     }, 2000);
   }
@@ -209,31 +213,161 @@
     }));
   }
 
-  /** Ao iniciar, oferece de volta o que ficou pendente da sessão anterior. */
-  function offerBackups() {
+  /*
+   * Ao iniciar, oferece de volta o que ficou pendente da sessao anterior.
+   * Um a um, como no "recuperar" do Notepad++ (estudo 03 §2.2): restaurar,
+   * descartar ou decidir depois, vendo a diferenca para o disco. Se o disco
+   * mudou depois do rascunho, a linha avisa, e a aba restaurada nasce com o
+   * selo "mudou no disco" (o Ctrl+S pergunta antes de gravar por cima).
+   * `manual`: veio do comando, entao lista tambem quando nao ha nada.
+   */
+  function offerBackups(manual) {
     return bridge.call('listBackups', {}).then(function (res) {
-      var lista = (res && res.backups) || [];
-      if (!lista.length) return;
-
-      var nomes = lista.slice(0, 6).map(function (b) { return escapeText(b.name); }).join(', ');
-      var extra = lista.length > 6 ? ' e mais ' + (lista.length - 6) : '';
-
-      return dialog(
-        t('Alterações não salvas da sessão anterior'),
-        t('O MarkPad guardou o texto de <strong>{nomes}</strong> que não chegou a ser gravado.',
-          { nomes: nomes + extra }) + '<br><br>' +
-        t('O arquivo em disco continua intacto. Se restaurar, o texto volta como estava ') +
-        t('e você decide se salva por cima.'),
-        [{ label: t('Descartar'), value: false, cls: 'danger' },
-         { label: t('Restaurar'), value: true, cls: 'primary' }]
-      ).then(function (sim) {
-        if (!sim) {
-          lista.forEach(function (b) { bridge.call('dropBackup', { path: b.path }).catch(function () {}); });
-          return;
-        }
-        return restoreBackups(lista);
+      var lista = ((res && res.backups) || []).filter(function (b) {
+        // O que esta aberto agora e rascunho desta sessao, nao pendencia.
+        return !app.tabs.some(function (tab) {
+          return (tab.path && mesmoArquivo(tab.path, b.path)) || tab.rascunhoId === b.path;
+        });
       });
+      if (!lista.length) {
+        if (manual) toast(t('Nenhum rascunho pendente.'), '', 2200);
+        return;
+      }
+      return dialogoRascunhos(lista).then(aplicaRascunhos);
     }).catch(function () {});
+  }
+
+  function rascunhoSemArquivo(b) { return b.path.indexOf('markpad:sem-titulo:') === 0; }
+  function rascunhoDiscoMudou(b) {
+    return b.fileExists && b.baseMtime && b.diskMtime && b.baseMtime !== b.diskMtime;
+  }
+
+  /** A lista de rascunhos com a escolha de cada um. Resolve a lista com `escolha`. */
+  function dialogoRascunhos(lista) {
+    return new Promise(function (resolve) {
+      var overlay = $('overlay');
+      var box = document.createElement('div');
+      box.className = 'dialog versoes rascunhos';
+      box.setAttribute('role', 'dialog');
+
+      var h = document.createElement('h2');
+      h.textContent = t('Alterações não salvas da sessão anterior');
+      box.appendChild(h);
+      var p = document.createElement('p');
+      p.textContent = t('O MarkPad guardou o texto que não chegou a ser gravado. O arquivo em disco continua intacto: restaurar só traz o texto de volta para a aba, e quem grava é o Ctrl+S.');
+      box.appendChild(p);
+
+      var corpo = document.createElement('div');
+      corpo.className = 'versoes-corpo';
+      var col = document.createElement('div');
+      col.className = 'versoes-lista';
+      var vista = document.createElement('div');
+      vista.className = 'versoes-diff';
+      corpo.appendChild(col);
+      corpo.appendChild(vista);
+      box.appendChild(corpo);
+
+      var atual = null;
+      lista.forEach(function (b) {
+        b.escolha = 'restaurar';
+        var item = document.createElement('div');
+        item.className = 'versoes-item rascunho-item';
+        var nome = document.createElement('span');
+        nome.textContent = b.name || baseName(b.path);
+        var sub = document.createElement('span');
+        sub.className = 'pal-sub';
+        var partes = [haQuanto(b.when)];
+        if (rascunhoSemArquivo(b)) partes.push(t('nota sem arquivo'));
+        else if (!b.fileExists) partes.push(t('o arquivo não existe mais'));
+        sub.textContent = partes.join(' · ');
+        item.appendChild(nome);
+        item.appendChild(sub);
+        if (rascunhoDiscoMudou(b)) {
+          var aviso = document.createElement('span');
+          aviso.className = 'rascunho-aviso';
+          aviso.textContent = t('o disco mudou depois do rascunho');
+          item.appendChild(aviso);
+        }
+        var sel = document.createElement('select');
+        sel.className = 'set-select';
+        [['restaurar', t('Restaurar')], ['descartar', t('Descartar')], ['depois', t('Decidir depois')]].forEach(function (o) {
+          var op = document.createElement('option');
+          op.value = o[0];
+          op.textContent = o[1];
+          sel.appendChild(op);
+        });
+        sel.onclick = function (e) { e.stopPropagation(); };
+        sel.onchange = function () { b.escolha = sel.value; };
+        item.appendChild(sel);
+        item.onclick = function () { mostra(b, item); };
+        col.appendChild(item);
+        if (!atual) atual = [b, item];
+      });
+
+      function mostra(b, item) {
+        Array.prototype.forEach.call(col.children, function (el) { el.classList.toggle('is-active', el === item); });
+        vista.textContent = '';
+        var disco = (!b.fileExists || rascunhoSemArquivo(b))
+          ? Promise.resolve('')
+          : bridge.call('readFile', { path: b.path }).then(function (d) { return d.content; }).catch(function () { return ''; });
+        disco.then(function (texto) { desenhaDiff(vista, texto, b.content); });
+      }
+
+      var acoes = document.createElement('div');
+      acoes.className = 'dialog-actions';
+      function botao(rotulo, cls, fn) {
+        var bt = document.createElement('button');
+        bt.className = 'btn' + (cls ? ' ' + cls : '');
+        bt.textContent = rotulo;
+        bt.onclick = fn;
+        acoes.appendChild(bt);
+        return bt;
+      }
+      function fim(todas) {
+        if (todas) lista.forEach(function (b) { b.escolha = todas; });
+        overlay.hidden = true;
+        box.remove();
+        document.removeEventListener('keydown', onKey, true);
+        resolve(lista);
+      }
+      function onKey(e) {
+        if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); fim('depois'); }
+      }
+      botao(t('Descartar todos'), 'danger dialog-esquerda', function () { fim('descartar'); });
+      botao(t('Decidir depois'), '', function () { fim('depois'); });
+      var ok = botao(t('Aplicar'), 'primary', function () { fim(null); });
+      box.appendChild(acoes);
+
+      document.body.appendChild(box);
+      overlay.hidden = false;
+      overlay.onclick = function () { fim('depois'); };
+      document.addEventListener('keydown', onKey, true);
+      if (atual) mostra(atual[0], atual[1]);
+      ok.focus();
+    });
+  }
+
+  function aplicaRascunhos(lista) {
+    app.rascunhosAdiados = app.rascunhosAdiados || {};
+    var restaurar = [];
+    var adiados = 0;
+    lista.forEach(function (b) {
+      if (b.escolha === 'descartar') bridge.call('dropBackup', { path: b.path }).catch(function () {});
+      else if (b.escolha === 'depois') { app.rascunhosAdiados[b.path.toLowerCase()] = b; adiados++; }
+      else restaurar.push(b);
+    });
+    if (adiados) toast(t('Rascunhos guardados para depois: voltam na próxima abertura ou pelo comando Rascunhos não salvos, na paleta.'), '', 5000);
+    if (restaurar.length) return restoreBackups(restaurar);
+  }
+
+  /** Abriu um arquivo que tem rascunho adiado: pergunta so desse. */
+  function ofereceRascunhoAdiado(tab) {
+    var adiados = app.rascunhosAdiados;
+    if (!adiados || !tab.path) return;
+    var b = adiados[tab.path.toLowerCase()];
+    if (!b) return;
+    delete adiados[tab.path.toLowerCase()];
+    setTimeout(function () { dialogoRascunhos([b]).then(aplicaRascunhos); }, 50);
   }
 
   function restoreBackups(lista) {
@@ -253,10 +387,22 @@
           insereAba(solto);
           return;
         }
-        return doOpenPath(b.path, {}).then(function (tab) {
+        var aberta = tabByPath(b.path);
+        return (aberta ? Promise.resolve(aberta) : doOpenPath(b.path, {})).then(function (tab) {
           if (!tab) return;
           tab.content = b.content;
           tab.locked = false;
+          if (rascunhoDiscoMudou(b)) {
+            // O rascunho se apoia numa versao mais velha do disco: a aba fica
+            // com a data dela, entao o Ctrl+S confere e pergunta, e o selo
+            // mostra a diferenca para o que esta no disco agora.
+            tab.discoVisto = tab.mtime;
+            tab.mtime = b.baseMtime;
+            tab.staleOnDisk = true;
+            // O texto em que o rascunho se apoiou nao existe mais: o atalho
+            // "so a data mudou" do Ctrl+S nao vale para esta aba.
+            tab.baseIncerta = true;
+          }
           invalidateLineStatus(tab);
         }).catch(function () {});
       });
@@ -661,6 +807,7 @@
       bridge.call('watchFile', { path: data.path }).catch(function () {});
       addRecent(data.path);
       if (opts.line) goToLine(opts.line);
+      ofereceRascunhoAdiado(tab);
       return tab;
     }).catch(function (err) {
       toast(t('Nao consegui abrir: ') + err.message, 'error', 5000);
@@ -691,13 +838,19 @@
     setTimeout(function () { $('editorInput').focus(); }, 30);
   }
 
-  function saveTab(tab, saveAs) {
+  /*
+   * opts.forcar: grava sem conferir a data do disco (o usuario ja escolheu
+   * gravar por cima). opts.ignoraTrava: a gravacao veio de uma escolha
+   * explicita num dialogo (fechar e salvar, regravar), nao do Ctrl+S.
+   */
+  function saveTab(tab, saveAs, opts) {
+    opts = opts || {};
     // Garante que o bloco em edicao ja esteja no documento antes de gravar.
     if (live) live.commit();
     tab = tab || activeTab();
     if (!tab) return Promise.resolve(false);
 
-    if (tab.locked && !saveAs) {
+    if (tab.locked && !saveAs && !opts.ignoraTrava) {
       toast(t('Documento travado — nada foi alterado.'), 'warn');
       return Promise.resolve(false);
     }
@@ -712,19 +865,28 @@
 
     return target.then(function (path) {
       if (!path) return false;
+      // Mesmo arquivo de onde a aba leu: o C# confere se outro programa
+      // gravou depois (a data mudou) e devolve conflito em vez de gravar.
+      var confere = !opts.forcar && !saveAs && tab.path && mesmoArquivo(path, tab.path) && tab.mtime;
       return bridge.call('writeFile', {
         path: path,
         content: tab.content,
         encoding: tab.encoding,
-        eol: tab.eol
+        eol: tab.eol,
+        expectedMtime: confere ? tab.mtime : 0
       }).then(function (res) {
+        if (res && res.conflict) return conflitoAoGravar(tab, opts);
         var renamed = tab.path !== res.path;
         tab.path = res.path;
         tab.name = res.path.split(/[\\/]/).pop();
         tab.dir = res.path.replace(/[\\/][^\\/]*$/, '');
         tab.savedContent = tab.content;
         tab.mtime = res.mtime;
+        tab.discoVisto = res.mtime;
         tab.staleOnDisk = false;
+        tab.suspeita = null;
+        tab.apagadoNoDisco = false;
+        tab.baseIncerta = false;
         invalidateLineStatus(tab);   // o que era laranja vira verde
         dropBackup(tab);
         invalidaLinks();   // os links desta nota mudaram no disco
@@ -751,11 +913,17 @@
 
     var tab = app.tabs[idx];
     var dirty = tab.content !== tab.savedContent;
+    // Apagado por fora (Notepad++): o texto so existe nesta aba, entao
+    // fechar pergunta como se houvesse alteracao.
+    var soNaAba = !dirty && tab.apagadoNoDisco && !!tab.content;
 
-    var decide = (dirty && !force)
-      ? dialog(t('Alteracoes nao salvas'),
-          t('O arquivo <strong>{nome}</strong> tem mudancas que ainda nao foram gravadas.',
-            { nome: escapeText(tab.name) }),
+    var decide = ((dirty || soNaAba) && !force)
+      ? dialog(soNaAba ? t('Arquivo apagado do disco') : t('Alteracoes nao salvas'),
+          soNaAba
+            ? t('<strong>{nome}</strong> foi apagado do disco por outro programa. O texto só existe nesta aba.',
+              { nome: escapeText(tab.name) })
+            : t('O arquivo <strong>{nome}</strong> tem mudancas que ainda nao foram gravadas.',
+              { nome: escapeText(tab.name) }),
           [{ label: t('Descartar'), value: 'discard', cls: 'danger' },
            { label: t('Cancelar'), value: null },
            { label: t('Salvar'), value: 'save', cls: 'primary' }])
@@ -763,7 +931,7 @@
 
     return decide.then(function (choice) {
       if (choice === null) return false;
-      var pre = choice === 'save' ? saveTab(tab) : Promise.resolve(true);
+      var pre = choice === 'save' ? saveTab(tab, false, { ignoraTrava: true }) : Promise.resolve(true);
       return pre.then(function (ok) {
         if (!ok && choice === 'save') return false;
 
@@ -1166,6 +1334,7 @@
 
     var tab = activeTab();
     if (tab && !tab.locked) restoreScroll(tab);
+    if (tab && current !== tab) confereDisco([tab]);
     persist();
   }
 
@@ -1261,23 +1430,340 @@
     syncScroll();
   }
 
+  // ===================================================== mudanca no disco
+  //
+  // Arquivo alterado por fora, como no Notepad++ (estudo 03 §1.5). O vigia do
+  // C# avisa na hora; ao voltar o foco da janela e ao trocar de aba a pagina
+  // confere data e tamanho de novo, porque o vigia perde evento em pasta de
+  // rede e no arquivo virtual do ownCloud. Regras:
+  //  - aba sem edicao recarrega sozinha, MENOS quando a mudanca parece corte
+  //    (data que volta no tempo, bytes zero, fim sumido no meio da linha,
+  //    arquivo vazio ou ilegivel): ai nada e trocado e o aviso e forte;
+  //  - aba com edicao nunca e trocada sem perguntar: ganha o selo e a escolha
+  //    entre a versao do disco e a minha, vendo a diferenca;
+  //  - o Ctrl+S manda a data que a aba conhece e o C# recusa se o disco mudou.
+
+  /** Motivo de desconfiar da versao nova do disco, ou null. */
+  function suspeitaDoDisco(tab, disco) {
+    if (disco.erro) return 'ilegivel';
+    var antes = tab.savedContent || '';
+    var novo = disco.content || '';
+    if (novo.indexOf('\u0000') !== -1) return 'zeros';
+    if (antes && !novo) return 'vazio';
+    if (tab.mtime && disco.mtime && disco.mtime < tab.mtime) return 'antiga';
+    // Fim cortado no meio de uma linha: o texto novo e o comeco do antigo e o
+    // corte nao caiu numa quebra de linha. Apagar as ultimas linhas num editor
+    // cai numa quebra, e isso nao e suspeito.
+    if (novo.length < antes.length && antes.lastIndexOf(novo, 0) === 0 &&
+        novo.charAt(novo.length - 1) !== '\n' && antes.charAt(novo.length) !== '\n') return 'cortado';
+    return null;
+  }
+
+  function textoDaSuspeita(motivo, erro) {
+    switch (motivo) {
+      case 'ilegivel': return t('O arquivo no disco ficou ilegível: {erro}.', { erro: erro || '' });
+      case 'zeros': return t('O arquivo no disco tem bytes zero no lugar do texto.');
+      case 'vazio': return t('O arquivo no disco ficou vazio.');
+      case 'antiga': return t('A data do arquivo no disco voltou para trás: a sincronização pode ter devolvido uma versão antiga.');
+      case 'cortado': return t('O arquivo no disco agora termina no meio de uma linha, antes do fim que estava aberto.');
+    }
+    return '';
+  }
+
+  /** Le o disco sem estourar: erro vira { erro }, depois de uma segunda tentativa. */
+  function leDisco(path) {
+    function tenta() { return bridge.call('readFile', { path: path }); }
+    return tenta().catch(function () {
+      return new Promise(function (r) { setTimeout(r, 500); }).then(tenta);
+    }).catch(function (err) { return { erro: (err && err.message) || String(err) }; });
+  }
+
+  /** "Usar a do disco": o texto do disco passa a ser o da aba. */
+  function aplicaDoDisco(tab, disco) {
+    if (live && tab === activeTab()) live.commit();
+    tab.content = disco.content;
+    tab.savedContent = disco.content;
+    tab.originContent = disco.content;   // recarregar zera o historico da sessao
+    if (disco.encoding) tab.encoding = disco.encoding;
+    if (disco.eol) tab.eol = disco.eol;
+    tab.mtime = disco.mtime;
+    tab.discoVisto = disco.mtime;
+    tab.readOnlyOnDisk = !!disco.readOnlyOnDisk;
+    tab.staleOnDisk = false;
+    tab.suspeita = null;
+    tab.apagadoNoDisco = false;
+    tab.baseIncerta = false;
+    invalidateLineStatus(tab);
+    dropBackup(tab);
+    renderAll();
+  }
+
+  /** "Manter a minha": o disco vira a referencia e o texto da aba fica pendente. */
+  function mantemAMinha(tab, disco) {
+    // Disco ilegivel: nao ha referencia, entao tudo conta como nao salvo.
+    tab.savedContent = disco.erro ? '' : disco.content;
+    if (!disco.erro) { tab.mtime = disco.mtime; tab.discoVisto = disco.mtime; }
+    tab.staleOnDisk = false;
+    tab.suspeita = null;
+    tab.baseIncerta = false;
+    invalidateLineStatus(tab);
+    scheduleBackup(tab);
+    renderAll();
+  }
+
+  /**
+   * A escolha entre o texto da aba e o do disco, com a diferenca na tela.
+   * modo: 'mudou' (aba com edicao), 'gravar' (o Ctrl+S achou o disco mudado)
+   * ou 'suspeito' (parece corte). Resolve 'disco', 'minha', 'regravar',
+   * 'sobrescrever' ou null.
+   */
+  function dialogoDisco(tab, disco, modo) {
+    return new Promise(function (resolve) {
+      var overlay = $('overlay');
+      var box = document.createElement('div');
+      box.className = 'dialog versoes disco-escolha' + (modo === 'suspeito' ? ' is-suspeito' : '');
+      box.setAttribute('role', 'alertdialog');
+
+      var h = document.createElement('h2');
+      var p = document.createElement('p');
+      var botoes;
+      if (modo === 'suspeito') {
+        h.textContent = t('{nome} parece ter sido cortado no disco', { nome: tab.name });
+        p.textContent = textoDaSuspeita(tab.suspeita, disco.erro) + ' ' +
+          t('O MarkPad não trocou nada: o texto aberto aqui está inteiro. Regravar põe ele de volta no disco, e a versão do disco fica no histórico de versões.');
+        botoes = [[t('Usar a do disco'), 'disco', ''], [t('Manter sem gravar'), 'minha', ''], [t('Regravar a minha'), 'regravar', 'primary']];
+      } else if (modo === 'gravar') {
+        h.textContent = t('{nome} mudou no disco', { nome: tab.name });
+        p.textContent = t('Outro programa gravou este arquivo depois que você o abriu. Gravar agora substitui essa versão, que fica no histórico de versões. Abaixo, o que muda se usar a versão do disco.');
+        botoes = [[t('Cancelar'), null, ''], [t('Usar a do disco'), 'disco', ''], [t('Gravar a minha por cima'), 'sobrescrever', 'primary']];
+      } else {
+        h.textContent = t('{nome} mudou no disco', { nome: tab.name });
+        p.textContent = t('Outro programa gravou este arquivo enquanto você editava. Escolha qual texto fica. Abaixo, o que muda se usar a versão do disco.');
+        botoes = [[t('Cancelar'), null, ''], [t('Usar a do disco'), 'disco', 'danger'], [t('Manter a minha'), 'minha', 'primary']];
+      }
+      box.appendChild(h);
+      box.appendChild(p);
+
+      if (!disco.erro) {
+        var vista = document.createElement('div');
+        vista.className = 'versoes-diff disco-diff';
+        desenhaDiff(vista, tab.content, disco.content);
+        box.appendChild(vista);
+      }
+
+      var acoes = document.createElement('div');
+      acoes.className = 'dialog-actions';
+      var copiar = document.createElement('button');
+      copiar.className = 'btn dialog-esquerda';
+      copiar.textContent = t('Copiar a minha');
+      copiar.onclick = function () {
+        navigator.clipboard.writeText(tab.content);
+        toast(t('Texto da aba copiado.'), 'ok', 1600);
+      };
+      acoes.appendChild(copiar);
+      var principal = null;
+      botoes.forEach(function (b) {
+        var bt = document.createElement('button');
+        bt.className = 'btn' + (b[2] ? ' ' + b[2] : '');
+        bt.textContent = b[0];
+        if (b[1] === 'disco' && disco.erro) bt.disabled = true;
+        bt.onclick = function () { fim(b[1]); };
+        acoes.appendChild(bt);
+        if (b[2] === 'primary') principal = bt;
+      });
+      box.appendChild(acoes);
+
+      // Fechar sem escolher nunca troca nada: na suspeita vale "manter".
+      var neutro = modo === 'suspeito' ? 'minha' : null;
+      function fim(v) {
+        overlay.hidden = true;
+        box.remove();
+        document.removeEventListener('keydown', onKey, true);
+        app.dialogoDisco = null;
+        resolve(v);
+      }
+      function onKey(e) {
+        if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); fim(neutro); }
+      }
+
+      app.dialogoDisco = box;
+      document.body.appendChild(box);
+      overlay.hidden = false;
+      overlay.onclick = function () { fim(neutro); };
+      document.addEventListener('keydown', onKey, true);
+      if (principal) principal.focus();
+    });
+  }
+
+  /** O selo, o "Recarregar" com edicao ou a suspeita: mostra e aplica a escolha. */
+  function resolveDisco(tab, modo, discoLido) {
+    if (!tab || !tab.path || app.dialogoDisco) return Promise.resolve();
+    if (live && tab === activeTab()) live.commit();
+    return (discoLido ? Promise.resolve(discoLido) : leDisco(tab.path)).then(function (disco) {
+      if (app.tabs.indexOf(tab) === -1) return;
+      if (disco.erro && tab.apagadoNoDisco) return;
+      if (!modo) modo = tab.suspeita || disco.erro ? 'suspeito' : 'mudou';
+      if (modo === 'suspeito' && !tab.suspeita) tab.suspeita = suspeitaDoDisco(tab, disco) || 'ilegivel';
+      return dialogoDisco(tab, disco, modo).then(function (escolha) {
+        if (escolha === 'disco' && !disco.erro) {
+          aplicaDoDisco(tab, disco);
+          toast(t('Recarregado do disco.'), 'ok', 1500);
+        } else if (escolha === 'minha') {
+          mantemAMinha(tab, disco);
+        } else if (escolha === 'regravar') {
+          mantemAMinha(tab, disco);
+          return saveTab(tab, false, { forcar: true, ignoraTrava: true });
+        } else if (escolha === 'sobrescrever') {
+          return saveTab(tab, false, { forcar: true });
+        }
+      });
+    });
+  }
+
+  /** O Ctrl+S achou o disco mudado (o C# recusou gravar). */
+  function conflitoAoGravar(tab, opts) {
+    return leDisco(tab.path).then(function (disco) {
+      // So a data mudou (a sincronizacao tocou o arquivo): grava sem perguntar.
+      if (!disco.erro && disco.content === tab.savedContent && !tab.baseIncerta) {
+        tab.mtime = disco.mtime;
+        return saveTab(tab, false, { forcar: true, ignoraTrava: opts && opts.ignoraTrava });
+      }
+      return dialogoDisco(tab, disco, 'gravar').then(function (escolha) {
+        if (escolha === 'sobrescrever') return saveTab(tab, false, { forcar: true, ignoraTrava: opts && opts.ignoraTrava });
+        if (escolha === 'disco' && !disco.erro) {
+          aplicaDoDisco(tab, disco);
+          toast(t('Recarregado do disco.'), 'ok', 1500);
+        }
+        return false;
+      });
+    });
+  }
+
   function reloadFromDisk(tab) {
     tab = tab || activeTab();
     if (!tab || !tab.path) return;
 
-    bridge.call('readFile', { path: tab.path }).then(function (data) {
-      tab.content = data.content;
-      tab.savedContent = data.content;
-      tab.originContent = data.content;   // recarregar zera o histórico da sessão
-      tab.encoding = data.encoding;
-      tab.eol = data.eol;
-      tab.mtime = data.mtime;
-      tab.staleOnDisk = false;
-      renderAll();
+    // Com edicao (ou suspeita) nunca recarrega calado: antes o selo e o menu
+    // jogavam fora o que se tinha editado sem perguntar.
+    if (tab.content !== tab.savedContent || tab.suspeita) { resolveDisco(tab); return; }
+
+    leDisco(tab.path).then(function (disco) {
+      if (disco.erro) { toast(t('Falha ao recarregar: ') + disco.erro, 'error'); return; }
+      aplicaDoDisco(tab, disco);
       toast(t('Recarregado do disco.'), 'ok', 1500);
-    }).catch(function (err) {
-      toast(t('Falha ao recarregar: ') + err.message, 'error');
     });
+  }
+
+  /** O arquivo sumiu do disco: a aba fica, com o texto guardado como rascunho. */
+  function marcaApagado(tab) {
+    if (tab.apagadoNoDisco) return;
+    tab.apagadoNoDisco = true;
+    tab.staleOnDisk = true;
+    tab.suspeita = null;
+    scheduleBackup(tab);
+    renderHeader();
+    renderTabs();
+  }
+
+  /** Renomeado fora do MarkPad (na mesma pasta): a aba acompanha o arquivo. */
+  function seguiuRenomeio(tab, destino) {
+    if (!destino || tabByPath(destino)) { marcaApagado(tab); return; }
+    var antigo = tab.name;
+    var chaveVelha = tab.path;
+    tab.path = destino;
+    tab.name = baseName(destino);
+    tab.dir = destino.replace(/[\\/][^\\/]*$/, '');
+    tab.apagadoNoDisco = false;
+    if (tab.content !== tab.savedContent) {
+      // O rascunho mora pela chave do caminho: muda junto.
+      bridge.call('dropBackup', { path: chaveVelha }).catch(function () {});
+      scheduleBackup(tab);
+    }
+    bridge.call('watchFile', { path: destino }).catch(function () {});
+    if (typeof arvoreMudou === 'function') arvoreMudou();
+    renderAll();
+    persist();
+    toast(t('{antigo} foi renomeado fora do MarkPad para {novo}. A aba acompanhou.', { antigo: antigo, novo: tab.name }), 'ok', 4000);
+  }
+
+  /** Menu do selo "apagado do disco". */
+  function menuApagado(tab, ev) {
+    var r = ev && ev.currentTarget ? ev.currentTarget.getBoundingClientRect() : null;
+    showMenu([
+      { label: t('Salvar de novo no mesmo lugar'), icon: 'save', action: function () { saveTab(tab, false, { ignoraTrava: true }); } },
+      { label: t('Salvar como...'), icon: 'save', action: function () { saveTab(tab, true); } },
+      { label: t('Fechar a aba'), icon: 'x', action: function () { closeTab(tab.id); } }
+    ], r ? r.left : 200, r ? r.bottom + 4 : 80);
+  }
+
+  /*
+   * Recebe o aviso do vigia (ou da conferencia por data) e decide. `kind`:
+   * 'changed', 'deleted' ou 'renamed' (com o novo caminho).
+   */
+  function processaMudanca(tab, kind, novoCaminho) {
+    if (kind === 'renamed') { seguiuRenomeio(tab, novoCaminho); return Promise.resolve(); }
+    if (kind === 'deleted') { marcaApagado(tab); return Promise.resolve(); }
+    if (tab.conferindo) return tab.conferindo;
+
+    tab.conferindo = leDisco(tab.path).then(function (disco) {
+      tab.conferindo = null;
+      if (app.tabs.indexOf(tab) === -1) return;
+      var voltou = tab.apagadoNoDisco;
+      tab.apagadoNoDisco = false;
+      if (!disco.erro) tab.discoVisto = disco.mtime;
+
+      // So a data mudou (sincronizacao, "tocar" o arquivo) ou o arquivo voltou
+      // igual: nada a trocar.
+      if (!disco.erro && disco.content === tab.savedContent) {
+        tab.mtime = disco.mtime;
+        tab.staleOnDisk = false;
+        tab.suspeita = null;
+        if (voltou) scheduleBackup(tab);
+        renderHeader();
+        renderTabs();
+        return;
+      }
+
+      var sujo = tab.content !== tab.savedContent;
+      var motivo = suspeitaDoDisco(tab, disco);
+      if (!sujo && !motivo) {
+        aplicaDoDisco(tab, disco);
+        toast(t('{arquivo} foi atualizado no disco.', { arquivo: tab.name }), 'ok', 2200);
+        return;
+      }
+
+      tab.staleOnDisk = true;
+      tab.suspeita = motivo;
+      renderHeader();
+      renderTabs();
+      // Suspeita de corte: a escolha abre na hora, para nao passar batido.
+      if (motivo && !app.dialogoDisco && $('overlay').hidden) {
+        if (tab !== activeTab()) selectTab(tab.id);
+        resolveDisco(tab, 'suspeito', disco);
+      }
+    });
+    return tab.conferindo;
+  }
+
+  /*
+   * A rede de seguranca do Notepad++: ao voltar o foco e ao trocar de aba,
+   * confere a data de cada arquivo aberto contra a ultima vista.
+   */
+  function confereDisco(abas) {
+    abas = (abas || app.tabs).filter(function (tab) { return tab && tab.path; });
+    if (!abas.length) return;
+    bridge.call('statFiles', { paths: abas.map(function (tab) { return tab.path; }) }).then(function (res) {
+      var porCaminho = {};
+      ((res && res.files) || []).forEach(function (f) { porCaminho[f.path.toLowerCase()] = f; });
+      abas.forEach(function (tab) {
+        if (app.tabs.indexOf(tab) === -1 || !tab.path) return;
+        var f = porCaminho[tab.path.toLowerCase()];
+        if (!f) return;
+        if (!f.exists) { if (!tab.apagadoNoDisco) processaMudanca(tab, 'deleted'); return; }
+        var visto = tab.discoVisto || tab.mtime;
+        if (tab.apagadoNoDisco || (visto && f.mtime !== visto)) processaMudanca(tab, 'changed');
+      });
+    }).catch(function () {});
   }
 
   // ============================================================== A TRAVA
@@ -1366,7 +1852,9 @@
       // Icone de estado (Notepad++): so o que foge do normal. Travada e o
       // normal do MarkPad, entao nao ganha icone; mudou no disco vence
       // somente leitura, que vence liberada.
-      var estado = tab.staleOnDisk ? ['warning', 'is-mudou', t('mudou no disco')]
+      var estado = tab.apagadoNoDisco ? ['warning', 'is-apagado', t('apagado do disco')]
+        : tab.suspeita ? ['warning', 'is-suspeito', t('cortado no disco?')]
+        : tab.staleOnDisk ? ['warning', 'is-mudou', t('mudou no disco')]
         : tab.readOnlyOnDisk ? ['lock', 'is-leitura', t('somente leitura no disco')]
         : !tab.locked ? ['pencil', 'is-liberada', t('Edição liberada')]
         : null;
@@ -1471,10 +1959,18 @@
     var badge = $('diskBadge');
     if (tab && tab.staleOnDisk) {
       badge.hidden = false;
-      badge.className = 'disk-badge warn';
-      badge.textContent = t('mudou no disco');
       badge.style.cursor = 'pointer';
-      badge.onclick = function () { reloadFromDisk(tab); };
+      if (tab.apagadoNoDisco) {
+        badge.className = 'disk-badge danger';
+        badge.textContent = t('apagado do disco');
+        badge.title = t('O arquivo não existe mais no disco. Clique para salvar de novo ou em outro lugar.');
+        badge.onclick = function (e) { menuApagado(tab, e); };
+      } else {
+        badge.className = 'disk-badge ' + (tab.suspeita ? 'danger' : 'warn');
+        badge.textContent = tab.suspeita ? t('cortado no disco?') : t('mudou no disco');
+        badge.title = t('Clique para comparar com o disco e escolher qual texto fica.');
+        badge.onclick = function () { resolveDisco(tab); };
+      }
     } else if (tab && tab.readOnlyOnDisk) {
       badge.hidden = false;
       badge.className = 'disk-badge';
@@ -5087,6 +5583,7 @@
       { id: 'move', label: t('Mover para...'), icon: 'folder', enabled: !!(tab && tab.path), action: function () { moveDoc(activeTab().path); } },
       { id: 'duplicate', label: t('Duplicar'), icon: 'copy', enabled: !!(tab && tab.path), action: function () { duplicateDoc(activeTab().path); } },
       { id: 'versions', label: t('Historico de versoes...'), icon: 'clock', enabled: !!(tab && tab.path), action: function () { abreVersoes(activeTab().path); } },
+      { id: 'drafts', label: t('Rascunhos não salvos...'), icon: 'clock', action: function () { offerBackups(true); } },
       { id: 'openWith', label: t('Abrir no app padrao do Windows'), icon: 'external', enabled: !!(tab && tab.path), action: function () { openWithDefaultApp(activeTab().path); } },
       { id: 'delete', label: t('Excluir arquivo...'), icon: 'trash', enabled: !!(tab && tab.path), action: function () { deleteDoc(activeTab().path); } },
       { id: 'export', label: t('Exportar como HTML...'), icon: 'external', enabled: !!tab, action: exportHtml },
@@ -8232,33 +8729,22 @@
       invalidaLinks();
       var tab = tabByPath(data.path);
       if (!tab) return;
+      processaMudanca(tab, data.kind, data.newPath);
+    });
 
-      if (data.kind === 'deleted') {
-        tab.staleOnDisk = true;
-        renderHeader();
-        renderTabs();   // o icone de "mudou no disco" mora na aba
-        return;
-      }
-
-      var dirty = tab.content !== tab.savedContent;
-      if (!dirty) {
-        bridge.call('readFile', { path: tab.path }).then(function (fresh) {
-          if (fresh.content === tab.content) return;
-          tab.content = fresh.content;
-          tab.savedContent = fresh.content;
-          tab.mtime = fresh.mtime;
-          if (tab.id === app.activeId) renderAll();
-          toast(t('{arquivo} foi atualizado no disco.', { arquivo: tab.name }), 'ok', 2200);
-        }).catch(function () {});
-      } else {
-        tab.staleOnDisk = true;
-        renderHeader();
-        renderTabs();   // o icone de "mudou no disco" mora na aba
-      }
+    // Voltar a janela: confere a data dos abertos (no maximo uma vez por segundo).
+    var ultimaConferencia = 0;
+    bridge.on('appActivated', function () {
+      var agora = Date.now();
+      if (agora - ultimaConferencia < 1000) return;
+      ultimaConferencia = agora;
+      confereDisco();
     });
 
     bridge.on('requestClose', function () {
-      var dirty = app.tabs.filter(function (t) { return t.content !== t.savedContent; });
+      var dirty = app.tabs.filter(function (aba) {
+        return aba.content !== aba.savedContent || (aba.apagadoNoDisco && !!aba.content);
+      });
 
       if (!dirty.length) { bridge.call('confirmClose', {}); return; }
 
@@ -8278,7 +8764,7 @@
         }
 
         var chain = Promise.resolve(true);
-        dirty.forEach(function (t) { chain = chain.then(function () { return saveTab(t); }); });
+        dirty.forEach(function (aba) { chain = chain.then(function () { return saveTab(aba, false, { ignoraTrava: true }); }); });
         chain.then(function () { bridge.call('confirmClose', {}); });
       });
     });
