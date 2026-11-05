@@ -72,6 +72,15 @@ Reforços contra edição acidental:
 - Sumário lateral navegável, que acompanha a rolagem e recolhe por nível.
 - **Painel de tags**: junta as tags de todos os arquivos da pasta aberta,
   `#a/b` vira árvore com contagem por nível, e clicar busca a tag na pasta.
+- **Matemática** com KaTeX embutido (`$x^2$`, `$$...$$`), sem rede.
+- Realce de código em 27 linguagens, com PowerShell e shell bem separados
+  (cmdlet, variável, parâmetro, comando).
+- **Busca incorporada**: um bloco ` ```query ` mostra os resultados de uma busca
+  na pasta (`tag:#pendente`, `path:clientes`) dentro da nota.
+- **Quadros do Obsidian** (`.canvas`) abrem como quadro: cartões, notas
+  incorporadas, grupos e setas, com arrastar e zoom.
+- **Apresentação**: a nota vira slides em tela inteira, separados por `---`.
+- **Grafo** local da nota ou da pasta inteira.
 
 **Edição** (quando destravada)
 - **Edição ao vivo** (como o Live Preview do Obsidian): título grande, negrito,
@@ -84,8 +93,18 @@ Reforços contra edição acidental:
 - Os dois modos são o mesmo editor (CodeMirror 6): desfazer por aba, várias
   seleções (`Ctrl+clique`, `Ctrl+Alt+↑/↓`), seleção em coluna (`Alt+arrastar`),
   sugestões de `[[` com as notas e títulos da pasta.
-- Formatação pelo botão direito — negrito, itálico, riscado, destaque, código,
-  link, título, lista, tarefa, citação, tabela, linha, callout.
+- Formatação pelo botão direito e pela barra (`/` no começo da linha):
+  negrito, itálico, riscado, destaque, código, link, título, lista, tarefa,
+  citação, tabela, bloco de código, callout, régua, nota de rodapé, data.
+- **Tabela pelo teclado**: `Tab`/`Shift+Tab` andam de célula em célula, `Enter`
+  desce, a tabela se realinha sozinha; o botão direito insere, move, alinha e
+  apaga linhas e colunas.
+- **Propriedades em formulário** no modo ao vivo (pílulas para tags, caixa,
+  calendário), dobra de seções e listas, lista numerada que se renumera,
+  sugestão de `[[notas]]` e de `#tags`, corretor ortográfico opcional.
+- **Colar entende o conteúdo**: HTML (navegador, Teams, Word) vira Markdown,
+  imagem colada vira anexo na pasta da nota, URL sobre texto vira link;
+  imagem, PDF, áudio ou vídeo solto no editor vira anexo no ponto da queda.
 - Continuação automática de listas e citações no Enter, `Tab`/`Shift+Tab` para
   indentar bloco, `Ctrl+B`/`Ctrl+I`/`Ctrl+K`, `Ctrl+D` duplica linha,
   `Alt+↑/↓` move linha, `Ctrl+/` comenta.
@@ -103,7 +122,13 @@ Reforços contra edição acidental:
   "não avisar de novo").
 - Painel de pastas com **filtro `.md` / todos**, busca por nome, seis ordens e
   recolher tudo.
-- **Abrir pelo nome** (`Ctrl+P`) e **paleta de comandos** (`Ctrl+Shift+P`).
+- **Abrir pelo nome** (`Ctrl+P`) e **paleta de comandos** (`Ctrl+Shift+P`),
+  com **atalhos editáveis** para qualquer comando.
+- **Nota de hoje**, **modelos** (`{{title}}`, `{{date}}`, `{{time}}`), nota
+  única, nota aleatória e **extrair a seleção para uma nota nova**.
+- **Tela dividida** com o mesmo editor nas duas metades, abas empilhadas,
+  marcadores e **espaços de trabalho** com nome (salvar e voltar a um arranjo
+  de abas).
 - **Barra de acesso rápido** configurável e uma tela de **configurações** com
   abas.
 - Busca dentro do arquivo (com regex) e **busca em toda a pasta**.
