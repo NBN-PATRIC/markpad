@@ -8521,6 +8521,47 @@
     navTitle.textContent = t('Configuracoes');
     nav.appendChild(navTitle);
 
+    // Busca em todas as abas de uma vez (como no Obsidian): as linhas que
+    // casam aparecem agrupadas pela aba; sem texto, volta a aba de antes.
+    var busca = document.createElement('input');
+    busca.type = 'search';
+    busca.className = 'text-input settings-busca';
+    busca.placeholder = t('Buscar nas configuracoes');
+    busca.spellcheck = false;
+    nav.appendChild(busca);
+    busca.addEventListener('input', function () {
+      var q = semAcento(busca.value.trim().toLowerCase());
+      if (!q) { ir(atual); return; }
+      scroll.textContent = '';
+      scroll.scrollTop = 0;
+      h.textContent = t('Resultados');
+      ABAS.forEach(function (aba) {
+        botoesNav[aba.id].classList.remove('is-active');
+        if (aba.id === 'atualizacao' || aba.id === 'sobre' || aba.id === 'atalhos') return;
+        var grupo = document.createElement('div');
+        grupo.className = 'settings-busca-grupo';
+        aba.render(grupo, ir);
+        var achou = 0;
+        Array.prototype.forEach.call(grupo.querySelectorAll('.set-row'), function (row) {
+          var ok = semAcento(row.textContent.toLowerCase()).indexOf(q) >= 0;
+          row.hidden = !ok;
+          if (ok) achou++;
+        });
+        if (!achou) return;
+        var tit = document.createElement('h3');
+        tit.className = 'set-section';
+        tit.textContent = aba.nome;
+        scroll.appendChild(tit);
+        scroll.appendChild(grupo);
+      });
+      if (!scroll.children.length) {
+        var nada = document.createElement('p');
+        nada.className = 'pane-empty';
+        nada.textContent = t('Nada encontrado nas configuracoes.');
+        scroll.appendChild(nada);
+      }
+    });
+
     var body = document.createElement('div');
     body.className = 'settings-body';
 
@@ -8593,6 +8634,7 @@
     overlay.onclick = fechar;
     document.addEventListener('keydown', onKey, true);
     ir(atual);
+    setTimeout(function () { busca.focus(); }, 0);
   }
 
   function abaAparencia(pai) {

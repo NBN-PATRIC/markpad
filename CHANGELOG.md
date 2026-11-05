@@ -6,6 +6,9 @@ Versionamento [SemVer](https://semver.org/lang/pt-BR/).
 ## [Não lançado]
 
 ### Adicionado
+- **Busca nas configurações**: um campo no alto da janela de configurações
+  procura em todas as abas de uma vez (sem ligar para acento) e mostra só as
+  opções que casam, agrupadas pela aba. Apagar o texto volta à aba de antes.
 - **Busca incorporada** (o bloco ```query do Obsidian): um bloco de código
   com a linguagem `query` vira a lista de resultados daquela busca na pasta,
   com os mesmos operadores do painel (`tag:#pendente`, `path:clientes`,
