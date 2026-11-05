@@ -6,6 +6,41 @@ Versionamento [SemVer](https://semver.org/lang/pt-BR/).
 ## [Não lançado]
 
 ### Adicionado
+- **Editor novo, o mesmo do Obsidian por baixo (CodeMirror 6)** nos modos ao
+  vivo e fonte. O ao vivo deixou de trocar o bloco inteiro por uma caixa de
+  texto em letra de máquina: a página continua com cara de leitura enquanto se
+  escreve (título do mesmo tamanho, negrito, link, tag, destaque) e os
+  marcadores (`**`, `#`, `[[`, `>`) só aparecem no trecho que o cursor toca,
+  como o Live Preview. Tabela, callout, propriedades, HTML, imagem e nota
+  incorporada ficam desenhados até o cursor entrar neles; clicar numa célula
+  da tabela leva o cursor para a mesma célula do texto. Bloco de código com o
+  nome da linguagem, botão Copiar e cor da linguagem enquanto se edita (27
+  linguagens, PowerShell e shell inclusive). Clique simples num link segue o
+  link; a caixa da tarefa marca e desmarca no próprio texto; lista com
+  marcador desenhado e recuo pendurado; citação com uma barra por nível.
+- **Modo fonte no mesmo editor**: numeração de linha, linha atual marcada,
+  realce do Markdown e da linguagem dos blocos, margem de alterações do
+  Notepad++ (laranja e verde). Trocar entre ao vivo e fonte mantém a mesma
+  linha no topo, e travar e destravar também (a leitura abre onde estava o
+  editor e o editor onde estava a leitura).
+- **Desfazer por aba**: trocar de aba e voltar não perde o Ctrl+Z nem o
+  cursor. Recarregar do disco, marcar tarefa por fora e substituir tudo entram
+  no desfazer como uma edição só.
+- **Várias seleções e seleção em coluna**: Ctrl+clique acrescenta um cursor,
+  Ctrl+Alt+↑/↓ acrescenta acima ou abaixo, Alt+arrastar seleciona em coluna
+  (como no Notepad++), Esc volta a um cursor.
+- **Digitação como no Obsidian**: Enter continua lista, tarefa (sempre
+  desmarcada), lista numerada (+1, renumerando as seguintes) e citação; item
+  vazio aninhado volta um nível e no nível zero sai da lista; Backspace no
+  marcador apaga o marcador. Ctrl+B/I/Shift+H sem seleção pegam a palavra, e
+  na palavra já marcada tiram a marca; Ctrl+K com texto selecionado vira link
+  com o "url" selecionado. Parênteses, colchetes, chaves, aspas e crase fecham
+  sozinhos; com texto selecionado, digitar `*`, `_`, `=`, `~`, `$` ou `%`
+  envolve a seleção.
+- **Sugestões de `[[`** na lista do próprio editor, com as notas, anexos,
+  apelidos e títulos da pasta (`[[Nota#` lista os títulos dela).
+- **Busca no editor** marca todas as ocorrências e a atual; ocorrência dentro
+  de tabela, callout ou link escondido faz o trecho aparecer em texto.
 - **Arrastar na árvore** (como o explorador do Obsidian): arquivo solto numa
   pasta, ou no vazio da árvore (a pasta principal), muda de pasta, e os links
   que apontam para ele são atualizados como no "Mover para...". Solto no
@@ -281,6 +316,12 @@ Versionamento [SemVer](https://semver.org/lang/pt-BR/).
   interface.
 
 ### Corrigido
+- **Trocar e Trocar tudo no modo ao vivo** usavam o texto velho da caixa de
+  texto escondida do modo fonte e podiam gravar por cima da edição feita no
+  ao vivo (ou trazer texto de outra aba). Com o editor único isso não existe
+  mais: busca, troca e operações de linha agem no texto que está na tela.
+- Arquivo solto de fora (Explorer) em cima do editor abre como aba, em vez de
+  virar texto dentro da nota.
 - **O selo "mudou no disco" jogava fora a edição.** Clicar nele (ou em
   "Recarregar do disco") recarregava sem perguntar e o texto editado sumia.
 - **Ctrl+S gravava por cima de mudança feita por outro programa** sem avisar.

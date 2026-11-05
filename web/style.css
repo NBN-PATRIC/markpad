@@ -1647,44 +1647,6 @@ body.wide-lines .markdown-preview { max-width: none; }
 .markdown-preview .find-hit { background: var(--text-highlight-bg); border-radius: 2px; }
 .markdown-preview .find-hit.current { background: var(--color-orange); color: #000; }
 
-/* ============================== edição direta no texto renderizado */
-
-/* Quando destravado e sem o painel de código, o próprio leitor é editável:
-   o bloco sob o cursor vira markdown cru, o resto continua renderizado. */
-.markdown-preview.is-editable [data-line] {
-  cursor: text;
-  border-radius: var(--radius-s);
-}
-.markdown-preview.is-editable > [data-line]:hover {
-  box-shadow: 0 0 0 1px var(--background-modifier-border);
-}
-.markdown-preview.is-editable a,
-.markdown-preview.is-editable input,
-.markdown-preview.is-editable summary { cursor: pointer; }
-
-.block-source {
-  display: block;
-  width: 100%;
-  margin: 0 0 var(--p-spacing);
-  padding: 6px 10px;
-  border: 1px solid var(--color-accent);
-  border-radius: var(--radius-s);
-  background: var(--background-primary-alt);
-  color: var(--text-normal);
-  font-family: var(--font-mono);
-  font-size: 0.92em;
-  line-height: 1.6;
-  tab-size: 4;
-  resize: none;
-  overflow: hidden;
-  outline: none;
-  white-space: pre-wrap;
-  overflow-wrap: break-word;
-  user-select: text;
-  box-shadow: 0 0 0 3px hsla(var(--interactive-accent-hsl), 0.12);
-}
-.block-source::selection { background: var(--text-selection); }
-
 /* ============================================================ editor */
 
 .editing-view { flex: 1; min-width: 0; display: flex; }
@@ -1696,108 +1658,11 @@ body.wide-lines .markdown-preview { max-width: none; }
   overflow: hidden;
   background: var(--background-primary);
 }
-
-.gutter-bg {
-  position: absolute;
-  top: 0; left: 0; bottom: 0;
-  width: var(--gutter-width);
-  background: var(--background-primary-alt);
-  border-right: 1px solid var(--background-modifier-border);
-  z-index: 1;
-  pointer-events: none;
-}
-body.no-gutter .gutter-bg { display: none; }
-
-/* a camada de realce e o textarea PRECISAM ter metrica identica */
-.editor-highlight,
-.editor-input {
-  position: absolute;
-  inset: 0;
-  margin: 0;
-  border: 0;
-  font-family: var(--font-mono);
-  font-size: var(--editor-font-size);
-  line-height: var(--editor-line-height);
-  tab-size: 4;
-  padding: 14px 24px 40vh var(--gutter-width);
-  white-space: pre;
-  overflow-wrap: normal;
-  word-break: normal;
-}
-body.wrap-on .editor-highlight,
-body.wrap-on .editor-input { white-space: pre-wrap; overflow-wrap: break-word; }
-body.no-gutter .editor-highlight,
-body.no-gutter .editor-input { padding-left: 16px; }
-
-/* Os dois precisam reservar EXATAMENTE a mesma largura de barra de rolagem,
-   senao a quebra de linha do textarea nao bate com a da camada de realce. */
-.editor-highlight {
-  z-index: 2;
-  overflow-y: scroll;
-  overflow-x: auto;
-  pointer-events: none;
-  color: var(--text-normal);
-  background: transparent;
-}
-.editor-highlight::-webkit-scrollbar-thumb { background: transparent; }
-/* Dentro da camada nada pode mudar de tamanho: o textarea por cima nao muda.
-   Os titulos (.tok-md-h1..3) cresciam aqui e cada um empurrava o resto do
-   texto alguns pixels para baixo do cursor de verdade. Cor e peso podem. */
-.editor-highlight .ed-row * { font-size: inherit; }
-
-.editor-input {
-  z-index: 3;
-  resize: none;
-  outline: none;
-  background: transparent;
-  color: transparent;
-  caret-color: var(--text-normal);
-  overflow-y: scroll;
-  overflow-x: auto;
-  user-select: text;
-}
-.editor-input::selection { background: var(--text-selection); color: transparent; }
-body.no-highlight .editor-highlight { display: none; }
-body.no-highlight .editor-input { color: var(--text-normal); }
-
-/* Uma linha vazia precisa ocupar exatamente a mesma altura que o textarea
-   reserva para ela, senao o realce desalinha do texto a partir dali. */
-.ed-row {
-  position: relative;
-  min-height: calc(var(--editor-font-size) * var(--editor-line-height));
-}
-.ed-row .ln {
-  position: absolute;
-  left: calc(-1 * var(--gutter-width));
-  width: calc(var(--gutter-width) - 12px);
-  text-align: right;
-  color: var(--gutter-text);
-  transform: translateX(var(--scroll-x, 0px));
-  user-select: none;
-  z-index: 2;
-}
 /* histórico de edição — cores lidas do stylers.xml do Notepad++ 8.9 */
 :root {
   --ch-modificado: #ff8000;   /* alterado e ainda não gravado */
   --ch-gravado:    #00a000;   /* alteração já gravada nesta sessão */
 }
-
-.ed-row.ch-mod::before,
-.ed-row.ch-saved::before {
-  content: "";
-  position: absolute;
-  left: calc(-1 * var(--gutter-width) + 2px);
-  top: 0;
-  bottom: 0;
-  width: 3px;
-  border-radius: 2px;
-  transform: translateX(var(--scroll-x, 0px));
-}
-.ed-row.ch-mod::before { background: var(--ch-modificado); }
-.ed-row.ch-saved::before { background: var(--ch-gravado); }
-body.no-gutter .ed-row.ch-mod::before,
-body.no-gutter .ed-row.ch-saved::before { display: none; }
-
 /* o mesmo histórico, no modo leitura */
 .markdown-preview > .ch-mod,
 .markdown-preview > .ch-saved {
@@ -1815,13 +1680,6 @@ body.no-gutter .ed-row.ch-saved::before { display: none; }
 }
 .markdown-preview > .ch-mod::before { background: var(--ch-modificado); }
 .markdown-preview > .ch-saved::before { background: var(--ch-gravado); }
-
-.ed-row.is-current { background: var(--editor-active-line); }
-.ed-row.is-current .ln { color: var(--gutter-text-active); }
-body.no-gutter .ed-row .ln { display: none; }
-
-.ed-row .find-hit { background: var(--text-highlight-bg); border-radius: 2px; }
-.ed-row .find-hit.current { background: var(--color-orange); color: #000; }
 
 .split-divider { width: 1px; background: var(--background-modifier-border); cursor: col-resize; flex-shrink: 0; position: relative; }
 .split-divider::after { content: ""; position: absolute; inset: 0 -3px; }
@@ -2852,3 +2710,203 @@ body.no-anim *::after {
   color: var(--text-faint);
 }
 .update-close:hover { background: var(--background-modifier-hover); color: var(--text-normal); }
+
+/* ======================================================== editor (CodeMirror 6)
+ *
+ * Um editor so para o modo ao vivo e o modo fonte. No ao vivo ele imita a
+ * pagina do leitor (mesma fonte, mesma largura, titulos do mesmo tamanho):
+ * a diferenca entre ler e editar tem de ser so os marcadores que aparecem
+ * onde esta o cursor. No fonte e um editor de codigo: mono, numeros de
+ * linha e a margem de alteracoes do Notepad++.
+ */
+.editor-pane .cm-editor { height: 100%; background: var(--background-primary); color: var(--text-normal); }
+.editor-pane .cm-editor.cm-focused { outline: none; }
+.cm-editor .cm-scroller { font-family: var(--font-mono); line-height: var(--editor-line-height); overflow: auto; }
+.cm-editor .cm-content { caret-color: var(--text-normal); }
+.cm-editor .cm-cursor, .cm-editor .cm-dropCursor { border-left: 2px solid var(--text-normal); }
+.cm-editor .cm-selectionBackground { background: var(--text-selection) !important; }
+.cm-editor .cm-line { padding: 0 2px; }
+
+/* modo fonte */
+.cm-modo-fonte .cm-scroller { font-size: var(--editor-font-size); }
+.cm-modo-fonte .cm-content { padding: 14px 24px 40vh 6px; }
+.cm-modo-fonte .cm-gutters {
+  background: var(--background-primary-alt);
+  border-right: 1px solid var(--background-modifier-border);
+  color: var(--gutter-text);
+}
+.cm-modo-fonte .cm-lineNumbers .cm-gutterElement { padding: 0 8px 0 10px; min-width: 30px; }
+.cm-modo-fonte .cm-activeLineGutter { background: transparent; color: var(--gutter-text-active); }
+.cm-modo-fonte .cm-activeLine { background: var(--editor-active-line); }
+.cm-gutter-status { width: 5px; }
+.cm-gutter-status .cm-gutterElement { padding: 0 1px; }
+.cm-status-mod, .cm-status-saved { width: 3px; height: 100%; border-radius: 2px; }
+.cm-status-mod { background: var(--ch-modificado); }
+.cm-status-saved { background: var(--ch-gravado); }
+.cm-modo-fonte .cmt-h { color: var(--text-accent); font-weight: 700; }
+.cm-modo-fonte .cmt-marca { color: var(--text-faint); }
+.cm-modo-fonte .cmt-quote { color: var(--text-muted); font-style: italic; }
+.cm-modo-fonte .cm-linha-codigo { background: hsla(var(--interactive-accent-hsl), 0.04); }
+
+/* modo ao vivo: a mesma pagina do leitor */
+.cm-modo-vivo .cm-scroller {
+  font-family: var(--font-text);
+  font-size: var(--font-text-size);
+  line-height: var(--line-height-normal);
+}
+.cm-modo-vivo .cm-content {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: var(--file-line-width);
+  margin: 0 auto;
+  padding: 32px 40px 60vh;
+}
+body.wide-lines .cm-modo-vivo .cm-content { max-width: none; }
+.cm-modo-vivo .cmt-marca { color: var(--text-faint); }
+
+.cm-modo-vivo .cm-linha-h { line-height: 1.3; font-weight: 600; padding-top: 0.45em; padding-bottom: 0.1em; }
+.cm-modo-vivo .cm-linha-h1 { font-size: var(--h1-size); font-weight: 700; }
+.cm-modo-vivo .cm-linha-h2 { font-size: var(--h2-size); }
+.cm-modo-vivo .cm-linha-h3 { font-size: var(--h3-size); }
+.cm-modo-vivo .cm-linha-h4 { font-size: var(--h4-size); }
+.cm-modo-vivo .cm-linha-h5 { font-size: var(--h5-size); }
+.cm-modo-vivo .cm-linha-h6 { font-size: var(--h6-size); color: var(--text-muted); }
+.cm-modo-vivo .cm-linha-h .cmt-marca { font-weight: 400; }
+
+.cmt-strong { font-weight: 700; }
+.cm-modo-vivo .cmt-strong { font-weight: 600; }
+.cmt-em { font-style: italic; }
+.cmt-strike { text-decoration: line-through; color: var(--text-muted); }
+.cmt-destaque { background: var(--text-highlight-bg); border-radius: 2px; }
+.cmt-code { color: var(--color-green); }
+.cm-modo-vivo .cmt-code {
+  font-family: var(--font-mono);
+  font-size: 0.875em;
+  color: var(--text-normal);
+  background: var(--code-background);
+  padding: 0.1em 0.2em;
+  border-radius: var(--radius-s);
+}
+.cm-modo-vivo .cm-linha-codigo .cmt-code { background: none; padding: 0; font-size: inherit; }
+.cmt-link, .cmt-wikilink, .cmt-embed { color: var(--text-accent); }
+.cmt-url { color: var(--color-blue); }
+.cmt-label { color: var(--text-muted); }
+.cmt-tag { color: var(--color-pink); }
+.cmt-comentario { color: var(--text-faint); }
+.cmt-blockid, .cmt-rodape { color: var(--text-faint); }
+.cmt-math { color: var(--text-accent); font-family: var(--font-mono); }
+.cmt-frontmatter { color: var(--text-muted); font-family: var(--font-mono); }
+.cmt-hr { color: var(--text-faint); }
+
+.cm-lp-link, .cm-lp-wikilink { color: var(--text-accent); cursor: pointer; text-decoration: none; }
+.cm-lp-link:hover, .cm-lp-wikilink:hover { text-decoration: underline; }
+.cm-lp-link.is-externo::after { content: "\2197"; font-size: 0.72em; margin-left: 1px; opacity: 0.55; vertical-align: super; }
+.cm-lp-wikilink.is-unresolved { opacity: 0.6; text-decoration: underline dashed; text-underline-offset: 3px; }
+.cm-lp-tag {
+  background: hsla(var(--interactive-accent-hsl), 0.12);
+  color: var(--text-accent);
+  padding: 1px 7px;
+  border-radius: 12px;
+  font-size: 0.85em;
+  cursor: pointer;
+}
+.cm-lp-tag:hover { background: hsla(var(--interactive-accent-hsl), 0.22); }
+
+/* listas e tarefas */
+.cm-bala { display: inline-block; width: 1.2em; text-align: center; text-indent: 0; }
+.cm-bala::before {
+  content: "";
+  display: inline-block;
+  width: 0.36em; height: 0.36em;
+  border-radius: 50%;
+  background: var(--text-muted);
+  vertical-align: 0.2em;
+}
+.cm-bala-1::before { background: transparent; box-shadow: inset 0 0 0 1.5px var(--text-muted); }
+.cm-bala-2::before { border-radius: 1px; }
+.cm-lista-num { color: var(--text-muted); }
+.cm-tarefa-caixa { display: inline-block; width: 1.6em; text-indent: 0; }
+.cm-tarefa-caixa input {
+  margin: 0;
+  width: 15px; height: 15px;
+  vertical-align: -2px;
+  accent-color: var(--color-accent);
+  cursor: pointer;
+}
+.cm-modo-vivo .cm-tarefa-feita { color: var(--text-muted); text-decoration: line-through; }
+.cm-modo-vivo .cm-tarefa-feita .cm-tarefa-caixa { text-decoration: none; }
+
+/* citacao: uma barra por nivel */
+.cm-modo-vivo .cm-linha-citacao {
+  padding-left: calc(var(--prof, 1) * 1em + 4px);
+  color: var(--text-muted);
+  font-style: italic;
+  background-image: repeating-linear-gradient(to right, var(--background-modifier-border-hover) 0 3px, transparent 3px 1em);
+  background-size: calc(var(--prof, 1) * 1em) 100%;
+  background-repeat: no-repeat;
+}
+
+/* blocos de codigo */
+.cm-modo-vivo .cm-linha-codigo {
+  font-family: var(--font-mono);
+  font-size: 0.875em;
+  background: var(--code-background);
+  padding-left: 14px;
+  padding-right: 14px;
+}
+.cm-modo-vivo .cm-codigo-inicio { border-top-left-radius: var(--radius-s); border-top-right-radius: var(--radius-s); padding-top: 4px; }
+.cm-modo-vivo .cm-codigo-fim { border-bottom-left-radius: var(--radius-s); border-bottom-right-radius: var(--radius-s); padding-bottom: 4px; }
+.cm-codigo-rotulo { display: inline-flex; width: 100%; justify-content: flex-end; align-items: center; gap: 8px; font-family: var(--font-text); font-size: 0.8em; color: var(--text-faint); }
+.cm-codigo-copiar {
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+  color: var(--text-muted);
+  border-radius: var(--radius-s);
+  padding: 0 6px;
+  font-size: inherit;
+  cursor: pointer;
+}
+.cm-codigo-copiar:hover { color: var(--text-normal); border-color: var(--background-modifier-border-hover); }
+.cm-modo-vivo .cm-linha-math { font-family: var(--font-mono); font-size: 0.9em; color: var(--text-accent); }
+.cm-modo-vivo .cm-linha-tabela { font-family: var(--font-mono); font-size: 0.9em; }
+.cm-modo-vivo .cm-linha-propriedades { font-family: var(--font-mono); font-size: 0.85em; color: var(--text-muted); }
+
+.cm-regua { display: inline-block; width: 100%; height: 0; border-top: 1px solid var(--background-modifier-border); vertical-align: middle; }
+
+/* blocos desenhados pelo leitor (tabela, callout, HTML, propriedades, embed) */
+.cm-editor .cm-trecho.markdown-preview { max-width: none; margin: 0; padding: 6px 0; font-size: inherit; cursor: text; user-select: none; }
+.cm-editor .cm-trecho.markdown-preview > *:last-child { margin-bottom: 0; }
+.cm-editor .cm-trecho.markdown-preview > *:first-child { margin-top: 0; }
+.cm-editor .cm-trecho:hover { box-shadow: 0 0 0 1px var(--background-modifier-border); border-radius: var(--radius-s); }
+.cm-editor span.cm-trecho.markdown-preview { display: inline; padding: 0; }
+.cm-editor .cm-trecho img { max-width: 100%; }
+
+/* margem de alteracoes no ao vivo: colada ao texto, como no leitor */
+.cm-modo-vivo .cm-line.cm-ch-mod, .cm-modo-vivo .cm-line.cm-ch-saved { position: relative; }
+.cm-modo-vivo .cm-line.cm-ch-mod::before, .cm-modo-vivo .cm-line.cm-ch-saved::before {
+  content: "";
+  position: absolute;
+  left: -14px; top: 2px; bottom: 2px;
+  width: 3px;
+  border-radius: 2px;
+}
+.cm-modo-vivo .cm-line.cm-ch-mod::before { background: var(--ch-modificado); }
+.cm-modo-vivo .cm-line.cm-ch-saved::before { background: var(--ch-gravado); }
+
+/* busca */
+.cm-editor .cm-achado { background: var(--text-highlight-bg); border-radius: 2px; }
+.cm-editor .cm-achado-atual { background: var(--color-orange); color: #000; }
+
+/* sugestoes ([[, #) */
+.cm-editor .cm-tooltip {
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  box-shadow: var(--shadow-l);
+  color: var(--text-normal);
+}
+.cm-editor .cm-tooltip-autocomplete > ul { max-height: 288px; min-width: 260px; max-width: min(460px, 90vw); font-family: var(--font-text); }
+.cm-editor .cm-tooltip-autocomplete > ul > li { padding: 5px 10px; border-radius: var(--radius-s); line-height: 1.35; }
+.cm-editor .cm-tooltip-autocomplete > ul > li[aria-selected] { background: var(--background-modifier-hover); color: var(--text-normal); }
+.cm-editor .cm-completionDetail { color: var(--text-faint); font-style: normal; margin-left: 10px; font-size: 0.85em; }
+.cm-editor .cm-completionMatchedText { text-decoration: none; color: var(--text-accent); }

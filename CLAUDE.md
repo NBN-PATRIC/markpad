@@ -49,8 +49,12 @@ propósito. Interface web embutida no assembly (exe de arquivo único).
 - **Cor nova vai como variável CSS**, não como valor solto: as paletas de
   `web/themes.js` trocam as raízes e o resto da folha segue atrás. Valor vindo
   de arquivo de fora (tema do VS Code) só entra se for literal de cor.
-- Antes de commitar, rodar os cinco testes de nó: `markdown`, `liveedit`,
-  `changes`, `themes`, `i18n`.
+- Antes de commitar, rodar os testes de nó: `markdown`, `editor`, `changes`,
+  `themes`, `i18n`, `textops`, `linkindex`, `highlight` (`node dev/test-<nome>.js`).
+- O editor (ao vivo e fonte) é o CodeMirror 6 embutido em `web/codemirror.js`,
+  gerado por `node tools/cm6/construir.js` (versões fixas no `package-lock.json` de
+  `tools/cm6`, compilação em `C:\dev\markpad-cm6`, fora do ownCloud). Não editar
+  `web/codemirror.js` à mão; o que é do MarkPad mora em `web/editor.js`.
 
 ## Estado (2026-09-16)
 

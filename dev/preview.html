@@ -226,13 +226,7 @@
 
         <!-- modo edicao (destravado) -->
         <div class="editing-view" id="editingView" hidden>
-          <div class="editor-pane" id="editorPane">
-            <div class="gutter-bg" id="gutterBg"></div>
-            <pre class="editor-highlight" id="editorHighlight" aria-hidden="true"></pre>
-            <textarea class="editor-input" id="editorInput"
-                      spellcheck="false" autocomplete="off" autocorrect="off"
-                      autocapitalize="off" wrap="off"></textarea>
-          </div>
+          <div class="editor-pane" id="editorPane"></div>
           <div class="split-divider" id="splitDivider" hidden></div>
           <div class="preview-pane" id="previewPane" hidden>
             <div class="preview-scroll" id="splitScroll">
@@ -357,7 +351,8 @@
 <script src="../web/changes.js"></script>
 <script src="../web/textops.js"></script>
 <script src="../web/linkindex.js"></script>
-<script src="../web/liveedit.js"></script>
+<script src="../web/codemirror.js"></script>
+<script src="../web/editor.js"></script>
 <script src="../web/app.js"></script>
 </body>
 </html>

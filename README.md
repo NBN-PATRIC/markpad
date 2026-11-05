@@ -39,8 +39,8 @@ mesmo cardápio).
 | | Modo | O que é |
 |:--|:--|:--|
 | 📖 | **Leitura** | o giz está travado; não existe campo de texto na página |
-| ✏️ | **Edição ao vivo** | edita dentro do próprio leitor, sem ver markdown — só o bloco onde o cursor está vira texto cru |
-| `<>` | **Código-fonte** | markdown cru, com numeração de linha e realce de sintaxe |
+| ✏️ | **Edição ao vivo** | a página continua com cara de leitura; os marcadores (`**`, `#`, `[[`) só aparecem no trecho onde está o cursor, como o Live Preview do Obsidian |
+| `<>` | **Código-fonte** | markdown cru, com numeração de linha, realce de sintaxe e a margem de alterações |
 
 A **leitura ao lado do código** (tela dividida) é opcional e vive dentro do modo
 código-fonte: <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>L</kbd>, ou o botão de colunas
@@ -74,16 +74,22 @@ Reforços contra edição acidental:
   `#a/b` vira árvore com contagem por nível, e clicar busca a tag na pasta.
 
 **Edição** (quando destravada)
-- **Edição ao vivo**: escreve dentro do próprio leitor. Só o bloco onde o cursor
-  está mostra o markdown cru; o resto da página continua renderizado.
-- **Código-fonte** com numeração de linha e realce da sintaxe do markdown,
-  opcionalmente com a leitura ao lado.
+- **Edição ao vivo** (como o Live Preview do Obsidian): título grande, negrito,
+  link e tarefa continuam desenhados enquanto se escreve; os marcadores só
+  aparecem no trecho que o cursor toca. Tabela, callout, propriedades, imagem e
+  nota incorporada ficam desenhados até o cursor entrar neles. Clique simples
+  num link segue o link; a caixa da tarefa marca e desmarca.
+- **Código-fonte** com numeração de linha e realce da sintaxe do markdown (e da
+  linguagem dentro dos blocos de código), opcionalmente com a leitura ao lado.
+- Os dois modos são o mesmo editor (CodeMirror 6): desfazer por aba, várias
+  seleções (`Ctrl+clique`, `Ctrl+Alt+↑/↓`), seleção em coluna (`Alt+arrastar`),
+  sugestões de `[[` com as notas e títulos da pasta.
 - Formatação pelo botão direito — negrito, itálico, riscado, destaque, código,
   link, título, lista, tarefa, citação, tabela, linha, callout.
 - Continuação automática de listas e citações no Enter, `Tab`/`Shift+Tab` para
   indentar bloco, `Ctrl+B`/`Ctrl+I`/`Ctrl+K`, `Ctrl+D` duplica linha,
   `Alt+↑/↓` move linha, `Ctrl+/` comenta.
-- `Ctrl+Z` nativo preservado (as edições passam por `execCommand`).
+- `Ctrl+Z` por aba: trocar de aba e voltar não perde o desfazer.
 - **Histórico na margem, estilo Notepad++**: a linha alterada e ainda não salva
   fica marcada de laranja; depois de salvar, verde. Fechar o app com alteração
   pendente guarda o texto editado num arquivo à parte, sem tocar no original.
@@ -256,7 +262,7 @@ Testes (o do parser inclui as verificações de sanitização; o de temas mede o
 contraste de cada paleta e o de idiomas cobra as traduções nos dois sentidos):
 
 ```bash
-node dev/test-markdown.js && node dev/test-liveedit.js && node dev/test-changes.js && node dev/test-themes.js && node dev/test-i18n.js
+node dev/test-markdown.js && node dev/test-editor.js && node dev/test-changes.js && node dev/test-themes.js && node dev/test-i18n.js
 ```
 
 No build de desenvolvimento a pasta `web\` fica ao lado do `.exe` e é servida
@@ -300,8 +306,9 @@ NativeMethods.cs      barra de título escura, "mostrar no Explorer"
 web/                  a interface inteira (embutida no exe publicado)
   index.html          a página, com a CSP
   markdown.js         parser + sanitizador (sem dependências)
-  highlight.js        realce de ~20 linguagens + do markdown-fonte
-  liveedit.js         edição dentro do leitor, bloco a bloco
+  highlight.js        realce de ~20 linguagens nos blocos de código do leitor
+  editor.js           o editor dos modos ao vivo e fonte (sobre o CodeMirror 6)
+  codemirror.js       CodeMirror 6 + Lezer embutidos (gerado por tools/cm6)
   changes.js          diff por linha para a margem de alterações
   icons.js            os ícones, montados em SVG
   app.js              abas, trava, modos, painéis, busca, comandos
@@ -314,8 +321,10 @@ installer/            markpad.iss (Inno Setup) e markpad.wxs (WiX)
 docs/                 atualização automática, assinatura, SignPath
 ```
 
-Zero dependências de runtime além do WebView2: sem npm, sem CDN, sem Electron,
-sem Obsidian. Funciona offline.
+Nada de rede e nada de CDN: além do WebView2, a única biblioteca é o
+CodeMirror 6 (licença MIT), embutido no executável com versão fixa, e ele é o
+editor dos modos ao vivo e fonte. Sem Electron, sem Obsidian, sem npm em tempo
+de execução. Funciona offline. Licenças em [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
 
 Histórico de versões em [CHANGELOG.md](CHANGELOG.md).
 
@@ -355,16 +364,17 @@ node dev/test-markdown.js
 ```
 
 ```bash
-node dev/test-liveedit.js
+node dev/test-editor.js
 ```
 
 ```bash
 node dev/test-changes.js
 ```
 
-O segundo cobre o que pode corromper arquivo na edição bloco a bloco. Não
-mexa nele sem entender o porquê de cada caso. O terceiro cobre o diff que
-pinta a margem de alterações.
+O segundo cobre o editor: o que é marcador do Obsidian (wikilink, `==`, `%%`,
+tag, `^id`) e os comandos de formatação e de lista. O terceiro cobre o diff
+que pinta a margem de alterações. O CodeMirror embutido se refaz com
+`node tools/cm6/construir.js`, nas versões fixas de `tools/cm6/package-lock.json`.
 
 ## Licença
 

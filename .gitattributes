@@ -22,6 +22,10 @@
 *.cmd     text eol=crlf
 *.bat     text eol=crlf
 
+# Pacote minificado do CodeMirror: tem texto com quebra de linha dentro de
+# template; CRLF no checkout mudaria o conteudo desses textos.
+web/codemirror.js text eol=lf
+
 # Binarios de verdade
 *.ico     binary
 *.png     binary

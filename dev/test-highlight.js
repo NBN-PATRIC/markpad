@@ -68,10 +68,8 @@ AMOSTRA.forEach(function (src, i) {
 
 check('citacao com codigo nao escapa as proprias tags', !/&lt;span/.test(linhas[7] + linhas[8]));
 
-// A folha de estilo precisa anular o tamanho de fonte dentro da camada.
-const css = fs.readFileSync(path.join(WEB, 'style.css'), 'utf8');
-check('style.css anula font-size dentro da camada de realce',
-  /\.editor-highlight\s+\.ed-row\s+\*\s*\{\s*font-size:\s*inherit;?\s*\}/.test(css));
+// (A camada de realce do modo fonte saiu: o modo fonte agora e o editor
+// CodeMirror, sem textarea por cima de outra camada para desalinhar.)
 
 console.log(ok + '/' + (ok + falhas) + ' passaram');
 process.exit(falhas ? 1 : 0);

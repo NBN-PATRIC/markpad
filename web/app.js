@@ -10,7 +10,6 @@
   'use strict';
 
   var $ = function (id) { return document.getElementById(id); };
-  var MAX_HIGHLIGHT_LINES = 20000;
 
   // Texto de interface. A chave e o proprio portugues (ver web/i18n.js), entao
   // um idioma sem a frase cadastrada mostra portugues, nunca um identificador.
@@ -852,7 +851,7 @@
     tab.locked = false; // nota nova ja nasce editavel: e o unico caso obvio
     insereAba(tab);
     selectTab(tab.id);
-    setTimeout(function () { $('editorInput').focus(); }, 30);
+    setTimeout(function () { if (ed) ed.foco(); }, 30);
   }
 
   /*
@@ -863,7 +862,6 @@
   function saveTab(tab, saveAs, opts) {
     opts = opts || {};
     // Garante que o bloco em edicao ja esteja no documento antes de gravar.
-    if (live) live.commit();
     tab = tab || activeTab();
     if (!tab) return Promise.resolve(false);
 
@@ -1182,7 +1180,7 @@
     var ativa = activeTab() === tab;
     var lendo = !ativa || !$('readingView').hidden;
     var rolagem = ativa
-      ? (lendo ? $('readingScroll').scrollTop : $('editorInput').scrollTop)
+      ? (lendo ? $('readingScroll').scrollTop : (ed ? ed.rolagem() : 0))
       : (tab.scrollTop || 0);
     return { path: tab.path, name: tab.name, rolagem: rolagem };
   }
@@ -1195,8 +1193,9 @@
   function aplicaRolagem(foto) {
     // Depois da pintura: antes dela o documento ainda nao tem altura.
     setTimeout(function () {
-      var alvo = $('readingView').hidden ? $('editorInput') : $('readingScroll');
-      alvo.scrollTop = (foto && foto.rolagem) || 0;
+      var px = (foto && foto.rolagem) || 0;
+      if ($('readingView').hidden) { if (ed) ed.rolagem(px); }
+      else $('readingScroll').scrollTop = px;
     }, 0);
   }
 
@@ -1209,9 +1208,34 @@
     renderNavegacao();
   }
 
+  /** Linha (0-based) do titulo ou do ^bloco no texto da aba; -1 se nao achou. */
+  function linhaDaSecao(tab, secao) {
+    if (!tab || !secao) return -1;
+    var linhas = tab.content.split('\n');
+    if (secao.charAt(0) === '^') {
+      var id = secao.slice(1).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      var re = new RegExp('(^|\\s)\\^' + id + '\\s*$');
+      for (var i = 0; i < linhas.length; i++) if (re.test(linhas[i])) return i;
+      return -1;
+    }
+    var slug = window.MarkPadMarkdown.slugify(secao);
+    var r;
+    try { r = window.MarkPadMarkdown.render(tab.content, { lineMap: true }); } catch (e) { return -1; }
+    for (var j = 0; j < r.toc.length; j++) {
+      if (r.toc[j].slug === secao || r.toc[j].slug === slug || r.toc[j].text === secao) return r.toc[j].line;
+    }
+    return -1;
+  }
+
   function saltaParaSecao(secao) {
     if (!secao) return;
     setTimeout(function () {
+      var abaS = activeTab();
+      if (abaS && !abaS.locked && ed && ed.aba === abaS) {
+        var ln = linhaDaSecao(abaS, secao);
+        if (ln >= 0) ed.vaiParaLinha(ln);
+        return;
+      }
       var id = secao.charAt(0) === '^' ? secao.slice(1) : window.MarkPadMarkdown.slugify(secao);
       var alvo = id && $('preview').querySelector('#' + CSS.escape(id));
       if (alvo) { alvo.scrollIntoView({ block: 'start' }); piscaAlvo(alvo); }
@@ -1220,7 +1244,6 @@
 
   /** Troca o documento da aba, mantendo a identidade, o historico e a fixacao. */
   function carregaNaAba(tab, path) {
-    if (live) live.commit();
     return bridge.call('readFile', { path: path }).then(function (data) {
       var idx = app.tabs.indexOf(tab);
       if (idx === -1) return null;
@@ -1359,7 +1382,6 @@
   }
 
   function selectTab(id) {
-    if (live) live.commit();
     var current = activeTab();
     // Espelho (a mesma nota na outra metade) nunca fica com a visao viva:
     // escolher o espelho troca de lugar com o original, e quem edita passa a
@@ -1467,19 +1489,46 @@
   function stashScroll(tab) {
     if (tab.locked) {
       tab.scrollTop = $('readingScroll').scrollTop;
-    } else {
-      var ta = $('editorInput');
-      tab.scrollTop = ta.scrollTop;
-      tab.selStart = ta.selectionStart;
-      tab.selEnd = ta.selectionEnd;
+    } else if (ed && ed.aba === tab) {
+      tab.scrollTop = ed.rolagem();
+      var s = ed.selecao();
+      tab.selStart = s.inicio;
+      tab.selEnd = s.fim;
+      tab.cmEstado = ed.estado();
     }
   }
 
   function restoreScroll(tab) {
-    var ta = $('editorInput');
-    ta.scrollTop = tab.scrollTop || 0;
-    try { ta.setSelectionRange(tab.selStart || 0, tab.selEnd || 0); } catch (e) {}
-    syncScroll();
+    if (!ed || ed.aba !== tab) return;
+    var px = tab.scrollTop || 0;
+    ed.rolagem(px);
+    // O editor so mede depois de aparecer: repete no quadro seguinte.
+    requestAnimationFrame(function () { if (ed.aba === tab) ed.rolagem(px); });
+  }
+
+  /** Linha (0-based) do primeiro bloco visivel no topo da leitura; -1 sem leitura. */
+  function linhaNoTopoDaLeitura() {
+    var sc = $('readingScroll');
+    if (!sc || $('readingView').hidden) return -1;
+    var topo = sc.getBoundingClientRect().top;
+    var els = $('preview').querySelectorAll('[data-line]');
+    for (var i = 0; i < els.length; i++) {
+      if (els[i].getBoundingClientRect().bottom > topo + 2) return parseInt(els[i].getAttribute('data-line'), 10) || 0;
+    }
+    return -1;
+  }
+
+  /** Rola a leitura ate o bloco que contem a linha n (0-based). */
+  function rolaLeituraParaLinha(n) {
+    var els = $('preview').querySelectorAll('[data-line]');
+    var melhor = null, melhorLinha = -1;
+    for (var i = 0; i < els.length; i++) {
+      var l = parseInt(els[i].getAttribute('data-line'), 10);
+      if (l <= n && l >= melhorLinha) { melhor = els[i]; melhorLinha = l; }
+    }
+    if (!melhor) return;
+    var sc = $('readingScroll');
+    sc.scrollTop += melhor.getBoundingClientRect().top - sc.getBoundingClientRect().top - 8;
   }
 
   // ===================================================== mudanca no disco
@@ -1532,7 +1581,6 @@
 
   /** "Usar a do disco": o texto do disco passa a ser o da aba. */
   function aplicaDoDisco(tab, disco) {
-    if (live && tab === activeTab()) live.commit();
     tab.content = disco.content;
     tab.savedContent = disco.content;
     tab.originContent = disco.content;   // recarregar zera o historico da sessao
@@ -1650,7 +1698,6 @@
   /** O selo, o "Recarregar" com edicao ou a suspeita: mostra e aplica a escolha. */
   function resolveDisco(tab, modo, discoLido) {
     if (!tab || !tab.path || app.dialogoDisco) return Promise.resolve();
-    if (live && tab === activeTab()) live.commit();
     return (discoLido ? Promise.resolve(discoLido) : leDisco(tab.path)).then(function (disco) {
       if (app.tabs.indexOf(tab) === -1) return;
       if (disco.erro && tab.apagadoNoDisco) return;
@@ -1858,7 +1905,8 @@
 
   function rolaAoFim() {
     setTimeout(function () {
-      var alvo = $('readingView').hidden ? $('editorInput') : $('readingScroll');
+      if ($('readingView').hidden) { if (ed) ed.fimDoDocumento(); return; }
+      var alvo = $('readingScroll');
       alvo.scrollTop = alvo.scrollHeight;
     }, 0);
   }
@@ -1896,23 +1944,25 @@
     }
 
     // Fecha o editor de bloco aberto antes de trocar de estado.
-    if (live) live.commit();
 
     if (locked && tab.content !== tab.savedContent) {
       // Travar com mudanca pendente e legitimo: so avisa que continua pendente.
       toast(t('Travado. As alteracoes continuam por salvar (Ctrl+S).'), 'warn', 3200);
     }
 
+    // A mesma linha no topo dos dois lados: travar e destravar nao perde o lugar.
+    var linhaTopo = locked ? (ed && ed.aba === tab ? ed.linhaNoTopo() : -1) : linhaNoTopoDaLeitura();
     if (!locked) stashReadingScroll(tab);
     else stashScroll(tab);
 
     tab.locked = locked;
     renderAll();
 
-    if (!locked) {
-      var ta = $('editorInput');
-      ta.focus();
-      restoreScroll(tab);
+    if (locked && linhaTopo >= 0) rolaLeituraParaLinha(linhaTopo);
+    if (!locked && ed) {
+      ed.foco();
+      if (linhaTopo >= 0) ed.vaiParaLinha(linhaTopo);
+      else restoreScroll(tab);
       if (tab.readOnlyOnDisk) {
         toast(t('Atencao: o arquivo esta marcado como somente leitura no disco.'), 'warn', 5000);
       }
@@ -2250,14 +2300,17 @@
       return;
     }
 
-    if (live) live.commit();
+    var topoModo = ed && ed.aba === tab ? ed.linhaNoTopo() : -1;
     tab.showSource = querFonte;
     settings.showSource = querFonte;
     renderHeader();
     renderViews();
     persist();
 
-    if (querFonte) $('editorInput').focus();
+    if (ed) {
+      ed.foco();
+      if (topoModo >= 0) ed.rolaParaLinha(topoModo);
+    }
   }
 
   function modeMenu(x, y) {
@@ -2303,27 +2356,58 @@
       return;
     }
 
-    var noLeitor = tab.locked || !tab.showSource;
+    // Travado: o leitor. Destravado: o editor (ao vivo ou fonte), com o
+    // leitor ao lado so no modo fonte, se pedido.
+    var editando = !tab.locked && !!ed;
 
-    $('readingView').hidden = !noLeitor;
-    $('editingView').hidden = noLeitor;
+    $('readingView').hidden = editando;
+    $('editingView').hidden = !editando;
 
-    if (noLeitor) {
+    if (!editando) {
       renderPreview($('preview'), tab);
       $('preview').classList.toggle('is-editable', !tab.locked);
       $('readingScroll').scrollTop = tab.readingScrollTop || 0;
       return;
     }
 
-    var comLeitura = !!tab.showPreview;
+    var comLeitura = !!tab.showSource && !!tab.showPreview;
     $('splitDivider').hidden = !comLeitura;
     $('previewPane').hidden = !comLeitura;
+    // Sem o leitor ao lado o editor ocupa a largura toda.
+    $('editorPane').style.flex = comLeitura ? '0 0 ' + (settings.splitRatio * 100) + '%' : '';
 
-    var ta = $('editorInput');
-    if (ta.value !== tab.content) ta.value = tab.content;
-    applyWrap();
-    renderEditorHighlight();
+    carregaNoEditor(tab);
     if (comLeitura) renderPreview($('splitPreview'), tab);
+  }
+
+  /** Poe a aba no editor (estado guardado: desfazer, cursor) e acerta modo e opcoes. */
+  function carregaNoEditor(tab) {
+    if (ed.aba !== tab) {
+      if (ed.aba && tabById(ed.aba.id) && !ed.aba.locked) {
+        ed.aba.cmEstado = ed.estado();
+        ed.aba.scrollTop = ed.rolagem();
+      }
+      ed.aba = tab;
+      ed.carrega(tab.content, tab.cmEstado, { anchor: tab.selStart || 0, head: tab.selEnd == null ? tab.selStart || 0 : tab.selEnd });
+      restoreScroll(tab);
+    } else if (ed.texto() !== tab.content) {
+      ed.defineTexto(tab.content);
+    }
+    ed.modo(tab.showSource ? 'fonte' : 'vivo');
+    ed.opcoes({
+      quebra: !!settings.wordWrap,
+      numeros: settings.lineNumbers !== false,
+      editavel: !tab.locked,
+      corretor: !!settings.corretor,
+      autoPar: settings.autoPar !== false
+    });
+    document.body.classList.toggle('wrap-on', !!settings.wordWrap);
+    ed.defineStatusLinhas(lineStatus(tab));
+  }
+
+  /** Texto da aba mudou por fora do editor (tarefa, mencao, disco): o editor acompanha. */
+  function sincronizaEditor(tab) {
+    if (ed && tab && ed.aba === tab && ed.texto() !== tab.content) ed.defineTexto(tab.content);
   }
 
   // ------------------------------------------------------------ preview
@@ -3589,10 +3673,7 @@
       }
     }
 
-    if (tab === activeTab() && tab.showSource) {
-      $('editorInput').value = tab.content;
-      renderEditorHighlight();
-    }
+    sincronizaEditor(tab);
 
     invalidateLineStatus(tab);
     renderTabs();
@@ -3615,29 +3696,6 @@
         if (linha == null) { e.preventDefault(); return; }
         if (tab.locked) { e.preventDefault(); toast(t('Edicao travada. Ctrl+E para liberar.'), '', 1600); return; }
 
-        /*
-         * Com um bloco aberto na edicao ao vivo, o documento ja cresceu ou
-         * encolheu e os data-task-line desta tela sao de antes do render:
-         * marcar por eles riscaria OUTRA tarefa, calada. O mousedown do
-         * liveedit deixa passar clique em <input> de proposito, entao sair
-         * do bloco nao acontece sozinho — fecha na mao (isso redesenha com
-         * as linhas certas) e reencontra a tarefa pela posicao dela na
-         * lista, que sobrevive a edicao de qualquer bloco vizinho.
-         */
-        if (live && live.isActive()) {
-          e.preventDefault();
-          var antes = container.querySelectorAll('li[data-task-line]');
-          var ordem = Array.prototype.indexOf.call(antes, li);
-          live.commit();
-          var depois = container.querySelectorAll('li[data-task-line]');
-          // Foi a propria lista de tarefas que mudou: sem par confiavel,
-          // prefere nao marcar nada a marcar a errada.
-          if (ordem < 0 || depois.length !== antes.length) return;
-          li = depois[ordem];
-          caixa = li.querySelector('input[type="checkbox"]');
-          linha = li.getAttribute('data-task-line');
-          if (linha == null) return;
-        }
 
         toggleTask(tab, parseInt(linha, 10), caixa);
         return;
@@ -3655,7 +3713,27 @@
       var el = e.target.closest ? e.target.closest('[data-external],[data-file],[data-wikilink],[data-anchor],[data-copy],[data-remote],[data-tag]') : null;
       if (!el) return;
       e.preventDefault();
+      trataLink(el, e, container, tab);
+    };
 
+    // Botao do meio nao gera 'click': chega como auxclick. E o mousedown dele
+    // sobre um link nao deve ligar a rolagem automatica do navegador.
+    container.onauxclick = function (e) {
+      if (e.button === 1 && e.target.closest && e.target.closest('[data-file],[data-wikilink]')) {
+        e.preventDefault();
+        container.onclick(e);
+      }
+    };
+    container.onmousedown = function (e) {
+      if (e.button === 1 && e.target.closest && e.target.closest('[data-file],[data-wikilink]')) e.preventDefault();
+    };
+  }
+
+  /*
+   * O que fazer com um link clicado: no leitor (container e a pagina) ou no
+   * editor (container null: as ancoras viram linhas do texto).
+   */
+  function trataLink(el, e, container, tab) {
       if (el.hasAttribute('data-copy')) {
         var code = el.parentElement.querySelector('code');
         if (code) {
@@ -3682,6 +3760,12 @@
       }
 
       if (el.hasAttribute('data-anchor')) {
+        if (!container) {
+          var lnA = linhaDaSecao(tab, el.getAttribute('data-anchor'));
+          if (lnA >= 0 && ed) { registraPosicao(tab); ed.vaiParaLinha(lnA); }
+          else toast(t('Secao nao encontrada: ') + el.getAttribute('data-anchor'), 'warn');
+          return;
+        }
         // Ancora clicada dentro de um embed procura dentro DELE (os ids de la
         // foram podados, entao nao acha nada — melhor que saltar para a nota
         // de rodape homonima do documento hospedeiro).
@@ -3718,6 +3802,12 @@
 
         // [[#Secao]] e [[#^bloco]] apontam para dentro do proprio documento:
         // sem arquivo antes do '#' nao ha o que abrir, ha aonde rolar.
+        if (!wl && !container) {
+          var lnW = linhaDaSecao(tab, secaoWl);
+          if (lnW >= 0 && ed) { registraPosicao(tab); ed.vaiParaLinha(lnW); }
+          else toast(t('Secao nao encontrada: ') + secaoWl, 'warn');
+          return;
+        }
         if (!wl) {
           var idWl = secaoWl.charAt(0) === '^'
             ? secaoWl.slice(1)
@@ -3736,19 +3826,6 @@
         navLink.secao = secaoWl;
         resolveAndOpen(/\.\w+$/.test(wl) ? wl : wl + '.md', tabDeClique(el, tab), navLink);
       }
-    };
-
-    // Botao do meio nao gera 'click': chega como auxclick. E o mousedown dele
-    // sobre um link nao deve ligar a rolagem automatica do navegador.
-    container.onauxclick = function (e) {
-      if (e.button === 1 && e.target.closest && e.target.closest('[data-file],[data-wikilink]')) {
-        e.preventDefault();
-        container.onclick(e);
-      }
-    };
-    container.onmousedown = function (e) {
-      if (e.button === 1 && e.target.closest && e.target.closest('[data-file],[data-wikilink]')) e.preventDefault();
-    };
   }
 
   /*
@@ -3850,31 +3927,11 @@
 
   // ------------------------------------------------------------- editor
 
+  /** Margem de alteracoes do editor (laranja nao salvo, verde salvo). */
   function renderEditorHighlight() {
     var tab = activeTab();
-    if (!tab || tab.locked) return;
-
-    var lines = tab.content.split('\n');
-    var tooBig = lines.length > MAX_HIGHLIGHT_LINES;
-
-    document.body.classList.toggle('no-highlight', tooBig);
-    document.body.classList.toggle('no-gutter', !settings.lineNumbers || tooBig);
-
-    if (tooBig) { $('editorHighlight').textContent = ''; return; }
-
-    var highlighted = window.MarkPadHighlight.highlightMarkdownSource(tab.content).split('\n');
-    var estado = lineStatus(tab);
-    var parts = new Array(lines.length);
-
-    for (var i = 0; i < lines.length; i++) {
-      var marca = estado[i] ? ' ch-' + estado[i] : '';
-      parts[i] = '<div class="ed-row' + marca + '"><span class="ln">' + (i + 1) + '</span>' +
-        (highlighted[i] !== undefined ? highlighted[i] : '') + '</div>';
-    }
-
-    $('editorHighlight').innerHTML = parts.join('');
-    updateCurrentLine();
-    syncScroll();
+    if (!tab || tab.locked || !ed || ed.aba !== tab) return;
+    ed.defineStatusLinhas(lineStatus(tab));
   }
 
   /** Estado de cada linha, com cache: recalcular a cada tecla sairia caro. */
@@ -3902,64 +3959,24 @@
     if (tab) tab._statusCache = null;
   }
 
-  function syncScroll() {
-    var ta = $('editorInput');
-    var hl = $('editorHighlight');
-    hl.scrollTop = ta.scrollTop;
-    hl.scrollLeft = ta.scrollLeft;
-    $('editorPane').style.setProperty('--scroll-x', ta.scrollLeft + 'px');
-  }
-
-  function currentLineIndex() {
-    var ta = $('editorInput');
-    var upto = ta.value.slice(0, ta.selectionStart);
-    var n = 0;
-    for (var i = 0; i < upto.length; i++) if (upto.charCodeAt(i) === 10) n++;
-    return n;
-  }
-
-  var lastCurrentRow = null;
-  function updateCurrentLine() {
-    var rows = $('editorHighlight').children;
-    var idx = currentLineIndex();
-    if (lastCurrentRow === idx) return;
-    if (lastCurrentRow !== null && rows[lastCurrentRow]) rows[lastCurrentRow].classList.remove('is-current');
-    if (rows[idx]) rows[idx].classList.add('is-current');
-    lastCurrentRow = idx;
-  }
-
   function applyWrap() {
-    var ta = $('editorInput');
-    var want = settings.wordWrap ? 'soft' : 'off';
-    document.body.classList.toggle('wrap-on', settings.wordWrap);
-    if (ta.getAttribute('wrap') !== want) {
-      var v = ta.value, s = ta.selectionStart, e = ta.selectionEnd, st = ta.scrollTop;
-      ta.setAttribute('wrap', want);
-      ta.value = v;
-      try { ta.setSelectionRange(s, e); } catch (err) {}
-      ta.scrollTop = st;
-    }
+    document.body.classList.toggle('wrap-on', !!settings.wordWrap);
+    if (ed) ed.opcoes({ quebra: !!settings.wordWrap });
   }
 
-  /** Edita via execCommand para nao quebrar o Ctrl+Z nativo do textarea. */
+  /** Edicao como se digitada: entra no Ctrl+Z do editor. */
   function replaceRange(start, end, text) {
-    var ta = $('editorInput');
-    ta.focus();
-    ta.setSelectionRange(start, end);
-    if (!document.execCommand('insertText', false, text)) {
-      var v = ta.value;
-      ta.value = v.slice(0, start) + text + v.slice(end);
-      ta.setSelectionRange(start + text.length, start + text.length);
-    }
-    onEditorInput();
+    if (ed) ed.troca(start, end, text);
   }
 
   var highlightTimer = null;
   function onEditorInput() {
-    var tab = activeTab();
-    if (!tab || tab.locked) return;
+    var tab = ed && ed.aba;
+    if (!tab || tab !== activeTab() || tab.locked) return;
+    var texto = ed.texto();
+    if (texto === tab.content) return;
 
-    tab.content = $('editorInput').value;
+    tab.content = texto;
 
     clearTimeout(highlightTimer);
     highlightTimer = setTimeout(function () {
@@ -3998,24 +4015,16 @@
     // Leitura E edicao ao vivo desenham em #preview; so o modo codigo tem
     // textarea. Olhar so para tab.locked mandava o modo vivo mexer num
     // textarea escondido, com valor velho — nada acontecia na tela.
-    if (tab.locked || !tab.showSource) {
+    if (tab.locked || !ed) {
       var target = $('preview').querySelector('[data-line="' + (line - 1) + '"]') ||
                    $('preview').querySelector('[data-line="' + line + '"]');
       if (target) { target.scrollIntoView({ block: 'center' }); piscaAlvo(target); }
       return;
     }
 
-    var lines = tab.content.split('\n');
-    var offset = 0;
-    for (var i = 0; i < Math.min(line - 1, lines.length); i++) offset += lines[i].length + 1;
-
-    var ta = $('editorInput');
-    ta.focus();
-    ta.setSelectionRange(offset, offset + (lines[line - 1] || '').length);
-    var rowH = ta.scrollHeight / Math.max(1, lines.length);
-    ta.scrollTop = Math.max(0, (line - 1) * rowH - ta.clientHeight / 2);
-    syncScroll();
-    updateCurrentLine();
+    if (!ed) return;
+    ed.foco();
+    ed.vaiParaLinha(line - 1, { selecionar: true, y: 'center' });
   }
 
   // ------------------------- selecao contada, Ctrl+F3 e pular entre alteracoes
@@ -4031,10 +4040,7 @@
 
   /** O que esta selecionado agora, no editor ou na leitura ('' se nada). */
   function textoSelecionado() {
-    if (!$('editingView').hidden) {
-      var ta = $('editorInput');
-      return ta.value.slice(ta.selectionStart, ta.selectionEnd);
-    }
+    if (!$('editingView').hidden && ed) return ed.textoSelecionado();
     var sel = window.getSelection();
     if (!sel || sel.isCollapsed || !sel.rangeCount) return '';
     return sel.anchorNode && $('preview').contains(sel.anchorNode) ? sel.toString() : '';
@@ -4047,11 +4053,10 @@
   function buscaPalavraAtual(passo) {
     var tab = activeTab();
     if (!tab) return;
-    var noEditor = !$('editingView').hidden;
-    var ta = $('editorInput');
+    var noEditor = !$('editingView').hidden && !!ed;
     var texto = textoSelecionado().trim();
     if (!texto && noEditor) {
-      var v = ta.value, a = ta.selectionStart, b = a;
+      var v = ed.texto(), a = ed.selecao().inicio, b = a;
       while (a > 0 && /[\wÀ-ÿ]/.test(v[a - 1])) a--;
       while (b < v.length && /[\wÀ-ÿ]/.test(v[b])) b++;
       texto = v.slice(a, b);
@@ -4064,7 +4069,7 @@
     // Com a expressao regular ligada, a palavra vale ao pe da letra.
     $('findInput').value = app.find.regex ? texto.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') : texto;
     runFind(passo);
-    if (noEditor) ta.focus();
+    if (noEditor) ed.foco();
   }
 
   /**
@@ -4102,8 +4107,7 @@
     for (var k = 0; k < estado.length; k++) if (estado[k] && (k === 0 || !estado[k - 1])) inicios.push(k);
     if (!inicios.length) { toast(t('Nenhuma alteração neste documento.'), '', 1800); return; }
 
-    var ta = $('editorInput');
-    var atual = ta.value.slice(0, ta.selectionStart).split('\n').length - 1;
+    var atual = ed ? ed.linhaDoCursor() : 0;
     var alvo = null;
     if (passo > 0) {
       for (var m = 0; m < inicios.length; m++) if (inicios[m] > atual) { alvo = inicios[m]; break; }
@@ -4144,13 +4148,11 @@
           { l: c.linhas, p: c.palavras, c: c.caracteres });
       }
 
-      if (!tab.locked) {
-        var ta = $('editorInput');
-        var upto = ta.value.slice(0, ta.selectionStart);
-        var nl = upto.lastIndexOf('\n');
-        var ln = upto.split('\n').length;
-        var col = ta.selectionStart - nl;
-        var sel = ta.selectionEnd - ta.selectionStart;
+      if (!tab.locked && ed && ed.aba === tab) {
+        var sl = ed.selecao();
+        var ln = ed.linhaDoCursor() + 1;
+        var col = ed.colunaDoCursor() + 1;
+        var sel = sl.fim - sl.inicio;
         $('statusCursor').textContent = t('Ln ') + ln + ', Col ' + col + (sel ? ' (' + sel + ' sel)' : '');
       } else {
         $('statusCursor').textContent = '';
@@ -4291,10 +4293,9 @@
     var novo = linhas.join('\n');
     if (novo === tab.content) return false;
     var antes = tab.content;
-    if (modoDe(tab) === 'fonte') {
-      replaceRange(0, tab.content.length, novo);   // o Ctrl+Z do editor desfaz
+    if (!tab.locked && ed && ed.aba === tab) {
+      ed.trocaTexto(novo);   // o Ctrl+Z do editor desfaz
     } else {
-      if (live) live.commit();
       tab.content = novo;
       scheduleBackup(tab);
       renderAll();
@@ -4309,7 +4310,6 @@
     var d = sumario.desfazer;
     var tab = activeTab();
     if (!d || !tab || tab.id !== d.tabId || tab.content !== d.depois || tab.locked) return false;
-    if (live) live.commit();
     tab.content = d.antes;
     sumario.desfazer = null;
     scheduleBackup(tab);
@@ -4326,13 +4326,9 @@
   // pelo insertText, para o Ctrl+Z do proprio editor desfazer; sem editor
   // aberto, no documento inteiro, com o Ctrl+Z de fora desfazendo.
 
-  function textareaEmUso() {
-    var a = document.activeElement;
-    var doLive = live && live.activeTextarea ? live.activeTextarea() : null;
-    if (a && a.tagName === 'TEXTAREA' && (a === $('editorInput') || a === doLive)) return a;
+  function editorEmUso() {
     var tab = activeTab();
-    if (tab && !tab.locked && tab.showSource) return $('editorInput');
-    return null;
+    return tab && !tab.locked && ed && ed.aba === tab ? ed : null;
   }
 
   /*
@@ -4344,22 +4340,16 @@
     var tab = activeTab();
     if (!tab) return;
     if (tab.locked) { toast(t('Edicao travada. Ctrl+E para liberar.'), 'warn', 2000); return; }
-    var ta = textareaEmUso();
-    if (ta) {
-      var r = fn(ta.value, ta.selectionStart, ta.selectionEnd);
-      if (!r || r.texto === ta.value.slice(r.ini, r.fim)) { toast(t('Nada a mudar.'), '', 1400); return; }
-      ta.focus();
-      ta.setSelectionRange(r.ini, r.fim);
-      if (!document.execCommand('insertText', false, r.texto)) {
-        ta.value = ta.value.slice(0, r.ini) + r.texto + ta.value.slice(r.fim);
-        ta.dispatchEvent(new Event('input', { bubbles: true }));
-      }
-      if (ta === $('editorInput')) onEditorInput();
-      ta.setSelectionRange(r.selIni, r.selFim);
+    var edUso = editorEmUso();
+    if (edUso) {
+      var texto = edUso.texto(), sl = edUso.selecao();
+      var r = fn(texto, sl.inicio, sl.fim);
+      if (!r || r.texto === texto.slice(r.ini, r.fim)) { toast(t('Nada a mudar.'), '', 1400); return; }
+      edUso.troca(r.ini, r.fim, r.texto, r.selIni, r.selFim);
+      edUso.foco();
       return;
     }
     if (soNoEditor) { toast(t('Abra um bloco para editar (ou use o modo fonte) e tente de novo.'), 'warn', 2600); return; }
-    if (live) live.commit();
     var antes = tab.content;
     var r2 = fn(antes, 0, antes.length);
     var depois = r2 ? antes.slice(0, r2.ini) + r2.texto + antes.slice(r2.fim) : antes;
@@ -4566,7 +4556,18 @@
     var tab = activeTab();
     if (!tab) return;
 
-    var container = tab.locked || !tab.showSource ? $('preview') : null;
+    if (!tab.locked && ed && ed.aba === tab) {
+      var topoEd = ed.linhaNoTopo();
+      var linhaSec = null;
+      (sumario.toc || []).forEach(function (h) { if (h.line <= topoEd + 1) linhaSec = h.line; });
+      var todas = $('outline').querySelectorAll('.outline-row');
+      for (var q = 0; q < todas.length; q++) todas[q].classList.remove('is-current');
+      if (linhaSec === null) return;
+      var alvoEd = $('outline').querySelector('.outline-row[data-line="' + linhaSec + '"]');
+      if (alvoEd) alvoEd.classList.add('is-current');
+      return;
+    }
+    var container = tab.locked ? $('preview') : null;
     if (!container) return;
 
     var scroller = $('readingScroll');
@@ -6033,10 +6034,9 @@
     var tab = activeTab();
     if (!tab || tab.locked) return;
 
-    if (live.isActive()) { live.insert('#' + caminho + ' '); return; }
+    if (ed && ed.aba === tab) { ed.insere('#' + caminho + ' '); return; }
 
-    // Sem bloco em edicao: a tag vai para o fim do documento, numa linha so
-    // dela — e o unico lugar onde da para escrever sem chutar o cursor.
+    // Sem editor: a tag vai para o fim do documento, numa linha so dela.
     tab.content = tab.content.replace(/\s*$/, '') + '\n\n#' + caminho + '\n';
     invalidateLineStatus(tab);
     renderViews();
@@ -6222,7 +6222,7 @@
     $('findBar').hidden = true;
     clearFindHighlights();
     var tab = activeTab();
-    if (tab && !tab.locked) $('editorInput').focus();
+    if (tab && !tab.locked && ed) ed.foco();
   }
 
   /** Ctrl+H: a mesma barra, mas com o cursor ja no campo de substituir. */
@@ -6295,7 +6295,7 @@
 
     if (step === 0) {
       // Do cursor pra frente, como qualquer editor decente.
-      var from = tab.locked ? 0 : $('editorInput').selectionStart;
+      var from = tab.locked || !ed ? 0 : ed.selecao().inicio;
       app.find.index = 0;
       for (var i = 0; i < matches.length; i++) {
         if (matches[i].start >= from) { app.find.index = i; break; }
@@ -6306,36 +6306,23 @@
 
     $('findCount').textContent = (app.find.index + 1) + '/' + matches.length;
 
-    if (tab.locked) {
+    if (tab.locked || !ed) {
       applyFindHighlights();
     } else {
       var hit = matches[app.find.index];
-      var ta = $('editorInput');
       // Seleciona e rola SEM tirar o foco de onde ele esta. Antes o foco
       // pulava para o editor na primeira letra achada: a tecla seguinte caia
       // dentro do documento, e um segundo Enter trocava a ocorrencia
       // selecionada por uma quebra de linha. A linha achada fica marcada, e Esc
       // fecha a busca devolvendo o foco ao editor com a ocorrencia selecionada.
-      ta.setSelectionRange(hit.start, hit.end);
-      scrollSelectionIntoView();
-      updateCurrentLine();
+      ed.seleciona(hit.start, hit.end, { centro: true });
+      ed.marcaAchados(matches.map(function (m) { return { inicio: m.start, fim: m.end }; }), app.find.index);
     }
   }
 
-  function scrollSelectionIntoView() {
-    var tab = activeTab();
-    var ta = $('editorInput');
-    var before = ta.value.slice(0, ta.selectionStart).split('\n').length;
-    var totalLines = Math.max(1, tab.content.split('\n').length);
-    var rowH = ta.scrollHeight / totalLines;
-    var y = (before - 1) * rowH;
-    if (y < ta.scrollTop || y > ta.scrollTop + ta.clientHeight - rowH * 2) {
-      ta.scrollTop = Math.max(0, y - ta.clientHeight / 2);
-    }
-    syncScroll();
-  }
 
   function clearFindHighlights() {
+    if (ed) ed.marcaAchados([]);
     var marks = $('preview').querySelectorAll('span.find-hit');
     for (var i = marks.length - 1; i >= 0; i--) {
       var m = marks[i];
@@ -6433,7 +6420,8 @@
     var feito = window.MarkPadTextOps.replaceAll(tab.content, re, $('replaceInput').value, app.find.regex);
     if (!feito.count) { toast(t('Nada para substituir.'), 'warn'); return; }
 
-    replaceRange(0, tab.content.length, feito.text);
+    if (ed && ed.aba === tab) ed.trocaTexto(feito.text);
+    else replaceRange(0, tab.content.length, feito.text);
     toast(feito.count === 1 ? t('1 substituição.') : t('{n} substituições.', { n: feito.count }), 'ok');
     setTimeout(function () { runFind(0); }, 0);
   }
@@ -6501,6 +6489,7 @@
     document.documentElement.style.setProperty('--font-text-size', settings.fontSize + 'px');
     document.documentElement.style.setProperty('--editor-font-size', settings.editorFontSize + 'px');
     document.body.classList.toggle('wide-lines', settings.wideLines);
+    if (ed) ed.view.requestMeasure();
   }
 
   function zoom(delta) {
@@ -8849,7 +8838,6 @@
     var LI = window.MarkPadLinkIndex;
     var arq = idx && LI ? LI.arquivoDe(idx, antigo) : null;
     if (!arq) return Promise.resolve();
-    if (live) live.commit();   // o bloco em edicao entra no texto antes da troca
 
     var relNovo = relNaPasta(novo);
     var foraDaPasta = /^[a-zA-Z]:\//.test(relNovo);
@@ -9096,7 +9084,6 @@
   function abreVersoes(path) {
     var tab = tabByPath(path);
     if (!path) return Promise.resolve();
-    if (live) live.commit();
 
     return bridge.call('listVersions', { path: path }).then(function (res) {
       var versoes = (res && res.versions) || [];
@@ -9277,7 +9264,6 @@
 
   function restauraVersao(path, v) {
     var aplica = function (tab) {
-      if (live) live.commit();
       tab.content = v.content;
       invalidateLineStatus(tab);
       if (tab.id !== app.activeId) selectTab(tab.id);
@@ -9601,9 +9587,8 @@
    * valia so para o Ctrl+V, e o mesmo gesto dava resultado diferente
    * conforme o caminho escolhido para pedi-lo.
    */
-  function textoColado(ta, bruto) {
+  function textoColado(sel, bruto) {
     var url = String(bruto == null ? '' : bruto).trim();
-    var sel = ta.value.slice(ta.selectionStart, ta.selectionEnd);
     if (!sel || !SO_URL.test(url)) return bruto;
     // Selecao com quebra de linha, ou que ja e um link, fica de fora:
     // [http://a](http://b) nunca e o que se queria.
@@ -9621,35 +9606,47 @@
    * outra nota com o mesmo nome — e o ]] so e posto se ainda nao estiver la.
    * Apelido do frontmatter tambem e sugestao: entra como [[Nota|Apelido]].
    */
-  var RE_SUGESTAO = /(!?)\[\[([^\[\]|\n]*)$/;
   var SUGESTOES_MAX = 30;
-  var sugestao = null;   // { ta, inicio, itens, ativo, el }
 
-  function campoDeEdicao(el) {
-    return !!el && el.tagName === 'TEXTAREA' && (el.id === 'editorInput' || el.classList.contains('block-source'));
-  }
-
-  function sugestaoAvalia(ta) {
-    if (!app.folder || ta.selectionStart !== ta.selectionEnd) return fechaSugestao();
-    var antes = ta.value.slice(0, ta.selectionStart);
-    var linha = antes.slice(antes.lastIndexOf('\n') + 1);
-    var m = RE_SUGESTAO.exec(linha);
-    if (!m) return fechaSugestao();
-
+  /*
+   * Fonte de sugestoes do editor (CodeMirror): [[ lista notas e anexos, [[Nota#
+   * os titulos dela, [[# os do proprio documento. A ordem e a do fuzzy daqui
+   * (filter: false), nao a do CodeMirror.
+   */
+  function fonteSugestoes(contexto) {
+    if (!app.folder) return null;
+    var antes = contexto.matchBefore(/!?\[\[[^\[\]|\n]*$/);
+    if (!antes) return null;
+    var m = /^(!?)\[\[(.*)$/.exec(antes.text);
+    if (!m) return null;
     var embed = m[1] === '!';
     var consulta = m[2];
-    var inicio = ta.selectionStart - consulta.length;
-    var valor = ta.value, cursor = ta.selectionStart;
-
-    indiceLinks().then(function (idx) {
-      // Enquanto o indice carregava a pessoa pode ter seguido digitando.
-      if (!idx || document.activeElement !== ta || ta.value !== valor || ta.selectionStart !== cursor) return;
+    var inicio = antes.to - consulta.length;
+    return indiceLinks().then(function (idx) {
+      if (!idx) return null;
       var hash = consulta.indexOf('#');
       var itens = hash >= 0
         ? sugereTitulos(idx, consulta.slice(0, hash), consulta.slice(hash + 1), inicio + hash + 1)
         : sugereNotas(idx, consulta, embed, inicio);
-      if (!itens.length) return fechaSugestao();
-      mostraSugestao(ta, itens);
+      if (!itens.length) return null;
+      var depois = contexto.state.doc.sliceString(contexto.pos, contexto.pos + 2);
+      var fecha = depois === ']]' ? '' : ']]';
+      return {
+        from: itens[0].inicio,
+        filter: false,
+        options: itens.map(function (c, i) {
+          return {
+            label: c.rotulo,
+            detail: c.sub ? (c.apelido ? '\u2192 ' + c.sub : c.sub) : undefined,
+            boost: -i,
+            apply: function (view, completion, de, ate) {
+              var txt = c.texto + fecha;
+              var fim = de + txt.length + (fecha ? 0 : 2);
+              view.dispatch({ changes: { from: de, to: ate, insert: txt }, selection: { anchor: fim }, userEvent: 'input.complete' });
+            }
+          };
+        })
+      };
     });
   }
 
@@ -9712,154 +9709,6 @@
       .slice(0, SUGESTOES_MAX);
   }
 
-  function mostraSugestao(ta, itens) {
-    if (!sugestao || sugestao.ta !== ta) {
-      fechaSugestao();
-      var el = document.createElement('div');
-      el.className = 'menu sugestao';
-      el.setAttribute('role', 'listbox');
-      // mousedown, nao click: o clique tiraria o foco do editor antes.
-      el.addEventListener('mousedown', function (e) {
-        var item = e.target.closest('.sugestao-item');
-        if (!item) return;
-        e.preventDefault();
-        aceitaSugestao(parseInt(item.getAttribute('data-i'), 10));
-      });
-      document.body.appendChild(el);
-      sugestao = { ta: ta, el: el };
-    }
-    sugestao.itens = itens;
-    sugestao.ativo = 0;
-    desenhaSugestao();
-    posicionaSugestao();
-  }
-
-  function desenhaSugestao() {
-    var el = sugestao.el;
-    el.textContent = '';
-    sugestao.itens.forEach(function (c, i) {
-      var row = document.createElement('div');
-      row.className = 'palette-item sugestao-item' + (i === sugestao.ativo ? ' is-active' : '');
-      row.setAttribute('role', 'option');
-      row.setAttribute('data-i', String(i));
-      var nome = document.createElement('span');
-      nome.className = 'sugestao-nome';
-      nome.appendChild(marcaFuzzy(c.rotulo, c.consulta));
-      row.appendChild(nome);
-      if (c.sub) {
-        var sub = document.createElement('span');
-        sub.className = 'pal-sub';
-        sub.textContent = c.apelido ? '→ ' + c.sub : c.sub;
-        row.appendChild(sub);
-      }
-      el.appendChild(row);
-    });
-    var ativo = el.children[sugestao.ativo];
-    if (ativo) ativo.scrollIntoView({ block: 'nearest' });
-  }
-
-  /* Onde o cursor esta na tela: um espelho invisivel da caixa de texto. */
-  function posicaoDoCursor(ta) {
-    var estilo = getComputedStyle(ta);
-    var espelho = document.createElement('div');
-    ['boxSizing', 'width', 'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft',
-     'borderTopWidth', 'borderRightWidth', 'borderBottomWidth', 'borderLeftWidth',
-     'fontFamily', 'fontSize', 'fontWeight', 'fontStyle', 'lineHeight', 'letterSpacing',
-     'whiteSpace', 'overflowWrap', 'wordBreak', 'tabSize', 'textIndent'].forEach(function (p) {
-      espelho.style[p] = estilo[p];
-    });
-    espelho.style.position = 'absolute';
-    espelho.style.visibility = 'hidden';
-    espelho.style.top = '0';
-    espelho.style.left = '-9999px';
-    espelho.style.overflow = 'hidden';
-    espelho.style.borderStyle = 'solid';
-    espelho.textContent = ta.value.slice(0, ta.selectionStart);
-    var marca = document.createElement('span');
-    marca.textContent = '​';
-    espelho.appendChild(marca);
-    document.body.appendChild(espelho);
-    var caixa = ta.getBoundingClientRect();
-    var linha = parseFloat(estilo.lineHeight) || parseFloat(estilo.fontSize) * 1.5;
-    var pos = {
-      x: caixa.left + marca.offsetLeft - ta.scrollLeft,
-      y: caixa.top + marca.offsetTop - ta.scrollTop,
-      linha: linha
-    };
-    document.body.removeChild(espelho);
-    return pos;
-  }
-
-  function posicionaSugestao() {
-    var el = sugestao.el;
-    var p = posicaoDoCursor(sugestao.ta);
-    el.style.left = '0px';
-    el.style.top = '0px';
-    var w = el.offsetWidth, h = el.offsetHeight;
-    var x = Math.max(8, Math.min(p.x, window.innerWidth - w - 8));
-    // Abaixo da linha; sem espaco embaixo, acima dela.
-    var y = p.y + p.linha + 4;
-    if (y + h > window.innerHeight - 8) y = Math.max(8, p.y - h - 4);
-    el.style.left = x + 'px';
-    el.style.top = y + 'px';
-  }
-
-  function fechaSugestao() {
-    if (!sugestao) return;
-    if (sugestao.el.parentNode) sugestao.el.parentNode.removeChild(sugestao.el);
-    sugestao = null;
-  }
-
-  function aceitaSugestao(i) {
-    if (!sugestao) return;
-    var c = sugestao.itens[i];
-    var ta = sugestao.ta;
-    fechaSugestao();
-    if (!c) return;
-
-    var depois = ta.value.slice(ta.selectionStart);
-    var fecha = /^\]\]/.test(depois) ? '' : ']]';
-    ta.focus();
-    ta.setSelectionRange(c.inicio, ta.selectionStart);
-    // insertText e nao value: o Ctrl+Z desfaz a sugestao como desfaria a digitacao.
-    document.execCommand('insertText', false, c.texto + fecha);
-    if (!fecha) ta.setSelectionRange(ta.selectionStart + 2, ta.selectionStart + 2);
-  }
-
-  document.addEventListener('input', function (e) {
-    if (campoDeEdicao(e.target)) sugestaoAvalia(e.target);
-  }, true);
-
-  document.addEventListener('keydown', function (e) {
-    if (!sugestao || e.target !== sugestao.ta) return;
-    var n = sugestao.itens.length;
-    var tecla = e.key;
-    if (tecla === 'ArrowDown' || tecla === 'ArrowUp') {
-      sugestao.ativo = (sugestao.ativo + (tecla === 'ArrowDown' ? 1 : -1) + n) % n;
-      desenhaSugestao();
-    } else if (tecla === 'Enter' || tecla === 'Tab') {
-      if (e.ctrlKey || e.shiftKey || e.altKey) { fechaSugestao(); return; }
-      aceitaSugestao(sugestao.ativo);
-    } else if (tecla === 'Escape') {
-      fechaSugestao();
-    } else {
-      // Setas para os lados, Home e cia. mudam o cursor: a lista se refaz
-      // (ou some) depois que a tecla agir.
-      if (/^(ArrowLeft|ArrowRight|Home|End|PageUp|PageDown)$/.test(tecla)) {
-        var ta = sugestao.ta;
-        setTimeout(function () { if (document.activeElement === ta) sugestaoAvalia(ta); }, 0);
-      }
-      return;
-    }
-    // Esta tecla era da lista: nem o editor nem os atalhos globais a veem
-    // (o Esc, por exemplo, cancelaria o bloco da edicao ao vivo).
-    e.preventDefault();
-    e.stopImmediatePropagation();
-  }, true);
-
-  document.addEventListener('focusout', function (e) {
-    if (sugestao && e.target === sugestao.ta) fechaSugestao();
-  }, true);
 
   // Soltar o Ctrl conclui o Ctrl+Tab; a janela perder o foco tambem (o
   // keyup do Ctrl nunca chegaria).
@@ -9867,30 +9716,11 @@
     if (app.trocaUso && (e.key === 'Control' || e.key === 'Meta')) concluiTrocaUso();
   }, true);
   window.addEventListener('blur', function () { if (app.trocaUso) concluiTrocaUso(); });
-  // O editor rola sozinho quando se digita perto da borda: a lista segue o
-  // cursor em vez de sumir.
-  document.addEventListener('scroll', function (e) {
-    if (sugestao && (e.target === sugestao.ta || (e.target.contains && e.target.contains(sugestao.ta)))) posicionaSugestao();
-  }, true);
-
-  document.addEventListener('paste', function (e) {
-    var ta = e.target;
-    if (!ta || ta.tagName !== 'TEXTAREA') return;
-    if (ta.id !== 'editorInput' && !ta.classList.contains('block-source')) return;
-    if (ta.selectionStart === ta.selectionEnd) return;
-
-    var bruto = (e.clipboardData && e.clipboardData.getData('text/plain')) || '';
-    var texto = textoColado(ta, bruto);
-    if (texto === bruto) return;
-
-    e.preventDefault();
-    document.execCommand('insertText', false, texto);
-  }, true);
 
   document.addEventListener('keydown', function (e) {
     var ctrl = e.ctrlKey || e.metaKey;
     var tab = activeTab();
-    var inEditor = e.target === $('editorInput');
+    var inEditor = !!(ed && e.target && ed.view.contentDOM.contains(e.target));
 
     // ---- Ctrl+Tab: abas pela ordem de uso (antes de tudo: no editor o Tab
     // sozinho recua a linha, e o Ctrl+Tab caia ali).
@@ -10059,34 +9889,11 @@
 
     if (!inEditor) return;
 
-    // ---- teclas do editor (so quando destravado; se travado nao ha textarea)
-    if (e.key === 'Tab') {
-      e.preventDefault();
-      handleTab(e.shiftKey);
-      return;
-    }
-
-    if (e.key === 'Enter' && !e.shiftKey && !ctrl) {
-      if (handleEnter()) e.preventDefault();
-      return;
-    }
-
-    if (ctrl && !e.shiftKey && !e.altKey) {
-      var k = e.key.toLowerCase();
-      if (k === 'b') { e.preventDefault(); wrapSelection('**', '**'); return; }
-      if (k === 'i') { e.preventDefault(); wrapSelection('*', '*'); return; }
-      if (k === 'k') { e.preventDefault(); wrapSelection('[', '](url)'); return; }
-      if (k === '/') { e.preventDefault(); toggleComment(); return; }
-    }
-
+    // ---- teclas do editor: Tab, Enter, Ctrl+B/I/K e Ctrl+/ moram no proprio
+    // editor (editor.js); aqui ficam so as operacoes de linha do Notepad++.
     if (atalhoDeLinha(e)) return;
   }, true);
 
-  // O bloco aberto no modo ao vivo tambem entende os atalhos de linha.
-  document.addEventListener('keydown', function (e) {
-    var doLive = live && live.activeTextarea ? live.activeTextarea() : null;
-    if (doLive && e.target === doLive) atalhoDeLinha(e);
-  }, true);
 
   // -------------------------------------------------- ajudantes do editor
 
@@ -10095,73 +9902,6 @@
     var end = text.indexOf('\n', pos);
     if (end === -1) end = text.length;
     return { start: start, end: end };
-  }
-
-  function handleTab(shift) {
-    var ta = $('editorInput');
-    var text = ta.value;
-    var s = ta.selectionStart, e = ta.selectionEnd;
-
-    if (s === e && !shift) { replaceRange(s, e, '    '); return; }
-
-    var first = lineBounds(text, s).start;
-    var last = lineBounds(text, e).end;
-    var block = text.slice(first, last);
-
-    var next = shift
-      ? block.replace(/^( {1,4}|\t)/gm, '')
-      : block.replace(/^/gm, '    ');
-
-    replaceRange(first, last, next);
-    $('editorInput').setSelectionRange(first, first + next.length);
-  }
-
-  /** Enter que continua listas e citacoes, como no Obsidian. */
-  function handleEnter() {
-    var ta = $('editorInput');
-    if (ta.selectionStart !== ta.selectionEnd) return false;
-
-    var text = ta.value;
-    var pos = ta.selectionStart;
-    var bounds = lineBounds(text, pos);
-    var line = text.slice(bounds.start, pos);
-
-    var m = /^(\s*)([-*+]|\d{1,9}[.)])(\s+)(\[.\]\s+)?(.*)$/.exec(line);
-    if (m) {
-      var isEmpty = !m[5].trim();
-      if (isEmpty) { replaceRange(bounds.start, pos, m[1]); return true; }
-
-      var marker = m[2];
-      if (/^\d/.test(marker)) {
-        var num = parseInt(marker, 10) + 1;
-        marker = num + marker.replace(/^\d+/, '');
-      }
-      replaceRange(pos, pos, '\n' + m[1] + marker + m[3] + (m[4] ? '[ ] ' : ''));
-      return true;
-    }
-
-    var q = /^(\s*>+\s?)(.*)$/.exec(line);
-    if (q) {
-      if (!q[2].trim()) { replaceRange(bounds.start, pos, ''); return true; }
-      replaceRange(pos, pos, '\n' + q[1]);
-      return true;
-    }
-
-    var indent = /^\s*/.exec(line)[0];
-    if (indent) { replaceRange(pos, pos, '\n' + indent); return true; }
-
-    return false;
-  }
-
-  function wrapSelection(before, after) {
-    var ta = $('editorInput');
-    var s = ta.selectionStart, e = ta.selectionEnd;
-    var selected = ta.value.slice(s, e);
-
-    replaceRange(s, e, before + selected + after);
-    var ta2 = $('editorInput');
-    if (selected) ta2.setSelectionRange(s + before.length, s + before.length + selected.length);
-    else ta2.setSelectionRange(s + before.length, s + before.length);
   }
 
   /*
@@ -10195,10 +9935,11 @@
   }
 
   function toggleComment() {
-    var ta = $('editorInput');
-    var text = ta.value;
-    var first = lineBounds(text, ta.selectionStart).start;
-    var last = lineBounds(text, ta.selectionEnd).end;
+    if (!ed) return;
+    var text = ed.texto();
+    var sl = ed.selecao();
+    var first = lineBounds(text, sl.inicio).start;
+    var last = lineBounds(text, sl.fim).end;
     replaceRange(first, last, comentaBloco(text.slice(first, last)));
   }
 
@@ -10414,7 +10155,6 @@
 
   function wireUi() {
     window.MarkPadIcons.apply(document);
-    setupLiveEdit();
 
     $('btnToggleSidebar').onclick = function () { toggleSidebar(); };
     $('btnToggleSidebarDireita').onclick = function () { toggleSidebarDireita(); };
@@ -10493,25 +10233,8 @@
       if (alvo && (alvo.tagName === 'TEXTAREA' || alvo.tagName === 'INPUT' || alvo.isContentEditable)) return;
       if (desfazMoverSecao()) { e.preventDefault(); e.stopPropagation(); }
     }, true);
-    // Arquivo da arvore solto num editor: o navegador insere o [[link]] no
-    // ponto da queda; se nao inserir (ha alvo que nao aceita), vai no cursor.
-    document.addEventListener('drop', function (e) {
-      var campo = e.target;
-      if (!arrastoArquivo || !campo || campo.tagName !== 'TEXTAREA') return;
-      var texto = '';
-      try { texto = e.dataTransfer.getData('text/plain'); } catch (x) {}
-      var antes = campo.value;
-      setTimeout(function () {
-        if (campo.value !== antes || !texto) return;
-        campo.focus();
-        if (!document.execCommand('insertText', false, texto)) {
-          var p0 = campo.selectionStart;
-          campo.value = antes.slice(0, p0) + texto + antes.slice(campo.selectionEnd);
-          campo.dispatchEvent(new Event('input', { bubbles: true }));
-        }
-        if (campo === $('editorInput')) onEditorInput();
-      }, 0);
-    }, true);
+    // Arquivo da arvore solto no editor vira [[link]] no ponto da queda: quem
+    // insere e o proprio editor (CodeMirror), como qualquer texto arrastado.
 
     var arvore = $('fileTree');
     arvore.addEventListener('dragover', function (e) {
@@ -10592,39 +10315,13 @@
       spyTimer = setTimeout(marcaSecaoAtual, 80);
     });
 
-    // editor
-    var ta = $('editorInput');
-    ta.addEventListener('input', onEditorInput);
-    ta.addEventListener('scroll', syncScroll);
-    ta.addEventListener('keyup', function () { updateCurrentLine(); renderStatus(); });
-    ta.addEventListener('click', function () { updateCurrentLine(); renderStatus(); });
-    ta.addEventListener('contextmenu', function (e) {
-      e.preventDefault();
-      var sel = ta.value.slice(ta.selectionStart, ta.selectionEnd);
-      showMenu([
-        { label: t('Recortar'), icon: 'copy', disabled: !sel, action: function () { document.execCommand('cut'); } },
-        { label: t('Copiar'), icon: 'copy', disabled: !sel, action: function () { document.execCommand('copy'); } },
-        { label: t('Colar'), icon: 'copy', action: function () {
-            navigator.clipboard.readText().then(function (t) {
-              replaceRange(ta.selectionStart, ta.selectionEnd, textoColado(ta, t));
-            });
-          } },
-        '-',
-        { label: t('Selecionar tudo'), action: function () { ta.select(); } },
-        { label: t('Travar edicao'), icon: 'lock', action: toggleLock }
-      ], e.clientX, e.clientY);
-    });
+    // editor (CodeMirror 6)
+    criaEditor();
 
     // leitura
     $('readingView').addEventListener('contextmenu', function (e) {
       e.preventDefault();
       var tab = activeTab();
-
-      // Destravado: o clique direito serve para formatar, como no Obsidian.
-      if (tab && !tab.locked && !tab.showSource) {
-        var block = live && live.topBlock(e.target);
-        if (live && (block || live.isActive()) && formattingMenu(e.clientX, e.clientY, block)) return;
-      }
 
       var sel = String(window.getSelection());
       showMenu([
@@ -10715,104 +10412,162 @@
     wireResizers();
   }
 
-  // ============================ edição direta no texto renderizado
+  // =================================================== o editor (CodeMirror 6)
 
-  var live = null;
+  var ed = null;
+  var spyEditor = null;
+  var statusQuadro = 0;
 
-  function setupLiveEdit() {
-    live = window.MarkPadLiveEdit.create($('preview'), {
-      isEditable: function () {
-        var tab = activeTab();
-        return !!(tab && !tab.locked && !tab.showSource);
+  function criaEditor() {
+    if (!window.MarkPadEditor) {
+      console.error('MarkPad: o editor (codemirror.js) nao carregou');
+      return;
+    }
+    ed = window.MarkPadEditor.create($('editorPane'), {
+      t: t,
+      renderTrecho: renderTrecho,
+      wikiExiste: wikiExisteNoIndice,
+      abreLink: function (el, e) { trataLink(el, e, null, activeTab()); },
+      aoMudar: function () { onEditorInput(); },
+      aoMudarSelecao: function () {
+        if (statusQuadro) return;
+        statusQuadro = requestAnimationFrame(function () { statusQuadro = 0; renderStatus(); });
       },
-      getContent: function () {
-        var tab = activeTab();
-        return tab ? tab.content : '';
-      },
-      setContent: function (text) {
-        var tab = activeTab();
-        if (!tab) return;
-        tab.content = text;
-      },
-      onChange: function () {
-        var tab = activeTab();
-        renderTabs();
-        renderHeader();
-        renderStatus();
-        renderOutlineSoon();
-        scheduleBackup(tab);
-      },
-      onExit: function (changed) {
-        if (!changed) return;
-        // O documento mudou: redesenha o leitor preservando a rolagem.
-        var scroll = $('readingScroll').scrollTop;
-        renderViews();
-        $('readingScroll').scrollTop = scroll;
-        renderOutline();
-        if (settings.autoSave && activeTab() && activeTab().path) {
-          clearTimeout(onEditorInput.saveTimer);
-          onEditorInput.saveTimer = setTimeout(function () { saveTab(); }, 1200);
-        }
-      }
+      travado: function () { toast(t('Edicao travada. Ctrl+E para liberar.'), '', 1600); },
+      textoColado: textoColado,
+      alternaComentario: function () { toggleComment(); return true; },
+      sugestoes: fonteSugestoes
+    });
+    ed.aba = null;
+    ed.view.scrollDOM.addEventListener('scroll', function () {
+      clearTimeout(spyEditor);
+      spyEditor = setTimeout(marcaSecaoAtual, 80);
+    });
+    ed.view.dom.addEventListener('contextmenu', function (e) {
+      e.preventDefault();
+      menuDoEditor(e.clientX, e.clientY);
     });
   }
 
-  var outlineTimer = null;
-  function renderOutlineSoon() {
-    clearTimeout(outlineTimer);
-    outlineTimer = setTimeout(renderOutline, 400);
+  /** Desenha um trecho do documento como o leitor desenharia (blocos do ao vivo). */
+  function renderTrecho(el, src, tipo) {
+    var tab = (ed && ed.aba) || activeTab();
+    if (tipo === 'propriedades' && settings.showProperties === false) {
+      el.classList.add('cm-trecho-cru');
+      el.textContent = src;
+      return;
+    }
+    var r = window.MarkPadMarkdown.render(src, { loadRemoteImages: settings.loadRemoteImages });
+    el.innerHTML = r.html;
+    window.MarkPadMarkdown.sanitizeDom(el);
+    if (tipo === 'imagem' || tipo === 'embed-inline') {
+      // A imagem no meio da linha nao leva o <p> de fora.
+      var p = el.firstElementChild;
+      if (p && p.tagName === 'P' && el.children.length === 1) {
+        while (p.firstChild) el.insertBefore(p.firstChild, p);
+        el.removeChild(p);
+      }
+    }
+    montaIconesCallout(el);
+    if (tipo === 'propriedades') renderProperties(el, r.frontmatter);
+    var caixas = el.querySelectorAll('input[type="checkbox"]');
+    for (var i = 0; i < caixas.length; i++) caixas[i].disabled = true;
+    if (!tab) return;
+    resolveLocalImages(el, tab);
+    resolveMidia(el, tab);
+    resolveNoteEmbeds(el, tab, [String(tab.path || '').toLowerCase()]);
+    wirePreviewClicks(el, tab);
+    marcaLinksQuebrados(el, tab);
   }
 
-  /** Menu de formatação, igual em espírito ao do clique direito do Obsidian. */
-  function formattingMenu(x, y, block) {
-    var tab = activeTab();
-    if (!tab || tab.locked) return false;
-
-    // Clicou fora de um bloco em edição: entra nele antes de formatar.
-    if (block && (!live.isActive() || live.activeTextarea() !== document.activeElement)) {
-      live.enter(block);
+  /*
+   * O editor pergunta, a cada desenho, se o [[alvo]] existe. Sem indice pronto
+   * a resposta e "nao sei" (null, desenha como existente) e o indice e pedido;
+   * quando chega, o editor redesenha.
+   */
+  function wikiExisteNoIndice(alvoBruto) {
+    if (!app.folder || !window.MarkPadLinkIndex) return null;
+    var velho = !app.idxPronto || app.idxProntoDe !== app.folder || (Date.now() - (app.idxProntoEm || 0)) > 30000;
+    if (velho && !app.idxPedindo) {
+      app.idxPedindo = true;
+      Promise.resolve(indiceLinks()).then(function (idx) {
+        app.idxPedindo = false;
+        if (!idx) return;
+        var mudou = app.idxPronto !== idx;
+        app.idxPronto = idx;
+        app.idxProntoDe = app.folder;
+        app.idxProntoEm = Date.now();
+        if (mudou && ed) ed.atualiza();
+      }, function () { app.idxPedindo = false; });
     }
-    if (!live.isActive()) return false;
+    var idx = app.idxPronto;
+    if (!idx || app.idxProntoDe !== app.folder) return null;
+    var alvo = String(alvoBruto || '').split('#')[0].trim();
+    if (!alvo) return true;
+    var tab = ed && ed.aba;
+    var origem = relNaPasta((tab && tab.path) || joinPath(app.folder, 'sem titulo.md'));
+    return !!window.MarkPadLinkIndex.resolve(idx, { tipo: 'wiki', alvo: alvo }, origem);
+  }
+
+  /** Clique direito no editor: area de transferencia e a formatacao do Obsidian. */
+  function menuDoEditor(x, y) {
+    var tab = activeTab();
+    if (!ed || !tab || tab.locked) return;
+    var sel = ed.textoSelecionado();
 
     function fmt(label, icon, fn) {
       return { label: label, icon: icon, action: fn };
     }
 
     showMenu([
+      { label: t('Recortar'), icon: 'copy', disabled: !sel, action: function () {
+          navigator.clipboard.writeText(sel).then(function () { ed.trocaSelecao(''); ed.foco(); });
+        } },
+      { label: t('Copiar'), icon: 'copy', disabled: !sel, action: function () { navigator.clipboard.writeText(sel); } },
+      { label: t('Colar'), icon: 'copy', action: function () {
+          navigator.clipboard.readText().then(function (txt) {
+            ed.trocaSelecao(textoColado(ed.textoSelecionado(), txt));
+            ed.foco();
+          });
+        } },
+      { label: t('Selecionar tudo'), action: function () { ed.seleciona(0, ed.texto().length, { rolar: false }); ed.foco(); } },
+      '-',
       { label: t('Formatar'), header: true },
-      fmt('Negrito', 'bold', function () { live.wrap('**', '**'); }),
-      fmt(t('Itálico'), 'italic', function () { live.wrap('*', '*'); }),
-      fmt('Riscado', 'strike', function () { live.wrap('~~', '~~'); }),
-      fmt('Destaque', 'highlight', function () { live.wrap('==', '=='); }),
-      fmt(t('Código'), 'code', function () { live.wrap('`', '`'); }),
+      fmt('Negrito', 'bold', function () { ed.envolve('**', '**'); }),
+      fmt(t('Itálico'), 'italic', function () { ed.envolve('*', '*'); }),
+      fmt('Riscado', 'strike', function () { ed.envolve('~~', '~~'); }),
+      fmt('Destaque', 'highlight', function () { ed.envolve('==', '=='); }),
+      fmt(t('Código'), 'code', function () { ed.envolve('`', '`'); }),
       '-',
       { label: t('Parágrafo'), header: true },
-      fmt('Título 1', 'heading', function () { live.setLinePrefix('# '); }),
-      fmt(t('Título 2'), 'heading', function () { live.setLinePrefix('## '); }),
-      fmt(t('Título 3'), 'heading', function () { live.setLinePrefix('### '); }),
-      fmt('Texto normal', 'text', function () { live.setLinePrefix(''); }),
-      fmt('Citação', 'quote', function () { live.setLinePrefix('> '); }),
-      fmt('Lista', 'list', function () { live.setLinePrefix('- '); }),
-      fmt('Lista numerada', 'list', function () { live.setLinePrefix('', { ordered: true }); }),
-      fmt('Tarefa', 'todo', function () { live.setLinePrefix('- [ ] '); }),
+      fmt('Título 1', 'heading', function () { ed.prefixoLinha('# '); }),
+      fmt(t('Título 2'), 'heading', function () { ed.prefixoLinha('## '); }),
+      fmt(t('Título 3'), 'heading', function () { ed.prefixoLinha('### '); }),
+      fmt('Texto normal', 'text', function () { ed.prefixoLinha(''); }),
+      fmt('Citação', 'quote', function () { ed.prefixoLinha('> '); }),
+      fmt('Lista', 'list', function () { ed.prefixoLinha('- '); }),
+      fmt('Lista numerada', 'list', function () { ed.prefixoLinha('', { ordenada: true }); }),
+      fmt('Tarefa', 'todo', function () { ed.prefixoLinha('- [ ] '); }),
       '-',
       { label: t('Inserir'), header: true },
-      fmt('Link', 'link', function () { live.insert('[%s](%c)'); }),
-      fmt('Tabela', 'table', function () {
-        live.insert('\n| %c | Coluna |\n|:--|:--|\n| | |\n');
-      }),
-      fmt('Bloco de código', 'code', function () { live.insert('\n```%c\n\n```\n'); }),
-      // O leitor ja renderiza $$...$$, [[...]] e #tag; faltava caminho de mouse
-      // para as tres — quem nao decorou a sintaxe nao chegava nelas.
-      fmt(t('Bloco matemático'), 'sigma', function () { live.insert('\n$$\n%c\n$$\n'); }),
-      fmt('Link interno', 'link', function () { live.insert('[[%c]]'); }),
-      fmt('Tag', 'hash', function () { live.insert('#%c'); }),
-      fmt(t('Destaque (callout)'), 'info', function () { live.insert('\n> [!note] %c\n> \n'); }),
-      fmt('Régua horizontal', 'minus', function () { live.insert('\n---\n%c'); }),
-      fmt('Nota de rodapé', 'note', function () { live.insert('[^%c]'); })
+      fmt('Link', 'link', function () { ed.insere('[%s](%c)'); }),
+      fmt('Tabela', 'table', function () { ed.insere('\n| %c | Coluna |\n|:--|:--|\n| | |\n'); }),
+      fmt('Bloco de código', 'code', function () { ed.insere('\n```%c\n\n```\n'); }),
+      fmt(t('Bloco matemático'), 'sigma', function () { ed.insere('\n$$\n%c\n$$\n'); }),
+      fmt('Link interno', 'link', function () { ed.insere('[[%c]]'); }),
+      fmt('Tag', 'hash', function () { ed.insere('#%c'); }),
+      fmt(t('Destaque (callout)'), 'info', function () { ed.insere('\n> [!note] %c\n> \n'); }),
+      fmt('Régua horizontal', 'minus', function () { ed.insere('\n---\n%c'); }),
+      fmt('Nota de rodapé', 'note', function () { ed.insere('[^%c]'); }),
+      '-',
+      { label: t('Travar edicao'), icon: 'lock', key: 'Ctrl+E', action: toggleLock }
     ], x, y);
+  }
 
-    return true;
+  var outlineTimer = null;
+  function renderOutlineSoon() {
+    clearTimeout(outlineTimer);
+    outlineTimer = setTimeout(renderOutline, 400);
   }
 
   function wireResizers() {
@@ -10951,7 +10706,7 @@
     document.documentElement.style.setProperty('--sidebar-width', settings.sidebarWidth + 'px');
     document.body.classList.toggle('sidebar-hidden', !settings.sidebarVisible);
     document.body.classList.toggle('wrap-on', settings.wordWrap);
-    $('editorPane').style.flex = '0 0 ' + (settings.splitRatio * 100) + '%';
+    $('editorPane').style.flex = $('previewPane').hidden ? '' : '0 0 ' + (settings.splitRatio * 100) + '%';
     distribuiPaineis();
     document.body.classList.toggle('sidebar-direita-hidden', settings.sidebarDireitaVisivel === false);
     document.documentElement.style.setProperty('--sidebar-direita-width', (settings.sidebarDireitaWidth || 260) + 'px');
@@ -11009,7 +10764,6 @@
       // Opcao do Notepad++ (desligada por padrao): sair sem perguntar, com o
       // texto guardado como rascunho, que volta sozinho na proxima abertura.
       if (settings.fecharGuardando) {
-        if (live) live.commit();
         Promise.all(dirty.map(function (aba) {
           clearTimeout(backupTimers[aba.id]);
           return bridge.call('writeBackup', {
@@ -11103,9 +10857,10 @@
     // Sem navegacao por arrastar dentro da pagina: quem trata drop e o host.
     window.addEventListener('dragover', function (e) { e.preventDefault(); });
     window.addEventListener('drop', function (e) {
-      // Texto solto num campo de texto (o [[link]] arrastado da arvore) e o
-      // proprio editor que insere; arquivo de fora continua com o host.
-      var campo = e.target && (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT');
+      // Texto solto num campo de texto ou no editor (o [[link]] arrastado da
+      // arvore) e o proprio campo que insere; arquivo de fora continua com o host.
+      var campo = e.target && (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT' ||
+        (e.target.closest && e.target.closest('.cm-content')));
       if (campo && !(e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length)) return;
       e.preventDefault();
     });
