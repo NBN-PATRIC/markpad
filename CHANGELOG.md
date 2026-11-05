@@ -6,6 +6,12 @@ Versionamento [SemVer](https://semver.org/lang/pt-BR/).
 ## [Não lançado]
 
 ### Adicionado
+- **Tela dividida com o editor nas duas metades**: com a nota destravada, a
+  metade sem foco mostra o mesmo editor (ao vivo ou fonte) em vez da leitura,
+  então passar de uma metade para a outra não muda o desenho da página. Um
+  clique no texto da outra metade já põe o cursor naquele ponto e a digitação
+  continua ali; a mesma nota aberta nas duas metades acompanha enquanto se
+  escreve.
 - **Nota de hoje** (o "Daily notes" do Obsidian), pela paleta: abre ou cria a
   nota do dia numa pasta da pasta aberta, com o nome no formato escolhido
   (`YYYY-MM-DD` de fábrica) e, se houver, a partir de um modelo. Configura em

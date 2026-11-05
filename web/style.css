@@ -2967,3 +2967,9 @@ body.wide-lines .cm-modo-vivo .cm-content { max-width: none; padding-right: 40px
   user-select: text;
 }
 .set-texto:focus { outline: none; border-color: var(--color-accent); }
+
+/* a metade sem foco com nota destravada: o mesmo editor, so para exibir */
+.copia-editor { flex: 1; min-height: 0; display: flex; }
+.copia-editor[hidden] { display: none; }
+.copia-editor .cm-editor { flex: 1; height: 100%; background: var(--background-primary); }
+.copia-editor .cm-cursor { display: none; }

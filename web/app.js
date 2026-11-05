@@ -6972,15 +6972,59 @@
       if (tab) tab.readingScrollTop = rol.scrollTop;
     }, { passive: true });
     // Clicar na metade sem foco passa o foco para ela (depois do clique: um
-    // link clicado aqui navega esta metade, como no Obsidian).
+    // link clicado aqui navega esta metade, como no Obsidian). Com o editor de
+    // exibicao, o cursor cai no ponto clicado: a mesma nota, no mesmo lugar.
+    copia.addEventListener('mousedown', function (e) {
+      copia.__ponto = copia.__ed && copia.querySelector('.copia-editor').contains(e.target) ? { x: e.clientX, y: e.clientY } : null;
+    }, true);
     copia.addEventListener('click', function () {
+      var ponto = copia.__ponto;
+      copia.__ponto = null;
       setTimeout(function () {
         var g = grupoPorId(gid);
         var tab = g && tabById(g.ativa);
-        if (tab && dividido() && app.grupoAtivo !== gid) selectTab(tab.id);
+        if (!tab || !dividido() || app.grupoAtivo === gid) return;
+        selectTab(tab.id);
+        var viva = activeTab();
+        if (ponto && ed && viva && !viva.locked && ed.aba === viva) {
+          requestAnimationFrame(function () { if (ed.cursorNoPonto(ponto.x, ponto.y)) ed.foco(); });
+        }
       }, 0);
     });
     return copia;
+  }
+
+  /*
+   * A metade sem foco, com nota destravada, mostra o mesmo editor (ao vivo ou
+   * fonte) em modo de exibicao: sem digitar, mas com o mesmo desenho, para que
+   * passar o foco nao mude a pagina. Um editor por copia, criado na primeira vez.
+   */
+  function editorDaCopia(copia) {
+    if (copia.__ed || !window.MarkPadEditor) return copia.__ed || null;
+    var caixa = document.createElement('div');
+    caixa.className = 'copia-editor';
+    copia.appendChild(caixa);
+    var doc = function () { var tb = tabById(copia.__tabId); return tb && tb.espelhoDe ? tabById(tb.espelhoDe) : tb; };
+    var e2 = window.MarkPadEditor.create(caixa, {
+      t: t,
+      renderTrecho: function (el, src, tipo) { renderTrecho(el, src, tipo, doc()); },
+      wikiExiste: wikiExisteNoIndice,
+      abreLink: function (el, e) {
+        // O primeiro clique passa o foco; o link e seguido nesta metade.
+        var tb = tabById(copia.__tabId);
+        if (!tb || tb.espelhoDe) return;
+        selectTab(tb.id);
+        trataLink(el, e, null, tb);
+      },
+      travado: function () {}
+    });
+    e2.opcoes({ editavel: false });
+    e2.view.scrollDOM.addEventListener('scroll', function () {
+      var tb = tabById(copia.__tabId);
+      if (tb && !tb.espelhoDe) tb.scrollTop = e2.rolagem();
+    }, { passive: true });
+    copia.__ed = e2;
+    return e2;
   }
 
   function renderCopia(gid) {
@@ -7000,7 +7044,31 @@
     var mesma = copia.__tabId === (tab && tab.id);
     var rolagem = mesma ? rol.scrollTop : (tab ? (tab.readingScrollTop || 0) : 0);
     copia.__tabId = tab ? tab.id : null;
-    if (!doc) { alvo.className = 'copia-conteudo'; alvo.textContent = ''; return; }
+    var caixaEd = copia.querySelector('.copia-editor');
+    if (!doc) {
+      alvo.className = 'copia-conteudo'; alvo.textContent = '';
+      rol.hidden = false;
+      if (caixaEd) caixaEd.hidden = true;
+      return;
+    }
+    var e2 = !doc.locked ? editorDaCopia(copia) : null;
+    rol.hidden = !!e2;
+    caixaEd = copia.querySelector('.copia-editor');
+    if (caixaEd) caixaEd.hidden = !e2;
+    if (e2) {
+      if (e2.docDe !== doc) {
+        e2.carrega(doc.content, null, { anchor: 0 });
+        e2.docDe = doc;
+        e2.opcoes({ editavel: false, quebra: !!settings.wordWrap, numeros: settings.lineNumbers !== false });
+        var px = (tab.espelhoDe ? null : tab.scrollTop) || 0;
+        requestAnimationFrame(function () { e2.rolagem(px); });
+      } else if (e2.texto() !== doc.content) {
+        e2.defineTexto(doc.content);
+      }
+      e2.modo(doc.showSource ? 'fonte' : 'vivo');
+      e2.defineStatusLinhas(lineStatus(doc));
+      return;
+    }
     if (doc.showSource && !doc.locked && !tab.espelhoDe) {
       alvo.className = 'copia-conteudo copia-fonte';
       alvo.textContent = doc.content;
@@ -10794,8 +10862,8 @@
   }
 
   /** Desenha um trecho do documento como o leitor desenharia (blocos do ao vivo). */
-  function renderTrecho(el, src, tipo) {
-    var tab = (ed && ed.aba) || activeTab();
+  function renderTrecho(el, src, tipo, abaDona) {
+    var tab = abaDona || (ed && ed.aba) || activeTab();
     if (tipo === 'propriedades' && settings.showProperties === false) {
       el.classList.add('cm-trecho-cru');
       el.textContent = src;
